@@ -84,3 +84,14 @@ def find_highlights(path: Path, duration_s: float, count: int, clip_seconds: int
         for i in picked
     ]
     return sorted(highlights, key=lambda h: h.start_s)
+
+
+def energy_curve(path: Path, duration_s: float, buckets: int = 600) -> list[float]:
+    """Loudness over time scaled to 0-1 (peak per bucket), for drawing a timeline."""
+    db = _loudness_db(path, duration_s)
+    if db.size == 0:
+        return []
+    edges = np.linspace(0, db.size, min(buckets, db.size) + 1).astype(int)
+    peaks = np.array([db[a:b].max() for a, b in zip(edges[:-1], edges[1:]) if b > a])
+    lo, hi = np.percentile(peaks, 5), peaks.max()
+    return [round(float(v), 3) for v in np.clip((peaks - lo) / ((hi - lo) or 1.0), 0, 1)]

@@ -115,6 +115,8 @@ CREATE TABLE import_jobs (
     thumbnail_path VARCHAR(1024),       -- public "storage/..." path
     clip_count INTEGER DEFAULT 5,       -- requested
     clip_seconds INTEGER DEFAULT 30,
+    layout VARCHAR(10) DEFAULT 'fill', -- 'fill' | 'blur' for auto-cut clips
+    clip_layouts JSON,                  -- {clip_id: layout} for every clip cut from this source
     clip_ids JSON DEFAULT '[]',         -- clips rows written (status='processing', ready for C2)
     status VARCHAR(50) NOT NULL,        -- 'queued' | 'downloading' | 'analyzing' | 'cutting' | 'done' | 'failed'
     progress INTEGER DEFAULT 0,         -- 0-100
@@ -160,12 +162,19 @@ CREATE TABLE posts (
 | `/api/hub/clips` | `GET` | **C4** | Grid of ready clips for hub | Query: `?page=1` | `PaginatedClips` |
 | `/api/hub/clips/{id}/post` | `POST` | **C4** | Auto-post clip to platforms | `{"platforms": ["tiktok", "youtube"]}` | `PostStatus` |
 | `/api/hub/clips/{id}/download` | `GET` | **C4** | Direct MP4 stream/download | — | Binary MP4 file |
-| `/api/imports/link` | `POST` | **C1** | Paste a Twitch / Kick / YouTube link → several clips (async) | `{"url", "clip_count": 1-10, "clip_seconds": 10-90}` | `ImportRead` (202) |
-| `/api/imports/upload` | `POST` | **C1** | Upload a video (camera roll) → several clips (async) | `multipart/form-data (file, clip_count, clip_seconds)` | `ImportRead` (202) |
+| `/api/imports/link` | `POST` | **C1** | Paste a Twitch / Kick / YouTube link → several clips (async) | `{"url", "clip_count": 1-10, "clip_seconds": 10-90, "layout": "fill"\|"blur"}` | `ImportRead` (202) |
+| `/api/imports/upload` | `POST` | **C1** | Upload a video (camera roll) → several clips (async) | `multipart/form-data (file, clip_count, clip_seconds, layout)` | `ImportRead` (202) |
 | `/api/imports` | `GET` | **C1** | Your import projects, newest first (poll while active) | — | `list[ImportRead]` |
 | `/api/imports/{id}` | `GET` | **C1** | One import's status / progress / clip_ids | — | `ImportRead` |
 | `/api/downloads/instagram` | `POST` | **C1** | Fetch a public Instagram post/reel as MP4 | `{"url"}` | `DownloadRead` |
 | `/api/downloads/{id}/file` | `GET` | **C1** | The fetched file, as an attachment | — | Binary MP4 file |
+| `/api/studio/imports/{id}` | `GET` | **C1** | Open a project in the Clipping Studio: source video, energy curve, suggested moments, its clips | — | `StudioProject` |
+| `/api/studio/imports/{id}/clips` | `POST` | **C1** | Cut a hand-picked range as a clip | `{"start_s", "end_s", "layout"}` | `StudioClip` (201) |
+| `/api/studio/clips/{id}/layout` | `POST` | **C1** | Re-cut a clip in the other layout (drops burned captions) | `{"layout": "fill"\|"blur"}` | `StudioClip` |
+| `/api/studio/clips/{id}/remove-captions` | `POST` | **C1** | Serve the clean cut again (caption_mode=platform_native, status=ready) | — | `StudioClip` |
+| `/api/studio/clips/{id}/project` | `GET` | **C1** | Which project a clip came from (Hub → Studio link) | — | `{"job_id"}` |
+
+**Layouts** (`backend/app/services/clip/cutter.py`): `fill` crops/zooms to cover 9:16; `blur` keeps the whole frame centred over a blurred copy of itself. Burning captions on a studio clip still goes through C2's `POST /api/clips/{id}/caption`.
 
 ---
 

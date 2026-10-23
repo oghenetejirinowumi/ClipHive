@@ -24,7 +24,9 @@ def import_link(body: ImportLinkRequest, user: Owner, db: DbSession) -> ImportJo
     if source is None:
         hint = " Use the Instagram downloader for Instagram posts." if is_instagram(url) else ""
         raise HTTPException(422, f"Paste a Twitch, Kick or YouTube video link.{hint}")
-    job = ImportJob(user_id=user.id, source=source, url=url, clip_count=body.clip_count, clip_seconds=body.clip_seconds)
+    job = ImportJob(
+        user_id=user.id, source=source, url=url, clip_count=body.clip_count, clip_seconds=body.clip_seconds, layout=body.layout
+    )
     db.add(job)
     db.commit()
     db.refresh(job)
@@ -39,6 +41,7 @@ def import_upload(
     file: UploadFile = File(...),
     clip_count: int = Form(5, ge=1, le=10),
     clip_seconds: int = Form(30, ge=10, le=90),
+    layout: str = Form("fill", pattern="^(fill|blur)$"),
 ) -> ImportJob:
     name = file.filename or "video.mp4"
     ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ""
@@ -47,7 +50,7 @@ def import_upload(
 
     job = ImportJob(
         user_id=user.id, source=ImportSource.UPLOAD, original_filename=name[:255],
-        title=name.rsplit(".", 1)[0][:200], clip_count=clip_count, clip_seconds=clip_seconds,
+        title=name.rsplit(".", 1)[0][:200], clip_count=clip_count, clip_seconds=clip_seconds, layout=layout,
     )
     db.add(job)
     db.commit()

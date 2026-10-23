@@ -12,9 +12,11 @@ from app.api.clips import router as clips_router
 from app.api.downloads import router as downloads_router
 from app.api.imports import router as imports_router
 from app.api.streamers import router as streamers_router
+from app.api.studio import router as studio_router
 from app.api.styles import router as styles_router
 from app.api.trends import router as trends_router
 from app.config import settings
+from app.core.demo import ensure_demo_account
 from app.core.media import ffmpeg_bin
 from app.db import SessionLocal, init_db
 from app.models.clip import Clip
@@ -51,15 +53,9 @@ async def lifespan(app: FastAPI):
         styles = seed_preset_styles(db)
         logger.info(f"Seeded {len(styles)} caption styles.")
 
-        # Seed demo user if none exists
-        demo_user = db.query(User).first()
-        if not demo_user:
-            demo_user = User(
-                email="demo@cliphive.local", password_hash="not_needed_for_demo"
-            )
-            db.add(demo_user)
-            db.commit()
-            db.refresh(demo_user)
+        # Demo account for the login page's one-click button (real password, valid email)
+        ensure_demo_account(db)
+        demo_user = db.query(User).order_by(User.id).first()
 
         # Seed sample clip row if none exists
         sample_video = Path("tests/fixtures/sample_raw.mp4")
@@ -134,6 +130,7 @@ app.include_router(clips_router, prefix="/api")
 app.include_router(trends_router, prefix="/api")
 app.include_router(imports_router, prefix="/api")
 app.include_router(downloads_router, prefix="/api")
+app.include_router(studio_router, prefix="/api")
 
 
 @app.api_route("/", methods=["GET", "HEAD"])

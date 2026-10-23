@@ -16,7 +16,9 @@ from pathlib import Path
 
 from app.config import settings
 from app.core.media import MediaError, probe, public_path, storage_root, thumbnail
-from app.db import SessionLocal
+from sqlalchemy import inspect, text
+
+from app.db import SessionLocal, engine
 from app.models import Clip, ClipStatus, ImportJob, ImportSource, ImportStatus
 from app.services.ai.context_engine import apply_context_to_clip, extract_clip_context
 from app.services.clip.cutter import cut_vertical
@@ -36,8 +38,30 @@ def submit(job_id: int) -> None:
     _executor.submit(_run_safely, job_id)
 
 
+# Columns added after import_jobs first shipped. create_all() never alters an existing table,
+# so add any that are missing (SQLite and Postgres both accept this ALTER).
+_ADDED_COLUMNS = {
+    "layout": "VARCHAR(10) DEFAULT 'fill'",
+    "clip_layouts": "JSON",
+}
+
+
+def ensure_columns() -> None:
+    existing = {c["name"] for c in inspect(engine).get_columns("import_jobs")}
+    with engine.begin() as conn:
+        for name, ddl in _ADDED_COLUMNS.items():
+            if name not in existing:
+                conn.execute(text(f"ALTER TABLE import_jobs ADD COLUMN {name} {ddl}"))
+
+
+def source_file(job_id: int) -> Path | None:
+    """The full downloaded / uploaded video for a job, if it's still on disk."""
+    return next((p for p in sorted(job_dir(job_id).glob("source.*")) if p.suffix != ".part"), None)
+
+
 def recover_interrupted() -> None:
     """Jobs that were mid-flight when the server stopped can't resume; mark them failed."""
+    ensure_columns()
     with SessionLocal() as db:
         stuck = db.query(ImportJob).filter(ImportJob.status.notin_([ImportStatus.DONE, ImportStatus.FAILED])).all()
         for job in stuck:
@@ -72,13 +96,15 @@ def _run(job_id: int) -> None:
             return
         source, url, user_id = job.source, job.url, job.user_id
         count, seconds, title = job.clip_count, job.clip_seconds, job.title
+        layout = job.layout or "fill"
 
     work = job_dir(job_id)
     max_seconds = settings.max_import_minutes * 60
 
     # 1. Get the video file
+    info: dict = {}
     if source == ImportSource.UPLOAD:
-        src = next(iter(sorted(work.glob("source.*"))), None)
+        src = source_file(job_id)
         if not src:
             raise IngestError("The uploaded file is missing.")
     else:
@@ -122,8 +148,9 @@ def _run(job_id: int) -> None:
         "import_job_id": job_id,
     }
 
+    layouts: dict[str, str] = {}
     for n, moment in enumerate(moments, start=1):
-        out = cut_vertical(src, moment.start_s, moment.end_s, clips_dir / f"import_{job_id}_{n}.mp4")
+        out = cut_vertical(src, moment.start_s, moment.end_s, clips_dir / f"import_{job_id}_{n}.mp4", layout)
         clip_ctx = dict(source_context_base)
         clip_ctx["moment_index"] = n
         clip_ctx["highlight_score"] = moment.score
@@ -145,6 +172,7 @@ def _run(job_id: int) -> None:
             db.commit()
             db.refresh(clip)
             clip_ids.append(clip.id)
+            layouts[str(clip.id)] = layout
 
             # Analyze clip context to match caption style and hashtags
             try:
@@ -153,7 +181,7 @@ def _run(job_id: int) -> None:
             except Exception as err:
                 logger.warning("Context packaging skipped for clip %s: %s", clip.id, err)
 
-        _update(job_id, clip_ids=list(clip_ids), progress=60 + int(39 * n / len(moments)))
+        _update(job_id, clip_ids=list(clip_ids), clip_layouts=dict(layouts), progress=60 + int(39 * n / len(moments)))
 
     _update(job_id, status=ImportStatus.DONE, progress=100, finished_at=datetime.now(UTC))
     logger.info("Import %s produced %d clips", job_id, len(clip_ids))
