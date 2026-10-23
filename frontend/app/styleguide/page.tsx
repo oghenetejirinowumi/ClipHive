@@ -1,7 +1,23 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { AuroraBackground, CurveDivider, FeatureCloud, RuleWall, Tape } from "@/components/effects";
-import { Badge, Button, Field, Ledger, Logo, PageHeader, Panel } from "@/components/ui";
+import { AuroraBackground, CurveDivider, FeatureCloud, HalftoneHorizon, RuleWall, SkyBackground, Tape } from "@/components/effects";
+import {
+  Badge,
+  Button,
+  EditorialSection,
+  Em,
+  Field,
+  Ledger,
+  Logo,
+  PageHeader,
+  Panel,
+  QuoteBanner,
+  SectionLabel,
+  StatStrip,
+  ThemeSwitch,
+  Timeline,
+  ToneSteps,
+} from "@/components/ui";
 import { cssVars } from "@/lib/cn";
 import { cssVarName, theme } from "@/theme";
 
@@ -20,7 +36,10 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 export default function StyleguidePage() {
   return (
     <div className="mx-auto max-w-7xl space-y-16 px-4 py-12 sm:px-8">
-      <Logo />
+      <div className="flex items-center justify-between">
+        <Logo />
+        <ThemeSwitch size="lg" />
+      </div>
       <PageHeader
         eyebrow="Design system"
         title="Calm confidence, alive underneath"
@@ -90,6 +109,29 @@ export default function StyleguidePage() {
             ]}
           />
         </Panel>
+      </Section>
+
+      <Section title="Editorial">
+        <SectionLabel>Section label</SectionLabel>
+        <EditorialSection label="Editorial section" title={<>Headlines with <Em>emphasis</Em></>}>
+          <StatStrip stats={[{ value: "92%", label: "Stat strip" }, { value: "4,000", label: "Big numbers" }, { value: "11", label: "Hairlines" }, { value: "38", label: "Wraps on phones" }]} />
+        </EditorialSection>
+        <Timeline items={[{ marker: "01", title: "Timeline", body: "Oversized markers." }, { marker: "02", body: "The last one is lit." }]} />
+        <ToneSteps steps={[{ eyebrow: "Deep", title: "Tone" }, { eyebrow: "Brand", title: "steps" }, { eyebrow: "Soft", title: "one" }, { eyebrow: "Subtle", title: "hue" }]} />
+        <QuoteBanner quote={<>A full-bleed brand block for <Em>one big statement</Em>.</>} attribution="QuoteBanner" action={<Button variant="inverse">Inverse button</Button>} />
+      </Section>
+
+      <Section title="Sky & horizon">
+        <div className="relative isolate overflow-hidden rounded-xl px-10 pt-12 pb-40">
+          <SkyBackground />
+          <SectionLabel inverse>SkyBackground</SectionLabel>
+          <p className="mt-4 font-display text-5xl font-semibold tracking-tight text-on-brand">Night to <Em>day</Em></p>
+          <div className="mt-8 flex gap-3">
+            <Button variant="inverse">Inverse</Button>
+            <Button variant="ghostInverse">Ghost inverse</Button>
+          </div>
+        </div>
+        <HalftoneHorizon className="h-80 w-full" />
       </Section>
 
       <Section title="Effects">

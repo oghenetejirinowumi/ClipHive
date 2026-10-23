@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { api } from "./api";
+import { api, ApiError } from "./api";
 import { clearSession, readSession, writeSession, type User } from "./session";
 
 export type { User };
@@ -38,6 +38,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const session = readSession();
     setUser(session?.user ?? null);
     setStatus(session ? "authenticated" : "anonymous");
+    if (!session || AUTH_MOCK) return;
+
+    // Restore instantly from storage, then confirm the token with the backend.
+    // A 401 means it expired or was revoked; a network error keeps the session (backend may be restarting).
+    api<User>("/auth/me", { redirectOn401: false })
+      .then((fresh) => setUser(fresh))
+      .catch((err) => {
+        if (err instanceof ApiError && err.status === 401) {
+          setUser(null);
+          setStatus("anonymous");
+        }
+      });
   }, []);
 
   const authenticate = useCallback(async (path: "/auth/login" | "/auth/register", email: string, password: string) => {

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { AuthShowcase } from "./AuthShowcase";
 import { Logo } from "./Logo";
+import { ThemeSwitch } from "./ThemeSwitch";
 
 /**
  * Split auth layout: calm form on the left, expressive showcase on the right.
@@ -22,7 +23,10 @@ export function AuthFrame({
   return (
     <div className="grid min-h-dvh bg-paper lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="flex flex-col px-4 py-6 sm:px-10 sm:py-8">
-        <Logo />
+        <div className="flex items-center justify-between gap-4">
+          <Logo />
+          <ThemeSwitch />
+        </div>
         <main className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center py-16">
           <header className="fx-rise mb-10">
             <h1 className="font-display text-4xl font-semibold tracking-tight text-ink lg:text-5xl">{title}</h1>
@@ -32,7 +36,7 @@ export function AuthFrame({
           {footer && <div className="mt-10 text-lg text-ink-muted">{footer}</div>}
         </main>
       </div>
-      <div className="hidden p-3 lg:block">{showcase ?? <AuthShowcase className="h-full" />}</div>
+      <div className="hidden p-3 lg:sticky lg:top-0 lg:block lg:h-dvh">{showcase ?? <AuthShowcase className="h-full" />}</div>
     </div>
   );
 }

@@ -2,9 +2,22 @@ export { AuthFrame } from "./AuthFrame";
 export { AuthShowcase } from "./AuthShowcase";
 export { Badge } from "./Badge";
 export { Button, buttonClass, type ButtonProps } from "./Button";
+export {
+  EditorialSection,
+  Em,
+  QuoteBanner,
+  SectionLabel,
+  StatStrip,
+  Timeline,
+  ToneSteps,
+  type Stat,
+  type TimelineItem,
+  type ToneStep,
+} from "./Editorial";
 export { Field, type FieldProps } from "./Field";
 export { Icon, type IconName } from "./Icon";
 export { Ledger, type LedgerItem } from "./Ledger";
 export { Logo } from "./Logo";
 export { PageHeader } from "./PageHeader";
 export { Panel, type PanelProps } from "./Panel";
+export { ThemeSwitch } from "./ThemeSwitch";
