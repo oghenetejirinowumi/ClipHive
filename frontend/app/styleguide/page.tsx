@@ -16,7 +16,6 @@ import {
   StatStrip,
   ThemeSwitch,
   Timeline,
-  ToneSteps,
 } from "@/components/ui";
 import { cssVars } from "@/lib/cn";
 import { cssVarName, theme } from "@/theme";
@@ -117,7 +116,6 @@ export default function StyleguidePage() {
           <StatStrip stats={[{ value: "92%", label: "Stat strip" }, { value: "4,000", label: "Big numbers" }, { value: "11", label: "Hairlines" }, { value: "38", label: "Wraps on phones" }]} />
         </EditorialSection>
         <Timeline items={[{ marker: "01", title: "Timeline", body: "Oversized markers." }, { marker: "02", body: "The last one is lit." }]} />
-        <ToneSteps steps={[{ eyebrow: "Deep", title: "Tone" }, { eyebrow: "Brand", title: "steps" }, { eyebrow: "Soft", title: "one" }, { eyebrow: "Subtle", title: "hue" }]} />
         <QuoteBanner quote={<>A full-bleed brand block for <Em>one big statement</Em>.</>} attribution="QuoteBanner" action={<Button variant="inverse">Inverse button</Button>} />
       </Section>
 

@@ -14,6 +14,7 @@ from app.api.clips import router as clips_router
 from app.api.downloads import router as downloads_router
 from app.api.imports import router as imports_router
 from app.api.streamers import router as streamers_router
+from app.api.studio import router as studio_router
 from app.api.styles import router as styles_router
 from app.api.trends import router as trends_router
 from app.config import settings
@@ -111,6 +112,7 @@ app.include_router(clips_router, prefix="/api")
 app.include_router(trends_router, prefix="/api")
 app.include_router(imports_router, prefix="/api")
 app.include_router(downloads_router, prefix="/api")
+app.include_router(studio_router, prefix="/api")
 
 
 @app.get("/health")

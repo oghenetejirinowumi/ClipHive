@@ -9,10 +9,8 @@ export {
   SectionLabel,
   StatStrip,
   Timeline,
-  ToneSteps,
   type Stat,
   type TimelineItem,
-  type ToneStep,
 } from "./Editorial";
 export { Field, type FieldProps } from "./Field";
 export { Icon, type IconName } from "./Icon";

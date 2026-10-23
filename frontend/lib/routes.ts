@@ -25,6 +25,14 @@ export const APP_NAV: NavItem[] = [
     tab: true,
   },
   {
+    href: "/studio",
+    label: "Studio",
+    short: "Studio",
+    icon: "film",
+    description: "Scrub a video's timeline, pick the exact moment, choose layout and captions.",
+    tab: true,
+  },
+  {
     href: "/streamers",
     label: "Streamers",
     short: "Watch",
@@ -45,7 +53,6 @@ export const APP_NAV: NavItem[] = [
     short: "Styles",
     icon: "captions",
     description: "Pick a preset or upload your own font.",
-    tab: true,
   },
   {
     href: "/trends",

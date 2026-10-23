@@ -5,35 +5,8 @@ import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEven
 import { Badge, Button, buttonClass, Em, Icon, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
 import { api, ApiError, API_URL, apiUrl } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { ACTIVE_STATUSES as ACTIVE, formatTime, projectTitle, SOURCE_LABEL, STEP_LABEL, type ImportJob, type Layout } from "@/lib/imports";
 import { getToken } from "@/lib/session";
-
-type ImportJob = {
-  id: number;
-  source: "twitch" | "kick" | "youtube" | "upload";
-  url: string | null;
-  original_filename: string | null;
-  title: string | null;
-  duration_s: number | null;
-  thumbnail_path: string | null;
-  clip_count: number;
-  clip_seconds: number;
-  clip_ids: number[];
-  status: "queued" | "downloading" | "analyzing" | "cutting" | "done" | "failed";
-  progress: number;
-  error: string | null;
-  created_at: string;
-};
-
-const SOURCE_LABEL: Record<ImportJob["source"], string> = { twitch: "Twitch", kick: "Kick", youtube: "YouTube", upload: "Upload" };
-
-const STEP_LABEL: Record<ImportJob["status"], string> = {
-  queued: "Waiting for a worker",
-  downloading: "Downloading",
-  analyzing: "Finding the best moments",
-  cutting: "Cutting 9:16 clips",
-  done: "Done",
-  failed: "Failed",
-};
 
 // Mirrors backend services/ingest/sources.py, for instant feedback while typing.
 function detect(url: string): "twitch" | "kick" | "youtube" | "instagram" | null {
@@ -45,21 +18,14 @@ function detect(url: string): "twitch" | "kick" | "youtube" | "instagram" | null
   return null;
 }
 
-const formatTime = (s: number | null) => {
-  if (!s) return "--:--";
-  const m = Math.floor(s / 60);
-  return `${m}:${String(Math.round(s % 60)).padStart(2, "0")}`;
-};
-
-const ACTIVE = new Set<ImportJob["status"]>(["queued", "downloading", "analyzing", "cutting"]);
-
 /** Upload with real progress (fetch can't report upload progress). */
-function uploadWithProgress(file: File, clipCount: number, clipSeconds: number, onProgress: (f: number) => void): Promise<ImportJob> {
+function uploadWithProgress(file: File, clipCount: number, clipSeconds: number, layout: Layout, onProgress: (f: number) => void): Promise<ImportJob> {
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append("file", file);
     form.append("clip_count", String(clipCount));
     form.append("clip_seconds", String(clipSeconds));
+    form.append("layout", layout);
     const xhr = new XMLHttpRequest();
     xhr.open("POST", apiUrl("/api/imports/upload"));
     const token = getToken();
@@ -82,6 +48,7 @@ export default function CreatePage() {
   const [url, setUrl] = useState("");
   const [clipCount, setClipCount] = useState<"3" | "5" | "8">("5");
   const [clipSeconds, setClipSeconds] = useState<"15" | "30" | "60">("30");
+  const [layout, setLayout] = useState<Layout>("fill");
   const [jobs, setJobs] = useState<ImportJob[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -123,7 +90,7 @@ export default function CreatePage() {
     try {
       const job = await api<ImportJob>("/api/imports/link", {
         method: "POST",
-        body: { url: url.trim(), clip_count: Number(clipCount), clip_seconds: Number(clipSeconds) },
+        body: { url: url.trim(), clip_count: Number(clipCount), clip_seconds: Number(clipSeconds), layout },
       });
       setJobs((prev) => [job, ...prev]);
       setUrl("");
@@ -138,7 +105,7 @@ export default function CreatePage() {
     setError(null);
     setUploadProgress(0);
     try {
-      const job = await uploadWithProgress(file, Number(clipCount), Number(clipSeconds), setUploadProgress);
+      const job = await uploadWithProgress(file, Number(clipCount), Number(clipSeconds), layout, setUploadProgress);
       setJobs((prev) => [job, ...prev]);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Upload failed.");
@@ -258,7 +225,22 @@ export default function CreatePage() {
             <p className="text-lg font-medium text-ink">Clip length</p>
             <Segmented label="Clip length" value={clipSeconds} onChange={setClipSeconds} options={[{ value: "15", label: "15s" }, { value: "30", label: "30s" }, { value: "60", label: "60s" }]} />
           </div>
-          <p className="max-w-md text-base text-ink-muted">We analyse the first 30 minutes. Live streams are clipped from the VOD once they end.</p>
+          <div className="space-y-2">
+            <p className="text-lg font-medium text-ink">Layout</p>
+            <Segmented
+              label="Layout"
+              value={layout}
+              onChange={setLayout}
+              options={[
+                { value: "fill", label: "Fill" },
+                { value: "blur", label: "Blur" },
+              ]}
+            />
+          </div>
+          <p className="max-w-md text-base text-ink-muted">
+            {layout === "fill" ? "Fill zooms in so the frame covers the screen." : "Blur keeps the whole frame, with a blurred copy above and below."} We analyse the first 30 minutes; live
+            streams are clipped from the VOD once they end.
+          </p>
         </div>
 
         {error && (
@@ -307,7 +289,7 @@ export default function CreatePage() {
 
                   <div className="flex flex-1 flex-col gap-4 p-6">
                     <p className="line-clamp-2 font-display text-xl leading-snug font-semibold tracking-tight text-ink">
-                      {job.title || job.original_filename || job.url || "Untitled project"}
+                      {projectTitle(job)}
                     </p>
 
                     {ACTIVE.has(job.status) && (
@@ -331,8 +313,8 @@ export default function CreatePage() {
                           : `${job.clip_count} × ${job.clip_seconds}s requested`}
                       </span>
                       {job.status === "done" && (
-                        <Link href="/hub" className={buttonClass({ variant: "secondary", size: "sm" })}>
-                          Open in hub <Icon name="arrowRight" className="size-5" />
+                        <Link href={`/studio/${job.id}`} className={buttonClass({ variant: "secondary", size: "sm" })}>
+                          <Icon name="film" className="size-5" /> Open in studio
                         </Link>
                       )}
                     </div>

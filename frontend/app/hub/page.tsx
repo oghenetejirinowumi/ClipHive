@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Badge, Button, buttonClass, Em, Icon, Notice, Panel, SectionLabel, SkyHeader, StatusBadge } from "@/components/ui";
 import { api, API_URL } from "@/lib/api";
@@ -107,6 +108,10 @@ export default function HubPage() {
                     )}
                   </div>
                 </div>
+
+                <Link href={`/studio?clip=${clip.id}`} className={buttonClass({ variant: "ghost", size: "sm", className: "justify-start px-0" })}>
+                  <Icon name="film" className="size-5" /> Edit in studio
+                </Link>
 
                 {/* Download always works, even when a platform's quota is spent. */}
                 <div className="grid grid-cols-2 gap-3 border-t border-line pt-6">

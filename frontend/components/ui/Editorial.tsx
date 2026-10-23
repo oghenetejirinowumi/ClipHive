@@ -99,33 +99,6 @@ export function Timeline({ items, compact, className }: { items: TimelineItem[];
   );
 }
 
-export type ToneStep = { eyebrow: ReactNode; title: ReactNode; body?: ReactNode };
-
-// Deep → brand → soft → subtle: one hue stepping down in strength.
-const STEPS = [
-  "bg-brand-deep text-on-brand",
-  "bg-brand text-on-brand",
-  "bg-brand-soft text-ink",
-  "bg-brand-subtle text-ink",
-];
-
-/** A row of tall tiles stepping down through the brand hue. Wraps to 2 or 1 columns. */
-export function ToneSteps({ steps, className }: { steps: ToneStep[]; className?: string }) {
-  return (
-    <div className={cn("grid overflow-hidden rounded-lg sm:grid-cols-2 lg:grid-cols-4", className)}>
-      {steps.map((s, i) => (
-        <div key={i} className={cn("flex min-h-72 flex-col justify-between gap-10 p-8 lg:min-h-96 lg:p-10", STEPS[i % STEPS.length])}>
-          <p className="font-mono text-meta tracking-[0.16em] uppercase opacity-80">{s.eyebrow}</p>
-          <div>
-            <p className="font-display text-3xl font-semibold tracking-tight lg:text-4xl">{s.title}</p>
-            {s.body && <p className="mt-3 text-lg opacity-80">{s.body}</p>}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /** A full-bleed brand block for one big statement. */
 export function QuoteBanner({ quote, attribution, action, className }: { quote: ReactNode; attribution?: ReactNode; action?: ReactNode; className?: string }) {
   return (

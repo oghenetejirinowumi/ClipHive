@@ -1,20 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { RecentProjects } from "@/components/projects/RecentProjects";
 import { Greeting } from "@/components/shell/Greeting";
-import { Button, Icon, Panel, SectionLabel, SkyHeader, ToneSteps } from "@/components/ui";
+import { Button, buttonClass, Icon, Panel, SectionLabel, SkyHeader } from "@/components/ui";
 import { APP_NAV } from "@/lib/routes";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
 const SECTIONS = APP_NAV.filter((item) => item.href !== "/dashboard");
-
-// Mirrors backend ClipStatus (processing → captioning → ready) and PostStatus (posted).
-const LIFECYCLE = [
-  { eyebrow: "01 · processing", title: "Found & cut", body: "Highlight scored, trimmed and cropped to 9:16." },
-  { eyebrow: "02 · captioning", title: "Captioned", body: "Word-timed captions burned in your style." },
-  { eyebrow: "03 · ready", title: "In the hub", body: "Preview, tweak the title, download." },
-  { eyebrow: "04 · posted", title: "Live", body: "Sent to TikTok, Shorts, Reels or X." },
-];
 
 export default function DashboardPage() {
   return (
@@ -23,18 +16,28 @@ export default function DashboardPage() {
         size="lg"
         eyebrow="Dashboard"
         title={<Greeting />}
-        description="Here's where everything lives. Start by adding a streamer."
+        description="Paste a link or upload a video to get a batch of clips, or open the studio to pick a moment yourself."
         actions={
           <>
-            <Button href="/streamers" variant="inverse" size="lg">
-              Add a streamer <Icon name="arrowRight" />
+            <Button href="/create" variant="inverse" size="lg">
+              <Icon name="plus" /> Start a project
             </Button>
-            <Button href="/hub" variant="ghostInverse" size="lg">
-              Open the hub
+            <Button href="/studio" variant="ghostInverse" size="lg">
+              Open the studio
             </Button>
           </>
         }
       />
+
+      <section className="space-y-6">
+        <div className="flex items-center justify-between gap-4">
+          <SectionLabel>Recent projects</SectionLabel>
+          <Link href="/create" className={buttonClass({ variant: "ghost", size: "sm" })}>
+            See all <Icon name="arrowRight" className="size-5" />
+          </Link>
+        </div>
+        <RecentProjects />
+      </section>
 
       <section className="space-y-6">
         <SectionLabel>Workspace</SectionLabel>
@@ -54,11 +57,6 @@ export default function DashboardPage() {
             </Link>
           ))}
         </div>
-      </section>
-
-      <section className="space-y-6">
-        <SectionLabel>How a clip moves</SectionLabel>
-        <ToneSteps steps={LIFECYCLE} />
       </section>
     </div>
   );

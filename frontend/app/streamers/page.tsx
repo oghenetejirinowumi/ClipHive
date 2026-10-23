@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { Badge, Button, Em, Field, Icon, Input, Notice, Panel, SectionLabel, Segmented, SkyHeader, Timeline } from "@/components/ui";
+import { Badge, Button, Em, Field, Icon, Input, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 
@@ -17,13 +17,6 @@ type Streamer = {
 };
 
 const PLATFORM_LABEL: Record<Platform, string> = { twitch: "Twitch", kick: "Kick", youtube: "YouTube" };
-
-const PIPELINE = [
-  { marker: "60s", title: "Polling", body: "Twitch Helix & Kick public endpoints." },
-  { marker: "Rec", title: "Recording", body: "streamlink captures 1080p source chunks." },
-  { marker: "Score", title: "Scoring", body: "Loudness spikes + scene-cut boundaries." },
-  { marker: "C2", title: "Handoff", body: "Raw cuts route to the Caption Studio." },
-];
 
 export default function StreamersPage() {
   const [streamers, setStreamers] = useState<Streamer[]>([]);
@@ -184,10 +177,6 @@ export default function StreamersPage() {
             </form>
           </Panel>
 
-          <Panel tone="sunken" padding="lg">
-            <SectionLabel>Ingest pipeline</SectionLabel>
-            <Timeline items={PIPELINE} compact className="mt-6" />
-          </Panel>
         </aside>
       </div>
     </div>
