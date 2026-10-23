@@ -2,3 +2,11 @@ __pycache__/
 *.pyc
 .env
 *.db
+.venv/
+venv/
+*.egg-info/
+storage/
+tests/fixtures/*_output.mp4
+tests/fixtures/*_test.ass
+
+
