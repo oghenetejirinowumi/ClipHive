@@ -11,15 +11,19 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api import auth
 from app.api.clips import router as clips_router
+from app.api.downloads import router as downloads_router
+from app.api.imports import router as imports_router
 from app.api.streamers import router as streamers_router
 from app.api.styles import router as styles_router
 from app.api.trends import router as trends_router
 from app.config import settings
+from app.core.media import ffmpeg_bin
 from app.db import SessionLocal, init_db
 from app.models.clip import Clip
 from app.models.enums import CaptionMode, ClipStatus
 from app.models.user import User
 from app.services.caption.styles import seed_preset_styles
+from app.services.ingest.pipeline import recover_interrupted
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("cliphive")
@@ -33,6 +37,9 @@ async def lifespan(app: FastAPI):
     # Startup: Initialize DB and seeds
     logger.info("Initializing database...")
     init_db()
+    recover_interrupted()
+    # Resolve ffmpeg once (bundled fallback goes on PATH for the caption burner and yt-dlp).
+    logger.info("ffmpeg: %s", ffmpeg_bin())
 
     with SessionLocal() as db:
         # Seed default styles
@@ -92,7 +99,7 @@ app.add_middleware(
 )
 
 # Mount local storage directory for preview and download
-storage_dir = Path("storage")
+storage_dir = Path(settings.storage_dir)  # same folder the import pipeline writes to
 storage_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/storage", StaticFiles(directory=str(storage_dir)), name="storage")
 
@@ -102,6 +109,8 @@ app.include_router(streamers_router, prefix="/api")
 app.include_router(styles_router, prefix="/api")
 app.include_router(clips_router, prefix="/api")
 app.include_router(trends_router, prefix="/api")
+app.include_router(imports_router, prefix="/api")
+app.include_router(downloads_router, prefix="/api")
 
 
 @app.get("/health")

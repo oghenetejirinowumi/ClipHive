@@ -25,6 +25,16 @@ class Settings(BaseSettings):
     live_poll_interval_s: int = 60
     max_recording_minutes: int = 10
 
+    # Link / upload imports (VOD-first: we process files offline, never record 24/7)
+    ffmpeg_path: str = ""  # empty = system ffmpeg on PATH, else the bundled imageio-ffmpeg binary
+    storage_dir: str = "storage"  # served at /storage by app.main
+    max_import_minutes: int = 30  # only the first N minutes of a link/upload are analysed
+    max_upload_mb: int = 1024
+    import_workers: int = 2  # concurrent download/cut jobs
+    # Netscape cookies.txt exported from a logged-in browser. Instagram (and some YouTube
+    # videos) refuse anonymous downloads; with this set, yt-dlp downloads as that account.
+    ytdlp_cookies_file: str = ""
+
     # AI & Speech APIs (all optional, with robust offline/free fallbacks)
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"

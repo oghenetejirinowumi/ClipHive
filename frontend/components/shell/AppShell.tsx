@@ -6,7 +6,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { Button, Icon, Logo, ThemeSwitch } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import { APP_NAV, isActive } from "@/lib/routes";
+import { APP_NAV, TAB_NAV, isActive } from "@/lib/routes";
 
 /** Sidebar on desktop, top bar + bottom tabs on phones. Wraps every route in APP_NAV. */
 export function AppShell({ children }: { children: ReactNode }) {
@@ -81,7 +81,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         aria-label="Main"
         className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 gap-2 border-t border-line bg-surface/95 px-2 pb-[env(safe-area-inset-bottom)] lg:hidden"
       >
-        {APP_NAV.map((item) => {
+        {TAB_NAV.map((item) => {
           const active = isActive(pathname, item.href);
           return (
             <Link
