@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.clips import router as clips_router
+from app.api.streamers import router as streamers_router
 from app.api.styles import router as styles_router
 from app.api.trends import router as trends_router
 from app.db import SessionLocal, init_db
@@ -91,6 +92,7 @@ storage_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/storage", StaticFiles(directory=str(storage_dir)), name="storage")
 
 # Include routers
+app.include_router(streamers_router, prefix="/api")
 app.include_router(styles_router, prefix="/api")
 app.include_router(clips_router, prefix="/api")
 app.include_router(trends_router, prefix="/api")
