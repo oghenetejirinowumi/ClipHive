@@ -59,6 +59,9 @@ export default function CaptionsPage() {
   const [newFontSize, setNewFontSize] = useState(76);
   const [newAnimationType, setNewAnimationType] = useState("word_pop");
   const [newUppercase, setNewUppercase] = useState(true);
+  const [primaryColor, setPrimaryColor] = useState("&H0000FFFF");
+  const [outlineColor, setOutlineColor] = useState("&H00000000");
+  const [highlightColor, setHighlightColor] = useState("&H0000FFFF");
 
   const [isPending, startTransition] = useTransition();
 
@@ -137,9 +140,9 @@ export default function CaptionsPage() {
           animation_type: newAnimationType,
           uppercase: newUppercase,
           colors_json: {
-            primary: "&H0000FFFF",
-            outline: "&H00000000",
-            highlight: "&H0000FFFF",
+            primary: primaryColor,
+            outline: outlineColor,
+            highlight: highlightColor,
             back: "&H80000000",
           },
         },
@@ -252,6 +255,49 @@ export default function CaptionsPage() {
                       <option value="line">Line-by-Line</option>
                     </select>
                   </Field>
+                  <div className="space-y-2 sm:col-span-2">
+                    <span className="block text-meta font-medium text-ink">Text Fill Color</span>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { label: "Yellow", ass: "&H0000FFFF", role: "bg-warning text-ink" },
+                        { label: "Cyan", ass: "&H00FFFF00", role: "bg-brand text-on-brand" },
+                        { label: "White", ass: "&H00FFFFFF", role: "bg-surface text-ink border border-line" },
+                        { label: "Magenta", ass: "&H00FF00FF", role: "bg-danger text-on-brand" },
+                        { label: "Green", ass: "&H0000FF00", role: "bg-success text-on-brand" },
+                      ].map((c) => (
+                        <button
+                          key={c.ass}
+                          type="button"
+                          onClick={() => setPrimaryColor(c.ass)}
+                          className={`rounded-full px-4 py-1.5 text-meta font-medium transition-transform duration-(--motion-fast) ${c.role} ${primaryColor === c.ass ? "ring-2 ring-brand scale-105" : "opacity-80"}`}
+                        >
+                          {c.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 sm:col-span-2">
+                    <span className="block text-meta font-medium text-ink">Word-Pop Highlight Accent</span>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { label: "Yellow Pop", ass: "&H0000FFFF", role: "bg-warning text-ink" },
+                        { label: "Cyan Pop", ass: "&H00FFFF00", role: "bg-brand text-on-brand" },
+                        { label: "Magenta Pop", ass: "&H00FF00FF", role: "bg-danger text-on-brand" },
+                        { label: "Green Pop", ass: "&H0000FF00", role: "bg-success text-on-brand" },
+                      ].map((c) => (
+                        <button
+                          key={c.ass}
+                          type="button"
+                          onClick={() => setHighlightColor(c.ass)}
+                          className={`rounded-full px-4 py-1.5 text-meta font-medium transition-transform duration-(--motion-fast) ${c.role} ${highlightColor === c.ass ? "ring-2 ring-brand scale-105" : "opacity-80"}`}
+                        >
+                          {c.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="flex items-center gap-3 sm:col-span-2">
                     <label className="flex items-center gap-2 text-base text-ink">
                       <input

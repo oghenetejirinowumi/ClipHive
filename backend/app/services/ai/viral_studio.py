@@ -41,7 +41,7 @@ def _normalize_words(words: Sequence[TranscriptWord | dict]) -> list[TranscriptW
     return normalized
 
 
-def _heuristic_viral_metadata(raw_words: Sequence[TranscriptWord | dict]) -> ViralMetadata:
+def _heuristic_viral_metadata(raw_words: Sequence[TranscriptWord | dict], platform: str = "tiktok") -> ViralMetadata:
     """Instant offline fallback when LLM is unavailable."""
     words = _normalize_words(raw_words)
     text = " ".join(w.word for w in words[:8]) if words else "Epic Highlight"
@@ -52,10 +52,15 @@ def _heuristic_viral_metadata(raw_words: Sequence[TranscriptWord | dict]) -> Vir
     wps = len(words) / max(1.0, duration)
     score = min(98.0, max(75.0, round(70.0 + wps * 6.5, 1)))
 
+    if platform.lower() == "youtube":
+        tags = ["#Shorts", "#GamingShorts", "#Gameplay", "#EpicClutch"]
+    else:
+        tags = ["#fyp", "#gaming", "#viralclips", "#twitchstreamer", "#foryoupage"]
+
     return ViralMetadata(
         title=title,
         hook_score=score,
-        hashtags=["#gaming", "#viralclips", "#twitchstreamer", "#fyp", "#clutch"],
+        hashtags=tags,
         suggested_style="Punch" if score > 85 else "Clean",
         hype_words=["UNREAL", "BRO", "NO", "WAY", "CLUTCH", "OMG"],
     )
@@ -64,37 +69,49 @@ def _heuristic_viral_metadata(raw_words: Sequence[TranscriptWord | dict]) -> Vir
 def generate_viral_metadata(
     raw_words: Sequence[TranscriptWord | dict],
     streamer_name: str | None = None,
+    platform: str = "tiktok",
 ) -> ViralMetadata:
     """
-    Generates viral short metadata using gpt-4o-mini (cost: ~$0.00004),
+    Generates viral short metadata tailored to TikTok or YouTube Shorts using gpt-4o-mini,
     falling back seamlessly to heuristic generation if offline.
     """
     words = _normalize_words(raw_words)
     if not words:
-        return _heuristic_viral_metadata([])
+        return _heuristic_viral_metadata([], platform=platform)
 
     full_transcript = " ".join(w.word for w in words)
     opening_hook = " ".join(w.word for w in words[:6])
 
     if not settings.openai_api_key:
-        return _heuristic_viral_metadata(words)
+        return _heuristic_viral_metadata(words, platform=platform)
 
     try:
         import openai
 
         client = openai.OpenAI(api_key=settings.openai_api_key, max_retries=2)
+        
+        is_yt = platform.lower() == "youtube"
+        platform_name = "YouTube Shorts" if is_yt else "TikTok"
+        title_instruction = (
+            "1. title: High-intent search-friendly title with 1 relevant emoji (e.g. 'HOW TO 1v4 CLUTCH IN VALORANT 🎯').\n"
+            "3. hashtags: 3 to 4 specific gaming tags including #Shorts (e.g. ['#Shorts', '#GamingShorts', '#ClutchPlay']).\n"
+            if is_yt
+            else "1. title: Shock, curiosity gap, or funny quote with 1 relevant emoji (e.g. 'HE REALLY THOUGHT! 💀' or 'NO WAY HE HIT THIS 🔥').\n"
+            "3. hashtags: 5 viral discovery tags (e.g. ['#fyp', '#gaming', '#foryoupage', '#twitchclips', '#viral']).\n"
+        )
+
         system_prompt = (
-            "You are a short-form video virality expert for TikTok, YouTube Shorts, and Instagram Reels.\n"
-            "Analyze this clip's spoken transcript and generate viral packaging:\n"
-            "1. title: Punchy, high-CTR, all-caps or title case, 3 to 6 words, with 1 relevant emoji (e.g. 'HE REALLY THOUGHT! 💀' or 'UNREAL 1v3 CLUTCH 🔥').\n"
-            "2. hook_score: 0-100 score rating how engaging the first 3 seconds are (curiosity gap, high energy, shock).\n"
-            "3. hashtags: 5 hashtags combining trending tags + topic (e.g. ['#gaming', '#twitch', '#clutch', '#fyp', '#viral']).\n"
+            f"You are a short-form video virality expert specifically optimizing for {platform_name}.\n"
+            "Analyze this clip's spoken transcript and produce high-converting packaging:\n"
+            f"{title_instruction}"
+            "2. hook_score: 0-100 score rating how engaging the first 3 seconds are.\n"
             "4. suggested_style: Choose 'Punch' (high energy/gaming), 'Neon' (hype/funny), or 'Clean' (talking/story).\n"
-            "5. hype_words: 3-6 words from the transcript that deserve maximum animated visual pop.\n"
+            "5. hype_words: 3-6 words from transcript that deserve maximum animated visual pop.\n"
             "Output JSON with these exact keys."
         )
 
         user_content = (
+            f"Target Platform: {platform_name}\n"
             f"Streamer: {streamer_name or 'Creator'}\n"
             f"Opening 3 seconds: \"{opening_hook}\"\n"
             f"Full transcript: \"{full_transcript}\""
@@ -125,4 +142,4 @@ def generate_viral_metadata(
 
     except Exception as e:
         logger.warning(f"AI Viral Studio generation failed ({e}), using heuristic fallback")
-        return _heuristic_viral_metadata(words)
+        return _heuristic_viral_metadata(words, platform=platform)

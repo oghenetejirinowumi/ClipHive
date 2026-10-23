@@ -4,10 +4,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.db import get_db
+from app.db import SessionLocal, get_db
 from app.models.caption_style import CaptionStyle
 from app.models.clip import Clip
 from app.models.enums import CaptionMode, ClipStatus
@@ -70,8 +70,12 @@ def update_clip(clip_id: int, payload: ClipUpdate, db: Session = Depends(get_db)
 
 
 @router.post("/{clip_id}/ai-pack", response_model=ClipRead)
-def generate_ai_metadata(clip_id: int, db: Session = Depends(get_db)):
-    """Runs AI Viral Studio on the clip: generates high-CTR title, hook score, and hashtags."""
+def generate_ai_metadata(
+    clip_id: int,
+    platform: str = "tiktok",
+    db: Session = Depends(get_db),
+):
+    """Runs AI Viral Studio on the clip: generates high-CTR title, hook score, and hashtags tailored to platform."""
     clip = db.query(Clip).filter(Clip.id == clip_id).first()
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
@@ -83,7 +87,7 @@ def generate_ai_metadata(clip_id: int, db: Session = Depends(get_db)):
         words = proofread_transcript(raw_words)
         clip.transcript_json = [w.model_dump() for w in words]
 
-    viral = generate_viral_metadata(clip.transcript_json)
+    viral = generate_viral_metadata(clip.transcript_json, platform=platform)
     clip.title = viral.title
     clip.highlight_score = viral.hook_score
     clip.hashtags = viral.hashtags
@@ -93,9 +97,91 @@ def generate_ai_metadata(clip_id: int, db: Session = Depends(get_db)):
     return clip
 
 
+def process_clip_captioning(clip_id: int, style_id: int, caption_mode: CaptionMode):
+    """Worker routine to transcribe, AI package, and burn video for a clip."""
+    with SessionLocal() as db:
+        clip = db.query(Clip).filter(Clip.id == clip_id).first()
+        style = db.query(CaptionStyle).filter(CaptionStyle.id == style_id).first()
+        if not clip or not style or not clip.raw_file_path:
+            return
+
+        try:
+            # 1. Transcribe with domain vocabulary + AI proofread
+            if not clip.transcript_json:
+                clip.status = ClipStatus.CAPTIONING
+                db.commit()
+
+                logger.info(f"Transcribing clip {clip.id}: {clip.raw_file_path}")
+                raw_words = transcribe_video(clip.raw_file_path)
+                proofread_words = proofread_transcript(raw_words)
+                clip.transcript_json = [w.model_dump() for w in proofread_words]
+                db.commit()
+
+            # 2. AI Virality Studio Packaging
+            viral = generate_viral_metadata(clip.transcript_json)
+            if not clip.title:
+                clip.title = viral.title
+            if not clip.highlight_score:
+                clip.highlight_score = viral.hook_score
+            if not clip.hashtags:
+                clip.hashtags = viral.hashtags
+
+            # 3. Clean platform-native vs Burned
+            if caption_mode == CaptionMode.PLATFORM_NATIVE:
+                clip.file_path = clip.raw_file_path
+                clip.caption_mode = CaptionMode.PLATFORM_NATIVE
+                clip.caption_style_id = style.id
+                clip.status = ClipStatus.READY
+                clip.error = None
+                db.commit()
+                return
+
+            # 4. Burn kinetic captions
+            clip.status = ClipStatus.CAPTIONING
+            db.commit()
+
+            generator = ASSGenerator()
+            ass_path = STORAGE_SUBS_DIR / f"clip_{clip.id}_{style.name.lower()}.ass"
+            generator.generate(
+                words=clip.transcript_json,
+                style=style,
+                clip_start_s=0.0,
+                clip_end_s=clip.duration_s if clip.duration_s > 0 else None,
+                output_file=ass_path,
+                hype_words=viral.hype_words,
+            )
+
+            final_mp4 = STORAGE_CLIPS_DIR / f"clip_{clip.id}_{style.name.lower()}.mp4"
+            burn_subtitles(
+                raw_video_path=clip.raw_file_path,
+                ass_subtitle_path=ass_path,
+                output_video_path=final_mp4,
+                fonts_dir="backend/assets/fonts",
+            )
+
+            clip.file_path = str(final_mp4)
+            clip.caption_style_id = style.id
+            clip.caption_mode = CaptionMode.BURNED
+            clip.status = ClipStatus.READY
+            clip.error = None
+            db.commit()
+
+        except Exception as e:
+            logger.exception(f"Captioning worker failed for clip {clip_id}: {e}")
+            clip.status = ClipStatus.FAILED
+            clip.error = str(e)
+            db.commit()
+
+
 @router.post("/{clip_id}/caption", response_model=ClipRead)
 @router.post("/{clip_id}/regenerate-captions", response_model=ClipRead)
-def caption_clip(clip_id: int, payload: CaptionRequest, db: Session = Depends(get_db)):
+def caption_clip(
+    clip_id: int,
+    payload: CaptionRequest,
+    background_tasks: BackgroundTasks,
+    async_burn: bool = Query(default=False, description="Run caption burn in background worker"),
+    db: Session = Depends(get_db),
+):
     """
     Core C2 Deliverable:
     Transcribes (with gaming vocabulary), proofreads with AI, generates viral title & hashtags,
@@ -112,77 +198,19 @@ def caption_clip(clip_id: int, payload: CaptionRequest, db: Session = Depends(ge
     if not clip.raw_file_path or not Path(clip.raw_file_path).exists():
         raise HTTPException(status_code=400, detail="Raw video file not found on disk")
 
-    try:
-        # Step 1: Transcribe with word timestamps + AI proofread if not already cached
-        if not clip.transcript_json:
-            clip.status = ClipStatus.CAPTIONING
-            db.commit()
-
-            logger.info(f"Transcribing clip {clip.id}: {clip.raw_file_path}")
-            raw_words = transcribe_video(clip.raw_file_path)
-            proofread_words = proofread_transcript(raw_words)
-            clip.transcript_json = [w.model_dump() for w in proofread_words]
-            db.commit()
-
-        # Step 2: Generate AI viral packaging (title, hook score, hashtags, hype words)
-        viral = generate_viral_metadata(clip.transcript_json)
-        if not clip.title:
-            clip.title = viral.title
-        if not clip.highlight_score:
-            clip.highlight_score = viral.hook_score
-        if not clip.hashtags:
-            clip.hashtags = viral.hashtags
-
-        # Step 3: Handle platform-native captions (clean upload, no burn-in)
-        if payload.caption_mode == CaptionMode.PLATFORM_NATIVE:
-            clip.file_path = clip.raw_file_path
-            clip.caption_mode = CaptionMode.PLATFORM_NATIVE
-            clip.caption_style_id = style.id
-            clip.status = ClipStatus.READY
-            clip.error = None
-            db.commit()
-            db.refresh(clip)
-            return clip
-
-        # Step 4: Burn subtitles with hype word scaling
+    if async_burn:
         clip.status = ClipStatus.CAPTIONING
         db.commit()
-
-        generator = ASSGenerator()
-        ass_path = STORAGE_SUBS_DIR / f"clip_{clip.id}_{style.name.lower()}.ass"
-        generator.generate(
-            words=clip.transcript_json,
-            style=style,
-            clip_start_s=0.0,
-            clip_end_s=clip.duration_s if clip.duration_s > 0 else None,
-            output_file=ass_path,
-            hype_words=viral.hype_words,
-        )
-
-        final_mp4 = STORAGE_CLIPS_DIR / f"clip_{clip.id}_{style.name.lower()}.mp4"
-        burn_subtitles(
-            raw_video_path=clip.raw_file_path,
-            ass_subtitle_path=ass_path,
-            output_video_path=final_mp4,
-            fonts_dir="backend/assets/fonts",
-        )
-
-        clip.file_path = str(final_mp4)
-        clip.caption_style_id = style.id
-        clip.caption_mode = CaptionMode.BURNED
-        clip.status = ClipStatus.READY
-        clip.error = None
-
-        db.commit()
         db.refresh(clip)
+        background_tasks.add_task(process_clip_captioning, clip_id, payload.style_id, payload.caption_mode)
         return clip
 
-    except Exception as e:
-        logger.exception(f"Captioning failed for clip {clip_id}: {e}")
-        clip.status = ClipStatus.FAILED
-        clip.error = str(e)
-        db.commit()
+    # Synchronous execution
+    process_clip_captioning(clip_id, payload.style_id, payload.caption_mode)
+    db.refresh(clip)
+    if clip.status == ClipStatus.FAILED:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Caption generation failed: {e}",
+            detail=f"Caption generation failed: {clip.error}",
         )
+    return clip
