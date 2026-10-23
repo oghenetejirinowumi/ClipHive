@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { StarButton } from "@/components/projects/StarButton";
 import { Badge, Button, buttonClass, Em, Icon, Notice, Panel, SectionLabel, SkyHeader, StatusBadge } from "@/components/ui";
 import { api, API_URL } from "@/lib/api";
 
@@ -14,6 +15,7 @@ type Clip = {
   highlight_score?: number | null;
   hashtags?: string[];
   status: string;
+  starred?: boolean;
   created_at: string;
 };
 
@@ -81,6 +83,7 @@ export default function HubPage() {
               {/* 9:16 video: always dark, it stands in for the feed */}
               <div className="relative aspect-[9/16] w-full bg-brand-deep">
                 <video src={videoSrc} controls playsInline preload="metadata" className="size-full object-cover" />
+                <StarButton clipId={clip.id} starred={Boolean(clip.starred)} className="absolute top-3 right-3" />
                 {clip.highlight_score ? (
                   <span className="absolute top-4 left-4 rounded-full bg-brand-deep/80 px-3 py-1 text-meta font-semibold text-on-brand tabular-nums">
                     Hook {Math.round(clip.highlight_score)}/100

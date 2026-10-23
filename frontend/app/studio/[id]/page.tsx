@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useRef, useState } from "react";
+import { MoreClips } from "@/components/projects/MoreClips";
+import { StarButton } from "@/components/projects/StarButton";
 import { LayoutPreview } from "@/components/studio/LayoutPreview";
 import { Scrubber } from "@/components/studio/Scrubber";
 import { Badge, Button, buttonClass, Em, Field, Icon, Notice, Panel, SectionLabel, Segmented, Select, StatusBadge } from "@/components/ui";
 import { api, ApiError, API_URL } from "@/lib/api";
-import { formatTime, LAYOUT_LABEL, projectTitle, SOURCE_LABEL, type Layout, type StudioClip, type StudioProject } from "@/lib/imports";
+import { formatTime, LAYOUT_LABEL, projectTitle, SOURCE_LABEL, type ImportJob, type Layout, type StudioClip, type StudioProject } from "@/lib/imports";
 
 type CaptionStyle = { id: number; name: string };
 type Message = { tone: "brand" | "success" | "danger"; text: string } | null;
@@ -65,6 +67,35 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
       .catch(() => {});
   }, [load]);
 
+  // Link projects scrub a low-res preview: start fetching it on open, then poll until it's ready.
+  const previewStatus = project?.preview.status;
+  const hasVideo = Boolean(project?.source_path);
+  useEffect(() => {
+    if (!project || hasVideo) return;
+    if (previewStatus === "none") {
+      api(`/api/studio/imports/${project.job.id}/preview`, { method: "POST" }).then(load).catch(() => {});
+      return;
+    }
+    if (previewStatus !== "fetching") return;
+    const t = setInterval(load, 2000);
+    return () => clearInterval(t);
+  }, [project, hasVideo, previewStatus, load]);
+
+  const onMoreFinished = useCallback(
+    async (added: number, job: ImportJob) => {
+      await load();
+      if (added > 0) setMessage({ tone: "success", text: `Added ${added} new clip${added === 1 ? "" : "s"}, all from moments you didn't have yet.` });
+      else if (job.status === "done" && !job.error) setMessage({ tone: "brand", text: "No fresh moments left at that length. Try a shorter clip length." });
+    },
+    [load],
+  );
+
+  async function retryPreview() {
+    if (!project) return;
+    await api(`/api/studio/imports/${project.job.id}/preview`, { method: "POST" }).catch(() => {});
+    await load();
+  }
+
   const seek = useCallback((t: number) => {
     if (video.current) video.current.currentTime = t;
     setCurrent(t);
@@ -119,7 +150,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
   async function createClip() {
     if (!project) return;
     setCreating(true);
-    setMessage({ tone: "brand", text: "Cutting your clip…" });
+    setMessage({ tone: "brand", text: project.job.source === "upload" ? "Cutting your clip…" : "Fetching this range in HD and cutting it (can take a minute)…" });
     try {
       const clip = await api<StudioClip>(`/api/studio/imports/${project.job.id}/clips`, { method: "POST", body: { start_s: start, end_s: end, layout } });
       if (captions === "burn" && styleId) {
@@ -215,16 +246,37 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
       <div className="grid gap-10 xl:grid-cols-[minmax(0,1fr)_22rem]">
         {/* Source + timeline */}
         <section className="min-w-0 space-y-6">
-          <video
-            ref={video}
-            src={`${API_URL}/${project.source_path}`}
-            controls
-            playsInline
-            preload="auto"
-            onTimeUpdate={onTimeUpdate}
-            onSeeked={onTimeUpdate}
-            className="aspect-video w-full rounded-xl bg-brand-deep object-contain shadow-glow"
-          />
+          {project.source_path ? (
+            <video
+              ref={video}
+              src={`${API_URL}/${project.source_path}`}
+              controls
+              playsInline
+              preload="auto"
+              onTimeUpdate={onTimeUpdate}
+              onSeeked={onTimeUpdate}
+              className="aspect-video w-full rounded-xl bg-brand-deep object-contain shadow-glow"
+            />
+          ) : (
+            <div className="grid aspect-video w-full place-items-center rounded-xl bg-brand-deep p-8 text-center shadow-glow" aria-live="polite">
+              {project.preview.status === "failed" ? (
+                <div className="space-y-4">
+                  <p className="text-xl text-on-brand">{project.preview.error || "Couldn't fetch a preview."}</p>
+                  <Button variant="inverse" onClick={retryPreview}>
+                    Try again
+                  </Button>
+                </div>
+              ) : (
+                <div className="w-full max-w-md space-y-4">
+                  <p className="font-display text-2xl font-semibold tracking-tight text-on-brand">Preparing a quick preview… {project.preview.progress}%</p>
+                  <div className="h-2.5 overflow-hidden rounded-full bg-on-brand/15">
+                    <div className="h-full rounded-full bg-on-brand transition-[width] duration-(--motion-base)" style={{ width: `${Math.max(4, project.preview.progress)}%` }} />
+                  </div>
+                  <p className="text-lg text-on-brand/80">A small low-res copy for scrubbing. Your clips are still cut in HD. You can pick a suggested moment or drag on the timeline now.</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {project.moments.length > 0 && (
             <div className="space-y-3">
@@ -339,6 +391,8 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
             {project.clips.length}
           </Badge>
         </div>
+        {project.job.error && <Notice tone="brand">{project.job.error}</Notice>}
+        <MoreClips job={project.job} onFinished={onMoreFinished} />
         {project.clips.length === 0 ? (
           <Panel tone="sunken" padding="lg" className="text-center">
             <p className="text-lg text-ink-muted">Pick a range on the timeline and create your first clip.</p>
@@ -348,7 +402,10 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
             {project.clips.map((clip) => (
               <li key={clip.id}>
                 <Panel padding="none" className="flex h-full flex-col overflow-hidden">
-                  {clip.file_path && <video key={clip.file_path} src={`${API_URL}/${clip.file_path}`} controls playsInline preload="metadata" className="aspect-[9/16] w-full bg-brand-deep object-cover" />}
+                  <div className="relative">
+                    {clip.file_path && <video key={clip.file_path} src={`${API_URL}/${clip.file_path}`} controls playsInline preload="metadata" className="aspect-[9/16] w-full bg-brand-deep object-cover" />}
+                    <StarButton clipId={clip.id} starred={clip.starred} className="absolute top-3 right-3" />
+                  </div>
                   <div className="flex flex-1 flex-col gap-4 p-5">
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-mono text-meta whitespace-nowrap text-ink-muted tabular-nums">
@@ -360,6 +417,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                       <Badge tone="brand">{LAYOUT_LABEL[clip.layout]}</Badge>
                       <Badge tone="neutral">{clip.captioned ? "Captions burned" : "No captions"}</Badge>
                     </div>
+                    {clip.error && <p className="text-base text-danger">{clip.error}</p>}
                     <Segmented
                       label={`Layout for clip ${clip.id}`}
                       value={clip.layout}

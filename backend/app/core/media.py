@@ -5,6 +5,8 @@ import os
 import re
 import shutil
 import subprocess
+import threading
+import time
 from functools import lru_cache
 from pathlib import Path
 
@@ -20,6 +22,11 @@ def storage_root() -> Path:
 def public_path(path: Path) -> str:
     """'storage/clips/x.mp4' style path the frontend appends to the API URL (served at /storage)."""
     return "storage/" + path.resolve().relative_to(storage_root()).as_posix()
+
+
+def from_public(path: str) -> Path:
+    """Inverse of public_path: a stored "storage/..." path (or an absolute one) → file on disk."""
+    return storage_root() / path.removeprefix("storage/") if path.startswith("storage/") else Path(path)
 
 
 @lru_cache(maxsize=1)
@@ -50,6 +57,21 @@ def ffmpeg_bin() -> str:
 
 class MediaError(RuntimeError):
     """ffmpeg failed; the message is safe to show to the user."""
+
+
+# Heavy encodes (1080x1920 x264) use a lot of memory each; running many at once is what made
+# them fail with "Generic error in an external library". Cap how many run together.
+ENCODE_SLOTS = threading.BoundedSemaphore(2)
+
+
+def encode(args: list[str], timeout: int = 1800) -> None:
+    """run_ffmpeg for a full re-encode: waits for a free slot and retries a transient failure once."""
+    with ENCODE_SLOTS:
+        try:
+            run_ffmpeg(args, timeout)
+        except MediaError:
+            time.sleep(2)
+            run_ffmpeg(args, timeout)
 
 
 def run_ffmpeg(args: list[str], timeout: int = 1800) -> None:

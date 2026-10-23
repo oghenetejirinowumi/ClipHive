@@ -67,8 +67,10 @@ CREATE TABLE clips (
     highlight_score FLOAT,               -- Written by C1 (detection) or C2 (hook score)
     title VARCHAR(255),                  -- Written by C2 (AI Viral Studio)
     hashtags JSON DEFAULT '[]',          -- Written by C2 (Trends Studio)
-    status VARCHAR(50) NOT NULL,         -- 'processing' (C1) -> 'captioning' (C2) -> 'ready' (C4) -> 'failed'
-    error TEXT,
+    status VARCHAR(50) NOT NULL,         -- 'ready' once cut (clean, platform_native captions); 'captioning' while C2 burns; 'failed' only if no usable file
+    error TEXT,                          -- e.g. "Captions failed: ..." on a clip that is still ready (clean cut)
+    starred BOOLEAN DEFAULT 0 NOT NULL,  -- user liked it; teaches the moment picker their taste
+    moment_features JSON,                -- shape of an auto-picked moment (detector.FEATURES), used for taste
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
@@ -117,15 +119,16 @@ CREATE TABLE import_jobs (
     clip_seconds INTEGER DEFAULT 30,
     layout VARCHAR(10) DEFAULT 'fill', -- 'fill' | 'blur' for auto-cut clips
     clip_layouts JSON,                  -- {clip_id: layout} for every clip cut from this source
-    clip_ids JSON DEFAULT '[]',         -- clips rows written (status='processing', ready for C2)
+    clip_ids JSON DEFAULT '[]',         -- clips rows written (status='ready'; C2 may burn captions on them)
     status VARCHAR(50) NOT NULL,        -- 'queued' | 'downloading' | 'analyzing' | 'cutting' | 'done' | 'failed'
     progress INTEGER DEFAULT 0,         -- 0-100
+    detail VARCHAR(255),                -- current step, e.g. 'Fetching 5 clips in HD · 42%'
     error TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     finished_at TIMESTAMP
 );
 ```
-Each import writes its clips as normal `clips` rows (`raw_file_path` = the 9:16 cut, `file_path` = the same file until C2 burns captions, `status='processing'`).
+Each import writes its clips as normal `clips` rows (`raw_file_path` = the 9:16 cut, `file_path` = the same file until C2 burns captions, `status='ready'`, `caption_mode='platform_native'`). Captions are optional: a cut clip is postable at once, and a failed caption burn leaves it `ready` with `error` set. A project that already has clips stays `done` if a later batch fails (its `error` says why it stopped early).
 
 ### `posts`
 ```sql
@@ -165,14 +168,22 @@ CREATE TABLE posts (
 | `/api/imports/link` | `POST` | **C1** | Paste a Twitch / Kick / YouTube link → several clips (async) | `{"url", "clip_count": 1-10, "clip_seconds": 10-90, "layout": "fill"\|"blur"}` | `ImportRead` (202) |
 | `/api/imports/upload` | `POST` | **C1** | Upload a video (camera roll) → several clips (async) | `multipart/form-data (file, clip_count, clip_seconds, layout)` | `ImportRead` (202) |
 | `/api/imports` | `GET` | **C1** | Your import projects, newest first (poll while active) | — | `list[ImportRead]` |
-| `/api/imports/{id}` | `GET` | **C1** | One import's status / progress / clip_ids | — | `ImportRead` |
+| `/api/imports/{id}` | `GET` | **C1** | One import's status / progress / detail (step text) / clip_ids | — | `ImportRead` |
+| `/api/imports/{id}/retry` | `POST` | **C1** | Re-run a failed project in place, reusing what it already downloaded | — | `ImportRead` (202) |
+| `/api/imports/{id}/more` | `POST` | **C1** | Cut `count` more clips from moments the project's clips don't cover yet, leaning toward starred clips | `{"count": 1-10, "clip_seconds"?: 10-90}` | `ImportRead` (202) |
+| `/api/imports/{id}` | `DELETE` | **C1** | Cancel (if running) and delete a project; `?clips=true` also deletes its clips | — | 204 |
 | `/api/downloads/instagram` | `POST` | **C1** | Fetch a public Instagram post/reel as MP4 | `{"url"}` | `DownloadRead` |
 | `/api/downloads/{id}/file` | `GET` | **C1** | The fetched file, as an attachment | — | Binary MP4 file |
 | `/api/studio/imports/{id}` | `GET` | **C1** | Open a project in the Clipping Studio: source video, energy curve, suggested moments, its clips | — | `StudioProject` |
+| `/api/studio/imports/{id}/preview` | `POST` | **C1** | Start fetching a link project's low-res scrubbing preview (idempotent) | — | `PreviewState` |
 | `/api/studio/imports/{id}/clips` | `POST` | **C1** | Cut a hand-picked range as a clip | `{"start_s", "end_s", "layout"}` | `StudioClip` (201) |
 | `/api/studio/clips/{id}/layout` | `POST` | **C1** | Re-cut a clip in the other layout (drops burned captions) | `{"layout": "fill"\|"blur"}` | `StudioClip` |
 | `/api/studio/clips/{id}/remove-captions` | `POST` | **C1** | Serve the clean cut again (caption_mode=platform_native, status=ready) | — | `StudioClip` |
+| `/api/studio/clips/{id}/star` | `POST` | **C1** | Star / unstar a clip (feeds the user's taste) | `{"starred": bool}` | `{"id", "starred", "starred_total"}` |
+| `/api/studio/taste` | `GET` | **C1** | Stars so far and whether picks are leaning on them yet | — | `{"starred", "learning"}` |
 | `/api/studio/clips/{id}/project` | `GET` | **C1** | Which project a clip came from (Hub → Studio link) | — | `{"job_id"}` |
+
+**Link imports are bandwidth-first** (`backend/app/services/ingest/pipeline.py`): we fetch the low-bitrate audio, find moments in it, then fetch only those sections in HD (in parallel, stream-copied, so each clip is encoded exactly once). At most two heavy encodes (cuts + caption burns) run at a time. Interrupted projects resume on restart. The full VOD is never downloaded; the studio scrubs a low-res preview.
 
 **Layouts** (`backend/app/services/clip/cutter.py`): `fill` crops/zooms to cover 9:16; `blur` keeps the whole frame centred over a blurred copy of itself. Burning captions on a studio clip still goes through C2's `POST /api/clips/{id}/caption`.
 

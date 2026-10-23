@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.core.media import run_ffmpeg
+from app.core.media import encode
 
 LAYOUTS = ("fill", "blur")
 
@@ -31,7 +31,7 @@ BLUR_FILTER = (
 
 def cut_vertical(src: Path, start_s: float, end_s: float, dst: Path, layout: str = "fill") -> Path:
     dst.parent.mkdir(parents=True, exist_ok=True)
-    run_ffmpeg([
+    encode([
         "-ss", f"{start_s:.2f}", "-i", str(src), "-t", f"{end_s - start_s:.2f}",
         "-vf", BLUR_FILTER if layout == "blur" else FILL_FILTER,
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p",

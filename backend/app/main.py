@@ -14,6 +14,7 @@ from app.api import auth
 from app.api.clips import router as clips_router
 from app.api.downloads import router as downloads_router
 from app.api.imports import router as imports_router
+from app.api.live import router as live_router
 from app.api.streamers import router as streamers_router
 from app.api.studio import router as studio_router
 from app.api.styles import router as styles_router
@@ -104,6 +105,7 @@ app.mount("/storage", StaticFiles(directory=str(storage_dir)), name="storage")
 
 # Include routers (paths per docs/CONTRACT.md: everything under /api).
 app.include_router(auth.router, prefix="/api")
+app.include_router(live_router, prefix="/api")  # GET /api/streamers/status
 app.include_router(streamers_router, prefix="/api")
 app.include_router(styles_router, prefix="/api")
 app.include_router(clips_router, prefix="/api")

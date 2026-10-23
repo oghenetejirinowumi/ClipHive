@@ -4,7 +4,10 @@ from __future__ import annotations
 import logging
 import platform
 import subprocess
+import time
 from pathlib import Path
+
+from app.core.media import ENCODE_SLOTS, ffmpeg_bin as bundled_ffmpeg
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +46,13 @@ def burn_subtitles(
     ass_subtitle_path: str | Path,
     output_video_path: str | Path,
     fonts_dir: str | Path | None = None,
-    ffmpeg_bin: str = "ffmpeg",
+    ffmpeg_bin: str | None = None,
 ) -> Path:
     """
     Burns an ASS subtitle file into a vertical MP4 video using FFmpeg libass.
     Returns the resolved output Path.
     """
+    ffmpeg_bin = ffmpeg_bin or bundled_ffmpeg()
     raw_path = Path(raw_video_path).resolve()
     ass_path = Path(ass_subtitle_path).resolve()
     out_path = Path(output_video_path).resolve()
@@ -72,7 +76,7 @@ def burn_subtitles(
     if is_videotoolbox_supported(ffmpeg_bin):
         vcodec_args = ["-c:v", "h264_videotoolbox", "-b:v", "3500k"]
     else:
-        vcodec_args = ["-c:v", "libx264", "-preset", "fast", "-crf", "20"]
+        vcodec_args = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"]
 
     cmd = [
         ffmpeg_bin,
@@ -87,7 +91,13 @@ def burn_subtitles(
     ]
 
     logger.info(f"Running FFmpeg subtitle burn: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    # Shares the encode slots with clip cutting; a transient encoder failure (memory pressure)
+    # gets one retry.
+    with ENCODE_SLOTS:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            time.sleep(2)
+            result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
         logger.error(f"FFmpeg burning failed (exit {result.returncode}):\n{result.stderr}")

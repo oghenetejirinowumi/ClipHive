@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
-import { Badge, Button, Em, Field, Icon, Input, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
+import { useCallback, useEffect, useState, useTransition } from "react";
+import { Badge, Button, buttonClass, Em, Field, Icon, Input, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 
@@ -18,6 +18,28 @@ type Streamer = {
 
 const PLATFORM_LABEL: Record<Platform, string> = { twitch: "Twitch", kick: "Kick", youtube: "YouTube" };
 
+/** GET /api/streamers/status: checked against the platform, never guessed. */
+type LiveStatus = {
+  streamer_id: number;
+  live: boolean | null; // null = couldn't tell
+  url: string;
+  title: string | null;
+  viewers: number | null;
+  category: string | null;
+  error: string | null;
+  checked_at: string;
+};
+
+const POLL_MS = 60_000;
+
+const compact = (n: number) => new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(n);
+
+function ago(iso: string | null): string {
+  if (!iso) return "";
+  const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  return s < 10 ? "just now" : s < 60 ? `${s}s ago` : `${Math.round(s / 60)} min ago`;
+}
+
 export default function StreamersPage() {
   const [streamers, setStreamers] = useState<Streamer[]>([]);
   const [platform, setPlatform] = useState<Platform>("twitch");
@@ -25,6 +47,33 @@ export default function StreamersPage() {
   const [message, setMessage] = useState<string | null>(null);
 
   const [isPending, startTransition] = useTransition();
+  const [statuses, setStatuses] = useState<Record<number, LiveStatus>>({});
+  const [checking, setChecking] = useState(false);
+  const [lastChecked, setLastChecked] = useState<string | null>(null);
+  const [, tick] = useState(0); // re-render so "checked 20s ago" stays current
+
+  const loadStatus = useCallback(async (refresh = false) => {
+    setChecking(true);
+    try {
+      const list = await api<LiveStatus[]>(`/api/streamers/status${refresh ? "?refresh=true" : ""}`, { auth: false });
+      setStatuses(Object.fromEntries(list.map((st) => [st.streamer_id, st])));
+      setLastChecked(new Date().toISOString());
+    } catch (err) {
+      console.warn("Could not check live status:", err);
+    } finally {
+      setChecking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadStatus();
+    const poll = setInterval(() => loadStatus(), POLL_MS);
+    const clock = setInterval(() => tick((n) => n + 1), 10_000);
+    return () => {
+      clearInterval(poll);
+      clearInterval(clock);
+    };
+  }, [loadStatus]);
 
   useEffect(() => {
     async function loadStreamers() {
@@ -56,7 +105,8 @@ export default function StreamersPage() {
         });
 
         setUsername("");
-        setMessage(`Now monitoring ${created.username} on ${created.platform.toUpperCase()}!`);
+        setMessage(`Added ${created.username} on ${PLATFORM_LABEL[created.platform] ?? created.platform}.`);
+        loadStatus();
       } catch {
         setMessage("Failed to add streamer channel.");
       }
@@ -83,7 +133,7 @@ export default function StreamersPage() {
             Channels we&apos;re <Em>watching</Em>
           </>
         }
-        description="ClipHive autonomously monitors Twitch, Kick, and YouTube channels to capture high-energy clips."
+        description="See which of your Twitch, Kick and YouTube channels are live right now, checked against each platform. When a stream ends, paste its VOD into Create to clip it."
       />
 
       {message && (
@@ -95,18 +145,26 @@ export default function StreamersPage() {
       <div className="grid gap-10 lg:grid-cols-12">
         {/* Left: monitored channels */}
         <section className="space-y-6 lg:col-span-7">
-          <div className="flex items-center justify-between gap-4">
-            <SectionLabel>Active channels</SectionLabel>
-            <Badge tone="brand" size="md">
-              {streamers.length} monitored
-            </Badge>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <SectionLabel>Your channels</SectionLabel>
+              <Badge tone="brand" size="md">
+                {Object.values(statuses).filter((st) => st.live).length} live of {streamers.length}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-3">
+              {lastChecked && <span className="text-base text-ink-muted">Checked {ago(lastChecked)}</span>}
+              <Button variant="ghost" size="sm" loading={checking} disabled={checking || streamers.length === 0} onClick={() => loadStatus(true)}>
+                Refresh
+              </Button>
+            </div>
           </div>
 
           {streamers.length > 0 ? (
             <ul className="divide-y divide-line border-y border-line">
-              {streamers.map((s, idx) => {
-                // Alternate status for realistic demo visual
-                const isLive = idx % 2 === 0;
+              {streamers.map((s) => {
+                const st = statuses[s.id];
+                const live = st?.live === true;
 
                 return (
                   <li key={s.id} className="flex items-center justify-between gap-4 py-6">
@@ -119,16 +177,36 @@ export default function StreamersPage() {
                           <span className="truncate font-display text-2xl font-semibold tracking-tight text-ink">{s.username}</span>
                           <Badge tone="neutral">{PLATFORM_LABEL[s.platform] ?? s.platform}</Badge>
                         </div>
-                        <div className="mt-1 flex items-center gap-2 text-base">
-                          <span aria-hidden className={cn("size-3 rounded-full", isLive ? "bg-success" : "bg-ink-faint")} />
-                          <span className={isLive ? "font-medium text-success" : "text-ink-muted"}>{isLive ? "Live now · monitoring" : "Offline · watching for live"}</span>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 text-base" aria-live="polite">
+                          {/* status dot (decorative: the text next to it carries the state) */}
+                          <span aria-hidden className={cn("size-3 shrink-0 rounded-full", !st ? "animate-pulse bg-ink-faint" : live ? "bg-success" : st.live === null ? "bg-warning" : "bg-ink-faint")} />
+                          {!st ? (
+                            <span className="text-ink-muted">Checking…</span>
+                          ) : live ? (
+                            <span className="font-medium text-success">
+                              Live now{st.viewers != null && ` · ${compact(st.viewers)} watching`}
+                              {st.category && ` · ${st.category}`}
+                            </span>
+                          ) : st.live === null ? (
+                            <span className="text-warning">Couldn&apos;t check{st.error ? ` · ${st.error}` : ""}</span>
+                          ) : (
+                            <span className="text-ink-muted">Offline</span>
+                          )}
                         </div>
+                        {live && st.title && <p className="mt-1 line-clamp-1 text-base text-ink-muted">{st.title}</p>}
                       </div>
                     </div>
 
-                    <Button variant="ghost" size="sm" disabled={isPending} onClick={() => handleDeleteStreamer(s.id)}>
-                      Remove
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {live && (
+                        <a href={st.url} target="_blank" rel="noopener noreferrer" className={buttonClass({ variant: "secondary", size: "sm" })}>
+                          <Icon name="play" className="size-5" /> Watch
+                        </a>
+                      )}
+                      <Button variant="ghost" size="sm" disabled={isPending} onClick={() => handleDeleteStreamer(s.id)}>
+                        Remove
+                      </Button>
+                    </div>
                   </li>
                 );
               })}
@@ -148,7 +226,7 @@ export default function StreamersPage() {
         <aside className="space-y-8 lg:col-span-5">
           <Panel padding="lg">
             <h3 className="font-display text-3xl font-semibold tracking-tight text-ink">Add a channel</h3>
-            <p className="mt-2 text-lg text-ink-muted">Enter any Twitch, Kick, or YouTube username. ClipHive will automatically track when they go live.</p>
+            <p className="mt-2 text-lg text-ink-muted">Enter any Twitch, Kick, or YouTube username. ClipHive checks whether they’re live and shows it here.</p>
 
             <form onSubmit={handleAddStreamer} className="mt-8 space-y-6">
               <div className="space-y-2">
@@ -172,7 +250,7 @@ export default function StreamersPage() {
 
               <Button type="submit" size="lg" className="w-full" loading={isPending}>
                 <Icon name="radio" />
-                Start watching
+                Add channel
               </Button>
             </form>
           </Panel>

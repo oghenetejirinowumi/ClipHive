@@ -97,13 +97,13 @@ def generate_ai_metadata(
     return clip
 
 
-def process_clip_captioning(clip_id: int, style_id: int, caption_mode: CaptionMode):
-    """Worker routine to transcribe, AI package, and burn video for a clip."""
+def process_clip_captioning(clip_id: int, style_id: int, caption_mode: CaptionMode) -> bool:
+    """Worker routine to transcribe, AI package, and burn video for a clip. Returns False if it failed."""
     with SessionLocal() as db:
         clip = db.query(Clip).filter(Clip.id == clip_id).first()
         style = db.query(CaptionStyle).filter(CaptionStyle.id == style_id).first()
         if not clip or not style or not clip.raw_file_path:
-            return
+            return False
 
         try:
             # 1. Transcribe with domain vocabulary + AI proofread
@@ -134,7 +134,7 @@ def process_clip_captioning(clip_id: int, style_id: int, caption_mode: CaptionMo
                 clip.status = ClipStatus.READY
                 clip.error = None
                 db.commit()
-                return
+                return True
 
             # 4. Burn kinetic captions
             clip.status = ClipStatus.CAPTIONING
@@ -165,12 +165,18 @@ def process_clip_captioning(clip_id: int, style_id: int, caption_mode: CaptionMo
             clip.status = ClipStatus.READY
             clip.error = None
             db.commit()
+            return True
 
         except Exception as e:
             logger.exception(f"Captioning worker failed for clip {clip_id}: {e}")
-            clip.status = ClipStatus.FAILED
-            clip.error = str(e)
+            db.rollback()
+            # The clean cut is still a finished clip: keep it postable and record why captions failed.
+            usable = bool(clip.file_path or clip.raw_file_path) and Path(clip.raw_file_path).exists()
+            clip.status = ClipStatus.READY if usable else ClipStatus.FAILED
+            reason = "the video encoder ran out of memory, try again" if "FFmpeg" in str(e) else str(e)
+            clip.error = f"Captions failed: {reason}"[:500]
             db.commit()
+            return False
 
 
 @router.post("/{clip_id}/caption", response_model=ClipRead)
@@ -206,11 +212,11 @@ def caption_clip(
         return clip
 
     # Synchronous execution
-    process_clip_captioning(clip_id, payload.style_id, payload.caption_mode)
+    ok = process_clip_captioning(clip_id, payload.style_id, payload.caption_mode)
     db.refresh(clip)
-    if clip.status == ClipStatus.FAILED:
+    if not ok:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Caption generation failed: {clip.error}",
+            detail=clip.error or "Caption generation failed.",
         )
     return clip

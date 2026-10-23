@@ -16,6 +16,7 @@ export type ImportJob = {
   layout: Layout;
   status: "queued" | "downloading" | "analyzing" | "cutting" | "done" | "failed";
   progress: number;
+  detail: string | null; // current step, e.g. "Fetching 5 clips in HD · 42%"
   error: string | null;
   created_at: string;
 };
@@ -32,13 +33,19 @@ export type StudioClip = {
   caption_style_id: number | null;
   layout: Layout;
   highlight_score: number | null;
+  starred: boolean;
+  error: string | null; // e.g. why burning captions failed (the clean clip is still ready)
 };
 
 export type Moment = { start_s: number; end_s: number; score: number };
 
+export type PreviewState = { status: "none" | "fetching" | "ready" | "failed"; progress: number; error: string | null };
+
 export type StudioProject = {
   job: ImportJob;
-  source_path: string;
+  /** Video to scrub: the upload, or a link's low-res preview once fetched (null until then). */
+  source_path: string | null;
+  preview: PreviewState;
   energy: number[];
   moments: Moment[];
   clips: StudioClip[];

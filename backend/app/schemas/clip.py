@@ -61,6 +61,7 @@ class ClipRead(ORMModel):
     hashtags: list[str]
     status: ClipStatus
     error: str | None
+    starred: bool = False
     created_at: datetime
 
 

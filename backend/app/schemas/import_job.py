@@ -29,9 +29,16 @@ class ImportRead(ORMModel):
     layout: str = "fill"
     status: ImportStatus
     progress: int
+    detail: str | None = None
     error: str | None
     created_at: datetime
     finished_at: datetime | None
+
+
+# POST /api/imports/{id}/more
+class MoreClipsRequest(BaseModel):
+    count: int = Field(default=5, ge=1, le=10)
+    clip_seconds: int | None = Field(default=None, ge=10, le=90)  # None keeps the project's length
 
 
 # POST /api/downloads/instagram
@@ -83,6 +90,19 @@ class StudioClip(BaseModel):
     caption_style_id: int | None
     layout: str
     highlight_score: float | None
+    starred: bool = False
+    error: str | None = None  # e.g. why burning captions failed (the clean cut is still ready)
+
+
+# POST /api/studio/clips/{id}/star
+class StarRequest(BaseModel):
+    starred: bool
+
+
+class StarResult(BaseModel):
+    id: int
+    starred: bool
+    starred_total: int  # how many clips this user has starred: the taste's evidence
 
 
 class Moment(BaseModel):
@@ -91,9 +111,17 @@ class Moment(BaseModel):
     score: float
 
 
+class PreviewState(BaseModel):
+    status: str  # "none" | "fetching" | "ready" | "failed"
+    progress: int = 0
+    error: str | None = None
+
+
 class StudioProject(BaseModel):
     job: ImportRead
-    source_path: str  # public "storage/..." path of the full source video
+    # Video to scrub: the upload itself, or a link's low-res preview once fetched (else None).
+    source_path: str | None
+    preview: PreviewState
     energy: list[float]  # 0-1 loudness, evenly spaced over the duration
     moments: list[Moment]  # auto-detected highlights
     clips: list[StudioClip]

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, String, Text, func
+from sqlalchemy import JSON, Boolean, DateTime, Enum, Float, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -31,6 +31,8 @@ class Clip(Base):
         Enum(ClipStatus, native_enum=False), default=ClipStatus.PROCESSING, index=True
     )
     error: Mapped[str | None] = mapped_column(Text)
+    starred: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")  # user liked it; feeds taste
+    moment_features: Mapped[list | None] = mapped_column(JSON)  # detector.FEATURES of an auto-picked moment
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     stream: Mapped["Stream | None"] = relationship(back_populates="clips")
