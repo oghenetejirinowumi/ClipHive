@@ -1,22 +1,32 @@
 """API endpoints for Clips and Caption processing."""
+
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
-
+from app.config import settings
 from app.db import SessionLocal, get_db
 from app.models.caption_style import CaptionStyle
 from app.models.clip import Clip
-from app.models.enums import CaptionMode, ClipStatus
+from app.models.enums import CaptionMode, ClipStatus, PostPlatform
 from app.schemas.clip import CaptionRequest, ClipRead, ClipUpdate
+from app.services.ai.context_engine import (
+    GAME_SIGNATURES,
+    ClipContext,
+    apply_context_to_clip,
+    extract_clip_context,
+)
+from app.services.agents.learning import record_feedback
 from app.services.ai.proofreader import proofread_transcript
 from app.services.ai.viral_studio import generate_viral_metadata
 from app.services.caption.ass_generator import ASSGenerator
 from app.services.caption.burner import burn_subtitles
 from app.services.transcribe.whisper_service import transcribe_video
+from app.services.trends.queries import match_clip_to_trends
+from app.services.trends.social_search import SocialSearchUnavailable, find_social_trends
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -48,12 +58,39 @@ def get_clip(clip_id: int, db: Session = Depends(get_db)):
     return clip
 
 
+@router.get("/{clip_id}/trend-match")
+def get_clip_trend_matches(
+    clip_id: int,
+    platform: PostPlatform = Query(default=PostPlatform.YOUTUBE),
+    region: str = Query(default="NG", pattern="^(NG|US)$"),
+    db: Session = Depends(get_db),
+):
+    clip = db.query(Clip).filter(Clip.id == clip_id).first()
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    return {
+        "clip_id": clip.id,
+        "region": region.upper(),
+        "platform": platform.value,
+        "matches": match_clip_to_trends(db, clip, platform.value, region.upper()),
+    }
+
+
 @router.patch("/{clip_id}", response_model=ClipRead)
 def update_clip(clip_id: int, payload: ClipUpdate, db: Session = Depends(get_db)):
     """Updates clip metadata like title and hashtags."""
     clip = db.query(Clip).filter(Clip.id == clip_id).first()
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
+
+    # Log edits so the agents learn this creator's taste (services/agents/learning.py).
+    feedback: list[tuple[str, dict, dict]] = []
+    if payload.title is not None and payload.title != clip.title:
+        feedback.append(("title_edit", {"title": clip.title}, {"title": payload.title}))
+    if payload.hashtags is not None and list(payload.hashtags) != list(clip.hashtags or []):
+        feedback.append(("hashtag_edit", {"hashtags": clip.hashtags or []}, {"hashtags": payload.hashtags}))
+    if payload.caption_style_id is not None and payload.caption_style_id != clip.caption_style_id:
+        feedback.append(_style_feedback(db, clip.caption_style_id, payload.caption_style_id))
 
     if payload.title is not None:
         clip.title = payload.title
@@ -66,34 +103,123 @@ def update_clip(clip_id: int, payload: ClipUpdate, db: Session = Depends(get_db)
 
     db.commit()
     db.refresh(clip)
+    for kind, before, after in feedback:
+        record_feedback(db, clip.user_id, clip, kind, before, after)
     return clip
 
 
+def _style_feedback(db: Session, old_id: int | None, new_id: int) -> tuple[str, dict, dict]:
+    old = db.get(CaptionStyle, old_id) if old_id else None
+    new = db.get(CaptionStyle, new_id)
+    return ("style_change", {"style": old.name if old else None}, {"style": new.name if new else None})
+
+
+@router.get("/{clip_id}/context")
+def get_clip_context_endpoint(
+    clip_id: int,
+    platform: str = "tiktok",
+    db: Session = Depends(get_db),
+):
+    """Returns the extracted context (game/topic, mood, event type, rationale, matched hashtags)."""
+    clip = db.query(Clip).filter(Clip.id == clip_id).first()
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    if clip.context_json and clip.context_json.get("summary"):
+        return clip.context_json
+
+    context = extract_clip_context(clip, db, platform=platform)
+    apply_context_to_clip(clip, db, context)
+    return clip.context_json
+
+
+@router.get("/{clip_id}/social-trends")
+def get_clip_social_trends(
+    clip_id: int,
+    platform: str = Query(default="tiktok", pattern="^(tiktok|youtube)$"),
+    refresh: bool = False,
+    db: Session = Depends(get_db),
+):
+    """Popular hashtags and caption ideas from short videos similar to this clip.
+
+    Reads the clip's context (transcribing it first if needed), searches YouTube
+    Shorts for matching videos, and returns hashtags ranked by how much the videos
+    using them were watched. Does not change the clip; save picks with PATCH.
+    """
+    if not settings.social_search_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Similar-video search is off. It scrapes YouTube search, so it is a research prototype; set SOCIAL_SEARCH_ENABLED=true to try it.",
+        )
+    clip = db.query(Clip).filter(Clip.id == clip_id).first()
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    saved = dict(clip.context_json or {})
+    cached = saved.get("social_trends")
+    if cached and not refresh and cached.get("platform") == platform:
+        return _social_response(clip, saved, cached)
+
+    if saved.get("summary"):
+        context = ClipContext(**saved)
+    else:
+        context = extract_clip_context(clip, db, platform=platform)
+        saved.update(context.model_dump())
+
+    try:
+        result = find_social_trends(
+            game_or_topic=context.game_or_topic,
+            event_type=context.event_type,
+            creator=context.creator,
+            summary=context.summary,
+            clip_title=clip.title,
+            suggested_title=context.viral_title,
+            topic_keywords=GAME_SIGNATURES.get(context.game_or_topic, []),
+            platform=platform,
+            refresh=refresh,
+        )
+    except SocialSearchUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+
+    saved["social_trends"] = result.model_dump()
+    clip.context_json = saved  # reassign so SQLAlchemy sees the JSON change
+    db.commit()
+    db.refresh(clip)
+    return _social_response(clip, saved, saved["social_trends"])
+
+
+def _social_response(clip: Clip, context: dict, trends: dict) -> dict:
+    return {
+        "clip_id": clip.id,
+        "current_title": clip.title,
+        "current_hashtags": clip.hashtags or [],
+        "context": {
+            key: context.get(key)
+            for key in ("summary", "game_or_topic", "event_type", "mood", "creator")
+        },
+        **trends,
+    }
+
+
 @router.post("/{clip_id}/ai-pack", response_model=ClipRead)
+@router.post("/{clip_id}/analyze-context", response_model=ClipRead)
 def generate_ai_metadata(
     clip_id: int,
     platform: str = "tiktok",
     db: Session = Depends(get_db),
 ):
-    """Runs AI Viral Studio on the clip: generates high-CTR title, hook score, and hashtags tailored to platform."""
+    """
+    Extracts deep multimodal context (game/topic, energy, dialogue) and applies:
+    - Proper Caption Aesthetic (Punch, Neon, Clean) + kinetic hype words
+    - Context-matched hashtags blending game niche, creator, moment, and live trends
+    - High-CTR viral title
+    """
     clip = db.query(Clip).filter(Clip.id == clip_id).first()
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
 
-    if not clip.transcript_json:
-        if not clip.raw_file_path or not Path(clip.raw_file_path).exists():
-            raise HTTPException(status_code=400, detail="Raw video file not found")
-        raw_words = transcribe_video(clip.raw_file_path)
-        words = proofread_transcript(raw_words)
-        clip.transcript_json = [w.model_dump() for w in words]
-
-    viral = generate_viral_metadata(clip.transcript_json, platform=platform)
-    clip.title = viral.title
-    clip.highlight_score = viral.hook_score
-    clip.hashtags = viral.hashtags
-
-    db.commit()
-    db.refresh(clip)
+    context = extract_clip_context(clip, db, platform=platform)
+    apply_context_to_clip(clip, db, context)
     return clip
 
 
@@ -102,29 +228,45 @@ def process_clip_captioning(clip_id: int, style_id: int, caption_mode: CaptionMo
     with SessionLocal() as db:
         clip = db.query(Clip).filter(Clip.id == clip_id).first()
         style = db.query(CaptionStyle).filter(CaptionStyle.id == style_id).first()
-        if not clip or not style or not clip.raw_file_path:
+        if not clip or not clip.raw_file_path:
+            return
+        if not style and clip.caption_style_id:
+            style = (
+                db.query(CaptionStyle)
+                .filter(CaptionStyle.id == clip.caption_style_id)
+                .first()
+            )
+        if not style:
+            style = db.query(CaptionStyle).first()
+        if not style:
             return
 
         try:
-            # 1. Transcribe with domain vocabulary + AI proofread
-            if not clip.transcript_json:
+            # 1. Transcribe & extract context if not already done
+            context = None
+            if (
+                not clip.transcript_json
+                or not clip.context_json
+                or not clip.context_json.get("summary")
+            ):
                 clip.status = ClipStatus.CAPTIONING
                 db.commit()
+                context = extract_clip_context(clip, db, platform="tiktok")
+                apply_context_to_clip(clip, db, context)
+            else:
+                try:
+                    from app.services.ai.context_engine import ClipContext
 
-                logger.info(f"Transcribing clip {clip.id}: {clip.raw_file_path}")
-                raw_words = transcribe_video(clip.raw_file_path)
-                proofread_words = proofread_transcript(raw_words)
-                clip.transcript_json = [w.model_dump() for w in proofread_words]
-                db.commit()
+                    context = ClipContext(**clip.context_json)
+                except Exception:
+                    context = extract_clip_context(clip, db, platform="tiktok")
+                    apply_context_to_clip(clip, db, context)
 
-            # 2. AI Virality Studio Packaging
-            viral = generate_viral_metadata(clip.transcript_json)
-            if not clip.title:
-                clip.title = viral.title
-            if not clip.highlight_score:
-                clip.highlight_score = viral.hook_score
-            if not clip.hashtags:
-                clip.hashtags = viral.hashtags
+            hype_words = (
+                context.hype_words
+                if context and context.hype_words
+                else ["CLUTCH", "OMG", "NO WAY"]
+            )
 
             # 3. Clean platform-native vs Burned
             if caption_mode == CaptionMode.PLATFORM_NATIVE:
@@ -148,7 +290,7 @@ def process_clip_captioning(clip_id: int, style_id: int, caption_mode: CaptionMo
                 clip_start_s=0.0,
                 clip_end_s=clip.duration_s if clip.duration_s > 0 else None,
                 output_file=ass_path,
-                hype_words=viral.hype_words,
+                hype_words=hype_words,
             )
 
             final_mp4 = STORAGE_CLIPS_DIR / f"clip_{clip.id}_{style.name.lower()}.mp4"
@@ -179,7 +321,9 @@ def caption_clip(
     clip_id: int,
     payload: CaptionRequest,
     background_tasks: BackgroundTasks,
-    async_burn: bool = Query(default=False, description="Run caption burn in background worker"),
+    async_burn: bool = Query(
+        default=False, description="Run caption burn in background worker"
+    ),
     db: Session = Depends(get_db),
 ):
     """
@@ -198,11 +342,16 @@ def caption_clip(
     if not clip.raw_file_path or not Path(clip.raw_file_path).exists():
         raise HTTPException(status_code=400, detail="Raw video file not found on disk")
 
+    if clip.caption_style_id and clip.caption_style_id != style.id:
+        record_feedback(db, clip.user_id, clip, *_style_feedback(db, clip.caption_style_id, style.id))
+
     if async_burn:
         clip.status = ClipStatus.CAPTIONING
         db.commit()
         db.refresh(clip)
-        background_tasks.add_task(process_clip_captioning, clip_id, payload.style_id, payload.caption_mode)
+        background_tasks.add_task(
+            process_clip_captioning, clip_id, payload.style_id, payload.caption_mode
+        )
         return clip
 
     # Synchronous execution

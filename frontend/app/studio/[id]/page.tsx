@@ -4,6 +4,7 @@ import Link from "next/link";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { LayoutPreview } from "@/components/studio/LayoutPreview";
 import { Scrubber } from "@/components/studio/Scrubber";
+import { SocialTrendsPanel } from "@/components/studio/SocialTrendsPanel";
 import { Badge, Button, buttonClass, Em, Field, Icon, Notice, Panel, SectionLabel, Segmented, Select, StatusBadge } from "@/components/ui";
 import { api, ApiError, API_URL } from "@/lib/api";
 import { formatTime, LAYOUT_LABEL, projectTitle, SOURCE_LABEL, type Layout, type StudioClip, type StudioProject } from "@/lib/imports";
@@ -33,6 +34,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
 
   const [creating, setCreating] = useState(false);
   const [busyClip, setBusyClip] = useState<number | null>(null);
+  const [trendsClip, setTrendsClip] = useState<StudioClip | null>(null);
   const [message, setMessage] = useState<Message>(null);
 
   const duration = project?.job.duration_s ?? 0;
@@ -380,6 +382,9 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                           <Icon name="captions" className="size-5" /> Burn captions
                         </Button>
                       )}
+                      <Button variant={trendsClip?.id === clip.id ? "primary" : "secondary"} size="sm" onClick={() => setTrendsClip(clip)}>
+                        <Icon name="trending" className="size-5" /> Hashtags & captions
+                      </Button>
                       {clip.file_path && (
                         <a href={`${API_URL}/${clip.file_path}`} target="_blank" rel="noopener noreferrer" className={buttonClass({ variant: "ghost", size: "sm" })}>
                           <Icon name="download" className="size-5" /> Download
@@ -393,6 +398,15 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
           </ul>
         )}
       </section>
+
+      {trendsClip && (
+        <SocialTrendsPanel
+          key={trendsClip.id}
+          clipId={trendsClip.id}
+          clipLabel={`Clip ${formatTime(trendsClip.start_s)}–${formatTime(trendsClip.end_s)}`}
+          onClose={() => setTrendsClip(null)}
+        />
+      )}
     </div>
   );
 }

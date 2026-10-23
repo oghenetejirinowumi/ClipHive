@@ -1,16 +1,15 @@
 """ClipHive FastAPI application entrypoint."""
+
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
-from fastapi.staticfiles import StaticFiles
-
 from app.api import auth
+from app.api.agents import router as agents_router
+from app.api.inbox import router as inbox_router
 from app.api.clips import router as clips_router
 from app.api.downloads import router as downloads_router
 from app.api.hub import router as hub_router
@@ -28,6 +27,13 @@ from app.models.enums import CaptionMode, ClipStatus
 from app.models.user import User
 from app.services.caption.styles import seed_preset_styles
 from app.services.ingest.pipeline import recover_interrupted
+from app.services.agents.publisher import publisher_loop
+from app.services.agents.scout import scout_loop
+from app.services.trends.scheduler import trend_scheduler
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("cliphive")
@@ -36,7 +42,9 @@ logger = logging.getLogger("cliphive")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if settings.jwt_secret == "change-me":
-        logger.warning("JWT_SECRET is the default 'change-me'. Anyone can forge sessions; set a real one in backend/.env.")
+        logger.warning(
+            "JWT_SECRET is the default 'change-me'. Anyone can forge sessions; set a real one in backend/.env."
+        )
 
     # Startup: Initialize DB and seeds
     logger.info("Initializing database...")
@@ -59,7 +67,10 @@ async def lifespan(app: FastAPI):
         if sample_video.exists():
             existing_clip = db.query(Clip).first()
             if not existing_clip:
-                punch_style = next((s for s in styles if s.name == "Punch"), styles[0] if styles else None)
+                punch_style = next(
+                    (s for s in styles if s.name == "Punch"),
+                    styles[0] if styles else None,
+                )
                 sample_clip = Clip(
                     user_id=demo_user.id,
                     start_s=0.0,
@@ -76,7 +87,21 @@ async def lifespan(app: FastAPI):
                 db.commit()
                 logger.info("Seeded initial fixture clip for testing.")
 
-    yield
+    background = [asyncio.create_task(publisher_loop())]
+    if settings.trends_scheduler_enabled:
+        background.append(asyncio.create_task(trend_scheduler()))
+    if settings.scout_enabled:
+        logger.info("Scout agent: checking channels every %d min", settings.scout_interval_minutes)
+        background.append(asyncio.create_task(scout_loop()))
+    try:
+        yield
+    finally:
+        for task in background:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 # Ensure tables exist at startup
@@ -113,6 +138,8 @@ app.include_router(imports_router, prefix="/api")
 app.include_router(downloads_router, prefix="/api")
 app.include_router(hub_router, prefix="/api")
 app.include_router(studio_router, prefix="/api")
+app.include_router(agents_router, prefix="/api")
+app.include_router(inbox_router, prefix="/api")
 
 
 @app.api_route("/", methods=["GET", "HEAD"])

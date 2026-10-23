@@ -1,0 +1,26 @@
+{
+  "kind": "youtube#videoListResponse",
+  "items": [
+    {
+      "id": "yt_fixture_01",
+      "snippet": {
+        "publishedAt": "2026-10-22T12:00:00Z",
+        "channelId": "channel_fixture_01",
+        "title": "Valorant clutch #Shorts",
+        "description": "A ranked gaming moment #Valorant",
+        "tags": ["Valorant", "gaming clips"],
+        "thumbnails": {
+          "high": {
+            "url": "https://i.ytimg.com/vi/yt_fixture_01/hqdefault.jpg"
+          }
+        }
+      },
+      "contentDetails": { "duration": "PT58S" },
+      "statistics": {
+        "viewCount": "12000",
+        "likeCount": "900",
+        "commentCount": "42"
+      }
+    }
+  ]
+}

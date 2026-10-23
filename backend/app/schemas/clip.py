@@ -38,6 +38,7 @@ class ClipUpdate(BaseModel):
     hashtags: list[str] | None = None
     caption_style_id: int | None = None
     caption_mode: CaptionMode | None = None
+    context_json: dict | None = None
 
 
 # POST /clips/{id}/caption and POST /clips/{id}/regenerate-captions
@@ -59,6 +60,7 @@ class ClipRead(ORMModel):
     highlight_score: float | None
     title: str | None
     hashtags: list[str]
+    context_json: dict | None = None
     status: ClipStatus
     error: str | None
     created_at: datetime

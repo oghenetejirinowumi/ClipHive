@@ -1,15 +1,39 @@
 """API endpoints for Trending Hashtags and metadata injection."""
+
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-
+from app.api.deps import CurrentUser
+from app.config import settings
 from app.db import get_db
 from app.models.clip import Clip
 from app.models.enums import PostPlatform
+from app.models.trend_data import TrendScore
 from app.schemas.clip import ClipRead
-from app.schemas.trend import ApplyTrendsRequest, TrendRead
-from app.services.trends.trend_client import get_or_refresh_trends
+from app.schemas.trend import (
+    ApplyTrendsRequest,
+    HashtagPage,
+    TrendImportRequest,
+    TrendJobRequest,
+    TrendRead,
+)
+from app.services.trends.collection import (
+    RUN_LOCK,
+    provider_status,
+    refresh_tracked_videos,
+    run_collection,
+)
+from app.services.trends.queries import (
+    fastest_videos,
+    hashtag_detail,
+    import_tiktok_csv,
+    latest_scores_query,
+    list_hashtags,
+    observed_patterns,
+    score_item,
+)
+from app.services.trends.scheduler import scheduler_status
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/trends", tags=["trends"])
 
@@ -17,10 +41,103 @@ router = APIRouter(prefix="/trends", tags=["trends"])
 @router.get("", response_model=list[TrendRead])
 def get_trends(
     platform: PostPlatform = Query(default=PostPlatform.TIKTOK),
+    region: str = Query(default="NG", pattern="^(NG|US)$"),
     db: Session = Depends(get_db),
 ):
-    """Returns top trending topics and hashtags for the specified platform."""
-    return get_or_refresh_trends(db, platform)
+    """Returns the latest collected score snapshot; unavailable data stays empty."""
+    query = latest_scores_query(db, platform.value, region.upper())
+    rows = query.order_by(TrendScore.score.desc().nullslast()).limit(10).all()
+    return [score_item(score, hashtag) for score, hashtag in rows]
+
+
+@router.get("/hashtags", response_model=HashtagPage)
+def get_hashtags(
+    platform: PostPlatform = Query(default=PostPlatform.YOUTUBE),
+    region: str = Query(default="NG", pattern="^(NG|US)$"),
+    stage: str | None = Query(
+        default=None,
+        pattern="^(emerging|accelerating|established|peaking|declining|insufficient_data)$",
+    ),
+    min_score: float = Query(default=0, ge=0, le=100),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    return list_hashtags(
+        db, platform.value, region.upper(), stage, min_score, page, page_size
+    )
+
+
+@router.get("/hashtags/{name}")
+def get_hashtag_detail(
+    name: str,
+    platform: PostPlatform = Query(default=PostPlatform.YOUTUBE),
+    region: str = Query(default="NG", pattern="^(NG|US)$"),
+    db: Session = Depends(get_db),
+):
+    result = hashtag_detail(db, name, platform.value, region.upper())
+    if result is None:
+        raise HTTPException(status_code=404, detail="Hashtag not found")
+    return result
+
+
+@router.get("/videos")
+def get_fastest_videos(
+    region: str = Query(default="NG", pattern="^(NG|US)$"),
+    sort: str = Query(default="velocity", pattern="^velocity$"),
+    limit: int = Query(default=20, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    return fastest_videos(db, region.upper(), limit=limit)
+
+
+@router.get("/patterns")
+def get_patterns(
+    region: str = Query(default="NG", pattern="^(NG|US)$"),
+    db: Session = Depends(get_db),
+):
+    return observed_patterns(db, region.upper())
+
+
+@router.get("/status")
+def get_status(db: Session = Depends(get_db)):
+    return {
+        "scheduler_enabled": settings.trends_scheduler_enabled,
+        "scheduler": scheduler_status(),
+        "default_regions": settings.trends_region_list,
+        "providers": provider_status(db),
+    }
+
+
+@router.post("/jobs/run")
+def run_jobs(
+    user: CurrentUser,
+    payload: TrendJobRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    if not RUN_LOCK.acquire(blocking=False):
+        raise HTTPException(
+            status_code=409, detail="A trend collection job is already running"
+        )
+    try:
+        regions = (
+            [region.upper() for region in payload.regions]
+            if payload and payload.regions
+            else None
+        )
+        return run_collection(db, regions)
+    finally:
+        RUN_LOCK.release()
+
+
+@router.post("/import")
+def import_trends(
+    payload: TrendImportRequest, user: CurrentUser, db: Session = Depends(get_db)
+):
+    try:
+        return import_tiktok_csv(db, payload.csv_text, payload.region.upper())
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @router.post("/apply", response_model=ClipRead)

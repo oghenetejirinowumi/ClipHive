@@ -19,9 +19,9 @@ from app.core.media import MediaError, probe, public_path, storage_root, thumbna
 from sqlalchemy import inspect, text
 
 from app.db import SessionLocal, engine
-from app.models import Clip, ClipStatus, ImportJob, ImportSource, ImportStatus
-from app.services.clip.cutter import cut_vertical
-from app.services.clip.detector import find_highlights
+from app.models import ImportJob, ImportSource, ImportStatus
+from app.services.agents import events
+from app.services.agents.producer import ProducerJob, run_producer
 from app.services.ingest.downloader import IngestError, download
 
 logger = logging.getLogger("cliphive.imports")
@@ -96,11 +96,13 @@ def _run(job_id: int) -> None:
         source, url, user_id = job.source, job.url, job.user_id
         count, seconds, title = job.clip_count, job.clip_seconds, job.title
         layout = job.layout or "fill"
+        brief = dict(job.agent_brief or {})
 
     work = job_dir(job_id)
     max_seconds = settings.max_import_minutes * 60
 
     # 1. Get the video file
+    info: dict = {}
     if source == ImportSource.UPLOAD:
         src = source_file(job_id)
         if not src:
@@ -128,36 +130,54 @@ def _run(job_id: int) -> None:
         thumb_public = None
     _update(job_id, status=ImportStatus.ANALYZING, progress=52, title=title, duration_s=duration, thumbnail_path=thumb_public)
 
-    # 2. Score the moments
-    moments = find_highlights(src, duration, count, seconds)
+    # 2-3. The Producer agent picks the moments, cuts each as 9:16 and packages it
+    # (falls back to the fixed loudness pipeline without a model key). See services/agents.
+    _update(job_id, progress=55)
+    source_context_base = {
+        "source": source.value if hasattr(source, "value") else str(source),
+        "source_title": title,
+        "creator": (info.get("uploader") or info.get("channel")) if info else None,
+        "source_tags": (info.get("tags") or [])[:20] if info else [],
+        "source_categories": (info.get("categories") or []) if info else [],
+        "source_description": (info.get("description") or "")[:300] if info else None,
+        "source_url": url,
+        "import_job_id": job_id,
+    }
 
-    # 3. Cut each one as a 9:16 clip and hand it to the caption pipeline
-    _update(job_id, status=ImportStatus.CUTTING, progress=60)
-    clips_dir = storage_root() / "clips"
     clip_ids: list[int] = []
     layouts: dict[str, str] = {}
-    for n, moment in enumerate(moments, start=1):
-        out = cut_vertical(src, moment.start_s, moment.end_s, clips_dir / f"import_{job_id}_{n}.mp4", layout)
-        with SessionLocal() as db:
-            clip = Clip(
-                user_id=user_id,
-                start_s=moment.start_s,
-                end_s=moment.end_s,
-                raw_file_path=str(out),
-                file_path=public_path(out),
-                highlight_score=moment.score,
-                title=f"{title} · Clip {n}",
-                hashtags=[],
-                status=ClipStatus.PROCESSING,
-            )
-            db.add(clip)
-            db.commit()
-            clip_ids.append(clip.id)
-            layouts[str(clip.id)] = layout
-        _update(job_id, clip_ids=list(clip_ids), clip_layouts=dict(layouts), progress=60 + int(39 * n / len(moments)))
+
+    def on_clip(clip_id: int) -> None:
+        clip_ids.append(clip_id)
+        layouts[str(clip_id)] = layout
+        _update(job_id, status=ImportStatus.CUTTING, clip_ids=list(clip_ids), clip_layouts=dict(layouts), progress=min(99, 60 + int(39 * len(clip_ids) / max(1, count))))
+
+    run_producer(
+        ProducerJob(
+            job_id=job_id,
+            user_id=user_id,
+            src=src,
+            duration=duration,
+            count=count,
+            clip_seconds=seconds,
+            layout=layout,
+            title=title or "Imported video",
+            source_ctx=source_context_base,
+            brief=brief,
+            on_clip=on_clip,
+        )
+    )
 
     _update(job_id, status=ImportStatus.DONE, progress=100, finished_at=datetime.now(UTC))
     logger.info("Import %s produced %d clips", job_id, len(clip_ids))
+    if clip_ids:
+        n = len(clip_ids)
+        events.notify(
+            user_id,
+            f"{n} clip{'s' if n != 1 else ''} ready for review",
+            f'From "{title}". Approve them in your inbox.',
+            "/inbox",
+        )
 
 
 def save_upload(job_id: int, fileobj, filename: str) -> Path:

@@ -25,6 +25,8 @@ class ImportJob(Base):
     layout: Mapped[str] = mapped_column(String(10), default="fill")  # "fill" | "blur" (see services/clip/cutter.py)
     clip_layouts: Mapped[dict] = mapped_column(JSON, default=dict)  # {str(clip_id): layout} for clips cut from this source
     clip_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+    # What the Producer agent should aim for: {"origin": "manual|scout|command", "mood", "platform", "style", ...}
+    agent_brief: Mapped[dict | None] = mapped_column(JSON, default=dict)
     status: Mapped[ImportStatus] = mapped_column(Enum(ImportStatus, native_enum=False), default=ImportStatus.QUEUED, index=True)
     progress: Mapped[int] = mapped_column(Integer, default=0)  # 0-100
     error: Mapped[str | None] = mapped_column(Text)
