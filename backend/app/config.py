@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     # videos) refuse anonymous downloads; with this set, yt-dlp downloads as that account.
     ytdlp_cookies_file: str = ""
 
+    # One-click demo login (app/core/demo.py). Disable for anything public.
+    demo_login_enabled: bool = True
+
     # AI & Speech APIs (all optional, with robust offline/free fallbacks)
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
