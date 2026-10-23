@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api import auth
 from app.api.clips import router as clips_router
+from app.api.streamers import router as streamers_router
 from app.api.styles import router as styles_router
 from app.api.trends import router as trends_router
 from app.config import settings
@@ -97,6 +98,7 @@ app.mount("/storage", StaticFiles(directory=str(storage_dir)), name="storage")
 
 # Include routers. Auth stays at /auth (the frontend's contract); the rest live under /api.
 app.include_router(auth.router)
+app.include_router(streamers_router, prefix="/api")
 app.include_router(styles_router, prefix="/api")
 app.include_router(clips_router, prefix="/api")
 app.include_router(trends_router, prefix="/api")

@@ -115,21 +115,39 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         normalized_hype = {w.upper().strip("!?,.") for w in hype_words}
 
-        # Group words into chunks of 3-5
-        for g in range(0, len(clip_words), words_per_group):
-            group = clip_words[g : g + words_per_group]
+        # Group words using natural pause detection (gap > 0.45s) and words_per_group limit
+        groups: list[list[TranscriptWord]] = []
+        curr_chunk: list[TranscriptWord] = []
+
+        for w in clip_words:
+            if not curr_chunk:
+                curr_chunk.append(w)
+                continue
+
+            pause_gap = w.start - curr_chunk[-1].end
+            if pause_gap > 0.45 or len(curr_chunk) >= words_per_group:
+                groups.append(curr_chunk)
+                curr_chunk = [w]
+            else:
+                curr_chunk.append(w)
+
+        if curr_chunk:
+            groups.append(curr_chunk)
+
+        # Generate ASS events for each pause-snapped group
+        for group in groups:
             if not group:
                 continue
 
             if style.animation_type == AnimationType.LINE:
                 start_str = seconds_to_ass_time(group[0].start)
-                end_str = seconds_to_ass_time(group[-1].end)
+                end_str = seconds_to_ass_time(group[-1].end + 0.15)
                 line_text = " ".join(w.word for w in group)
                 events.append(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{line_text}")
 
             elif style.animation_type == AnimationType.KARAOKE:
                 start_str = seconds_to_ass_time(group[0].start)
-                end_str = seconds_to_ass_time(group[-1].end)
+                end_str = seconds_to_ass_time(group[-1].end + 0.15)
                 karaoke_parts = []
                 for w in group:
                     duration_cs = max(1, int(round((w.end - w.start) * 100)))
@@ -139,7 +157,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             else:  # AnimationType.WORD_POP (Default)
                 for active_idx, active_word in enumerate(group):
                     start_str = seconds_to_ass_time(active_word.start)
-                    end_str = seconds_to_ass_time(active_word.end)
+                    # Next word start or current end + padding if last word
+                    if active_idx < len(group) - 1:
+                        end_t = min(active_word.end, group[active_idx + 1].start)
+                    else:
+                        end_t = active_word.end + 0.15
+                    end_str = seconds_to_ass_time(end_t)
 
                     phrase_parts = []
                     for idx, w in enumerate(group):

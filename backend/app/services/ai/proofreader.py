@@ -70,21 +70,43 @@ def proofread_transcript(words: Sequence[TranscriptWord]) -> list[TranscriptWord
         data = json.loads(raw_json)
         corrections = data.get("corrections", [])
 
-        # Apply corrections
+        # Apply corrections right-to-left so multi-word expansions keep earlier indices valid
+        valid_corrections = [
+            c for c in corrections
+            if c.get("index") is not None
+            and 0 <= c["index"] < len(word_list)
+            and c.get("replacement", "").strip()
+        ]
+        sorted_corrections = sorted(valid_corrections, key=lambda c: c["index"], reverse=True)
+
         corrected_words = list(word_list)
-        for c in corrections:
-            idx = c.get("index")
-            replacement = c.get("replacement", "").strip()
-            if idx is not None and 0 <= idx < len(corrected_words) and replacement:
-                orig = corrected_words[idx]
-                if orig.word.lower() != replacement.lower():
-                    logger.info(f"AI Proofread: word #{idx} '{orig.word}' -> '{replacement}'")
+        for c in sorted_corrections:
+            idx = c["index"]
+            replacement = c["replacement"].strip()
+            orig = corrected_words[idx]
+            if orig.word.lower() != replacement.lower():
+                tokens = replacement.split()
+                logger.info(f"AI Proofread: word #{idx} '{orig.word}' -> '{replacement}' ({len(tokens)} tokens)")
+                if len(tokens) == 1:
                     corrected_words[idx] = TranscriptWord(
-                        word=replacement,
+                        word=tokens[0],
                         start=orig.start,
                         end=orig.end,
                         confidence=0.85,
                     )
+                else:
+                    duration = max(0.05, orig.end - orig.start)
+                    step = duration / len(tokens)
+                    sub_words = [
+                        TranscriptWord(
+                            word=t,
+                            start=round(orig.start + i * step, 3),
+                            end=round(orig.start + (i + 1) * step, 3),
+                            confidence=0.85,
+                        )
+                        for i, t in enumerate(tokens)
+                    ]
+                    corrected_words[idx : idx + 1] = sub_words
 
         return corrected_words
 
