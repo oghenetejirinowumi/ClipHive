@@ -1,6 +1,10 @@
 import { clearSession, getToken } from "./session";
 
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
+export const API_URL = (
+  typeof window !== "undefined"
+    ? (process.env.NEXT_PUBLIC_API_URL || "")
+    : (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000")
+).replace(/\/$/, "");
 
 export class ApiError extends Error {
   constructor(
@@ -20,7 +24,11 @@ type ApiInit = Omit<RequestInit, "body"> & {
   redirectOn401?: boolean;
 };
 
-export const apiUrl = (path: string) => `${API_URL}${path.startsWith("/") ? path : `/${path}`}`;
+export const apiUrl = (path: string) => {
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  if (!API_URL) return cleanPath;
+  return `${API_URL}${cleanPath}`;
+};
 
 const isPlainJson = (body: unknown): body is Record<string, unknown> | unknown[] =>
   Array.isArray(body) || (typeof body === "object" && body !== null && Object.getPrototypeOf(body) === Object.prototype);

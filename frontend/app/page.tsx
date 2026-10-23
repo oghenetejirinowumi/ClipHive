@@ -52,7 +52,16 @@ export default function LandingPage() {
           <Logo inverse />
           <nav className="flex items-center gap-2 sm:gap-3">
             <ThemeSwitch />
-            <Button href="/login" variant="ghostInverse" className="hidden sm:inline-flex">
+            <Button href="/captions" variant="ghostInverse" className="hidden md:inline-flex">
+              Captions
+            </Button>
+            <Button href="/trends" variant="ghostInverse" className="hidden md:inline-flex">
+              Trends
+            </Button>
+            <Button href="/dashboard" variant="ghostInverse" className="hidden sm:inline-flex">
+              Dashboard
+            </Button>
+            <Button href="/login" variant="ghostInverse">
               Sign in
             </Button>
             <Button href="/register" variant="inverse">

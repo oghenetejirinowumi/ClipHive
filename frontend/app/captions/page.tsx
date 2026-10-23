@@ -82,7 +82,7 @@ export default function CaptionsPage() {
   const [newAnimationType, setNewAnimationType] = useState("word_pop");
   const [newUppercase, setNewUppercase] = useState(true);
   const [primaryColor, setPrimaryColor] = useState("&H0000FFFF");
-  const [outlineColor, setOutlineColor] = useState("&H00000000");
+  const outlineColor = "&H00000000";
   const [highlightColor, setHighlightColor] = useState("&H0000FFFF");
   const [styleError, setStyleError] = useState<string | null>(null);
 

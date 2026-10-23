@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api import auth
@@ -113,6 +114,11 @@ app.include_router(imports_router, prefix="/api")
 app.include_router(downloads_router, prefix="/api")
 
 
-@app.get("/health")
+@app.api_route("/", methods=["GET", "HEAD"])
+def root():
+    return RedirectResponse(url="/docs")
+
+
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok", "app": "ClipHive"}
