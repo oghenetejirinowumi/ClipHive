@@ -12,6 +12,8 @@ class TranscriptWord(BaseModel):
     word: str
     start: float = Field(ge=0)
     end: float = Field(ge=0)
+    confidence: float = 0.9
+
 
 
 # Written by ingestion (C) when a raw clip has been cut.

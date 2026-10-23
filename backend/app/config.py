@@ -1,10 +1,13 @@
+"""Configuration settings for ClipHive."""
+from __future__ import annotations
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Loaded from environment / backend/.env. See .env.example for descriptions."""
+    """Loaded from environment / .env / backend/.env. See .env.example for descriptions."""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=(".env", "backend/.env"), extra="ignore")
 
     database_url: str = "sqlite:///./cliphive.db"
 
@@ -22,8 +25,12 @@ class Settings(BaseSettings):
     live_poll_interval_s: int = 60
     max_recording_minutes: int = 10
 
+    # AI & Speech APIs (all optional, with robust offline/free fallbacks)
     openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
     openai_transcribe_model: str = "whisper-1"
+    assemblyai_api_key: str | None = None
+    whisper_model_size: str = "base"
 
     youtube_api_key: str = ""
     trends_cache_ttl_s: int = 3600
