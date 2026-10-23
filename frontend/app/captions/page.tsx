@@ -47,9 +47,18 @@ export default function CaptionsPage() {
   const [selectedClipId, setSelectedClipId] = useState<number | null>(null);
 
   const [activeWordIdx, setActiveWordIdx] = useState(0);
+  const [previewMode, setPreviewMode] = useState<"simulation" | "video">("simulation");
   const [fontFile, setFontFile] = useState<File | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [burnResult, setBurnResult] = useState<string | null>(null);
+
+  // New Custom Style form state
+  const [isCreatingStyle, setIsCreatingStyle] = useState(false);
+  const [newStyleName, setNewStyleName] = useState("");
+  const [newFontName, setNewFontName] = useState("Bangers");
+  const [newFontSize, setNewFontSize] = useState(76);
+  const [newAnimationType, setNewAnimationType] = useState("word_pop");
+  const [newUppercase, setNewUppercase] = useState(true);
 
   const [isPending, startTransition] = useTransition();
 
@@ -84,6 +93,7 @@ export default function CaptionsPage() {
   }, []);
 
   const activeStyle = styles.find((s) => s.id === selectedStyleId) || styles[0];
+  const activeClip = clips.find((c) => c.id === selectedClipId) || clips[0];
 
   // Upload custom font
   async function handleFontUpload(e: React.FormEvent) {
@@ -105,11 +115,43 @@ export default function CaptionsPage() {
       setUploadStatus(`Installed: ${data.font_name}`);
       setFontFile(null);
 
-      // Refresh styles
       const updated = await api<CaptionStyle[]>("/api/styles", { auth: false });
       setStyles(updated);
     } catch {
       setUploadStatus("Error uploading font. Ensure it is a valid .ttf or .otf file.");
+    }
+  }
+
+  // Create new custom style
+  async function handleCreateStyle(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newStyleName.trim()) return;
+
+    try {
+      const created = await api<CaptionStyle>("/api/styles", {
+        method: "POST",
+        body: {
+          name: newStyleName.trim(),
+          font_name: newFontName,
+          font_size: Number(newFontSize),
+          animation_type: newAnimationType,
+          uppercase: newUppercase,
+          colors_json: {
+            primary: "&H0000FFFF",
+            outline: "&H00000000",
+            highlight: "&H0000FFFF",
+            back: "&H80000000",
+          },
+        },
+        auth: false,
+      });
+
+      setStyles((prev) => [...prev, created]);
+      setSelectedStyleId(created.id);
+      setIsCreatingStyle(false);
+      setNewStyleName("");
+    } catch {
+      alert("Could not create style. Check backend connection.");
     }
   }
 
@@ -128,12 +170,19 @@ export default function CaptionsPage() {
         setBurnResult(`Burn Complete! Status: ${updated.status}`);
         const clipList = await api<Clip[]>("/api/clips", { auth: false });
         setClips(clipList);
+        setPreviewMode("video");
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Error burning captions";
         setBurnResult(`Failed: ${msg}`);
       }
     });
   }
+
+  // Find video path for active style
+  const styleSlug = activeStyle ? activeStyle.name.toLowerCase() : "punch";
+  const renderedVideoSrc = activeClip?.file_path
+    ? `${API_URL}/${activeClip.file_path}`
+    : `${API_URL}/storage/clips/clip_1_${styleSlug}.mp4`;
 
   return (
     <div className="space-y-12">
@@ -143,18 +192,87 @@ export default function CaptionsPage() {
         description="Choose a high-converting subtitle aesthetic, preview live word-pop animations, or upload custom fonts."
       />
 
-      {/* Main Grid: Left = Style Selection, Right = 9:16 Live Preview */}
       <div className="grid gap-8 lg:grid-cols-12">
-        {/* Left Column: Preset Styles & Customizer (7 cols) */}
+        {/* Left Column: Preset Styles & Actions (7 cols) */}
         <div className="space-y-8 lg:col-span-7">
           <section className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="font-display text-2xl font-semibold tracking-tight text-ink">Built-in Presets</h2>
-              <Badge tone="brand" size="md">
-                3 Standard Presets
-              </Badge>
+              <div className="flex items-center gap-3">
+                <Button variant="secondary" size="sm" onClick={() => setIsCreatingStyle(!isCreatingStyle)}>
+                  {isCreatingStyle ? "Cancel" : "+ New Custom Style"}
+                </Button>
+                <Badge tone="brand" size="md">
+                  {styles.length} Styles Loaded
+                </Badge>
+              </div>
             </div>
 
+            {/* Custom Style Form Drawer */}
+            {isCreatingStyle && (
+              <Panel tone="brand" className="space-y-4">
+                <h3 className="font-display text-xl font-bold text-ink">Create Custom Style</h3>
+                <form onSubmit={handleCreateStyle} className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Style Name">
+                    <input
+                      type="text"
+                      placeholder="e.g. Cyberpunk Pop"
+                      value={newStyleName}
+                      onChange={(e) => setNewStyleName(e.target.value)}
+                      className="w-full rounded-md border border-line bg-surface p-3 text-base text-ink"
+                      required
+                    />
+                  </Field>
+                  <Field label="Font Name">
+                    <input
+                      type="text"
+                      placeholder="e.g. Bangers, Poppins"
+                      value={newFontName}
+                      onChange={(e) => setNewFontName(e.target.value)}
+                      className="w-full rounded-md border border-line bg-surface p-3 text-base text-ink"
+                      required
+                    />
+                  </Field>
+                  <Field label="Font Size">
+                    <input
+                      type="number"
+                      value={newFontSize}
+                      onChange={(e) => setNewFontSize(Number(e.target.value))}
+                      className="w-full rounded-md border border-line bg-surface p-3 text-base text-ink"
+                    />
+                  </Field>
+                  <Field label="Animation Mode">
+                    <select
+                      value={newAnimationType}
+                      onChange={(e) => setNewAnimationType(e.target.value)}
+                      className="w-full rounded-md border border-line bg-surface p-3 text-base text-ink"
+                    >
+                      <option value="word_pop">Word Pop</option>
+                      <option value="karaoke">Karaoke</option>
+                      <option value="line">Line-by-Line</option>
+                    </select>
+                  </Field>
+                  <div className="flex items-center gap-3 sm:col-span-2">
+                    <label className="flex items-center gap-2 text-base text-ink">
+                      <input
+                        type="checkbox"
+                        checked={newUppercase}
+                        onChange={(e) => setNewUppercase(e.target.checked)}
+                        className="size-5 rounded"
+                      />
+                      Force All-Caps
+                    </label>
+                  </div>
+                  <div className="pt-2 sm:col-span-2">
+                    <Button type="submit" size="sm">
+                      Save Style
+                    </Button>
+                  </div>
+                </form>
+              </Panel>
+            )}
+
+            {/* Presets Grid */}
             <div className="grid gap-4 sm:grid-cols-2">
               {styles.map((style) => {
                 const isSelected = style.id === selectedStyleId;
@@ -262,20 +380,34 @@ export default function CaptionsPage() {
           </Panel>
         </div>
 
-        {/* Right Column: Simulated 9:16 Kinetic Phone Canvas (5 cols) */}
+        {/* Right Column: 9:16 Kinetic Phone Canvas (5 cols) */}
         <div className="lg:col-span-5">
           <div className="sticky top-8 space-y-4">
             <div className="flex items-center justify-between">
-              <span className="font-display text-xl font-semibold text-ink">9:16 Kinetic Preview</span>
-              <Badge tone="success" size="sm">
-                Word-Pop Active
-              </Badge>
+              <span className="font-display text-xl font-semibold text-ink">9:16 Canvas</span>
+              {/* Preview Toggle Buttons */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={previewMode === "simulation" ? "primary" : "secondary"}
+                  size="sm"
+                  onClick={() => setPreviewMode("simulation")}
+                >
+                  Simulation
+                </Button>
+                <Button
+                  variant={previewMode === "video" ? "primary" : "secondary"}
+                  size="sm"
+                  onClick={() => setPreviewMode("video")}
+                >
+                  Rendered MP4
+                </Button>
+              </div>
             </div>
 
             {/* Smartphone Canvas Frame */}
             <div className="relative mx-auto flex aspect-[9/16] w-full max-w-[340px] flex-col justify-between overflow-hidden rounded-xl border-4 border-line-strong bg-ink p-6 shadow-glow">
               {/* Top Notch & Time */}
-              <div className="flex items-center justify-between text-meta font-medium text-surface opacity-75">
+              <div className="z-10 flex items-center justify-between text-meta font-medium text-surface opacity-75">
                 <span>9:41</span>
                 <span className="flex items-center gap-1">
                   <span>5G</span>
@@ -283,52 +415,68 @@ export default function CaptionsPage() {
                 </span>
               </div>
 
-              {/* Center Kinetic Word Pop Display */}
-              <div className="my-auto flex flex-col items-center justify-center text-center">
-                <div className="flex flex-wrap items-center justify-center gap-2">
-                  {SAMPLE_WORDS.map((w, idx) => {
-                    const isActive = idx === activeWordIdx;
-                    const isPunch = activeStyle?.name === "Punch";
-                    const isNeon = activeStyle?.name === "Neon";
-
-                    return (
-                      <span
-                        key={idx}
-                        className="inline-block transition-transform duration-(--motion-fast)"
-                        style={{
-                          transform: isActive
-                            ? w.hype
-                              ? "scale(1.3)"
-                              : "scale(1.15)"
-                            : "scale(1.0)",
-                          fontWeight: isActive || isPunch ? 800 : 600,
-                          color: isActive
-                            ? isNeon
-                              ? "var(--brand)"
-                              : isPunch
-                              ? "var(--warning)"
-                              : "var(--surface)"
-                            : "var(--surface)",
-                          textShadow: isPunch
-                            ? "0 2px 4px var(--ink)"
-                            : isNeon && isActive
-                            ? "0 0 12px var(--brand)"
-                            : "0 1px 2px var(--ink)",
-                        }}
-                      >
-                        {activeStyle?.uppercase ? w.word.toUpperCase() : w.word}
-                      </span>
-                    );
-                  })}
+              {/* Mode 1: Rendered Video Player */}
+              {previewMode === "video" ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-ink">
+                  <video
+                    key={renderedVideoSrc}
+                    src={renderedVideoSrc}
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    controls
+                    className="size-full object-cover"
+                  />
                 </div>
+              ) : (
+                /* Mode 2: Kinetic Simulated Word Pop */
+                <div className="my-auto flex flex-col items-center justify-center text-center">
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    {SAMPLE_WORDS.map((w, idx) => {
+                      const isActive = idx === activeWordIdx;
+                      const isPunch = activeStyle?.name === "Punch";
+                      const isNeon = activeStyle?.name === "Neon";
 
-                <div className="mt-8 rounded-full bg-surface-sunken/20 px-4 py-1 text-meta text-surface/80 backdrop-blur-md">
-                  Active Style: {activeStyle?.name} ({activeStyle?.animation_type})
+                      return (
+                        <span
+                          key={idx}
+                          className="inline-block transition-transform duration-(--motion-fast)"
+                          style={{
+                            transform: isActive
+                              ? w.hype
+                                ? "scale(1.3)"
+                                : "scale(1.15)"
+                              : "scale(1.0)",
+                            fontWeight: isActive || isPunch ? 800 : 600,
+                            color: isActive
+                              ? isNeon
+                                ? "var(--brand)"
+                                : isPunch
+                                ? "var(--warning)"
+                                : "var(--surface)"
+                              : "var(--surface)",
+                            textShadow: isPunch
+                              ? "0 2px 4px var(--ink)"
+                              : isNeon && isActive
+                              ? "0 0 12px var(--brand)"
+                              : "0 1px 2px var(--ink)",
+                          }}
+                        >
+                          {activeStyle?.uppercase ? w.word.toUpperCase() : w.word}
+                        </span>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-8 rounded-full bg-surface-sunken/20 px-4 py-1 text-meta text-surface/80 backdrop-blur-md">
+                    Active: {activeStyle?.name} ({activeStyle?.animation_type})
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Bottom TikTok/Reels UI Overlay Protection Zone */}
-              <div className="border-t border-dashed border-surface/20 pt-4 text-center">
+              <div className="z-10 border-t border-dashed border-surface/20 pt-4 text-center">
                 <div className="flex items-center justify-between text-meta text-surface/50">
                   <span>TikTok UI Margin (480px Safe)</span>
                   <span>Protected</span>
