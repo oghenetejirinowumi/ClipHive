@@ -21,7 +21,8 @@ from app.schemas.import_job import (
     ImportRead, LayoutRequest, Moment, PreviewState, StarRequest, StarResult, StudioClip, StudioClipRequest, StudioProject,
 )
 from app.services.clip.cutter import cut_vertical
-from app.services.clip.detector import energy_curve, find_highlights
+from app.services.clip.ai_rank import pick_highlights
+from app.services.clip.detector import energy_curve
 from app.services.clip.taste import starred_count, user_taste
 from app.services.ingest import pipeline
 from app.services.ingest.downloader import IngestError
@@ -86,10 +87,12 @@ def _analysis(job: ImportJob, db: DbSession) -> dict:
     if media is None:
         raise HTTPException(status.HTTP_410_GONE, "This project's audio is no longer on disk.")
     duration = job.duration_s or 0
-    moments = find_highlights(media, duration, count=8, clip_seconds=job.clip_seconds or 30, taste=user_taste(db, job.user_id))
+    moments = pick_highlights(media, duration, count=8, clip_seconds=job.clip_seconds or 30, taste=user_taste(db, job.user_id))
     data = {
         "energy": energy_curve(media, duration),
-        "moments": [{"start_s": m.start_s, "end_s": m.end_s, "score": m.score} for m in moments],
+        "moments": [
+            {"start_s": m.start_s, "end_s": m.end_s, "score": m.score, "reason": m.reason} for m in moments
+        ],
     }
     cache.write_text(json.dumps(data), encoding="utf-8")
     return data

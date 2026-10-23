@@ -25,6 +25,21 @@ export const APP_NAV: NavItem[] = [
     tab: true,
   },
   {
+    href: "/inbox",
+    label: "Inbox",
+    short: "Inbox",
+    icon: "inbox",
+    description: "Clips the agents made, waiting for your OK. Approve to schedule, reject to teach.",
+    tab: true,
+  },
+  {
+    href: "/agents",
+    label: "Agents",
+    short: "Agents",
+    icon: "bot",
+    description: "What Scout, Producer and Publisher did, step by step, and what they've learned about you.",
+  },
+  {
     href: "/studio",
     label: "Studio",
     short: "Studio",
@@ -37,14 +52,14 @@ export const APP_NAV: NavItem[] = [
     label: "Streamers",
     short: "Watch",
     icon: "radio",
-    description: "Add the Twitch, Kick and YouTube channels you clip.",
+    description: "Channels the Scout agent watches. New VODs get clipped automatically.",
   },
   {
     href: "/hub",
     label: "Clip hub",
     short: "Hub",
     icon: "grid",
-    description: "Ready clips: preview, download or post.",
+    description: "Every clip and its posting schedule: download, copy the caption, mark as posted.",
     tab: true,
   },
   {
@@ -67,7 +82,6 @@ export const APP_NAV: NavItem[] = [
     short: "Download",
     icon: "download",
     description: "Paste an Instagram post or reel link and save the full video.",
-    tab: true,
   },
 ];
 

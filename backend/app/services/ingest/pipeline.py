@@ -31,8 +31,9 @@ from app.core.media import MediaError, probe, public_path, storage_root, thumbna
 from app.db import SessionLocal, engine
 from app.models import CaptionMode, Clip, ClipStatus, ImportJob, ImportSource, ImportStatus
 from app.services.clip.cutter import cut_vertical
-from app.services.clip.detector import find_highlights
 from app.services.clip.taste import user_taste
+from app.services.agents import events
+from app.services.agents.producer import ProducerJob, run_producer
 from app.services.ingest.downloader import Cancelled, IngestError, fetch_audio, fetch_preview, fetch_section, probe_url
 
 logger = logging.getLogger("cliphive.imports")
@@ -253,7 +254,8 @@ def _run(job_id: int) -> None:
         job = db.get(ImportJob, job_id)
         if not job:
             return
-        source, user_id = job.source, job.user_id
+        source, url, user_id = job.source, job.url, job.user_id
+        brief = dict(job.agent_brief or {})
         count, seconds, title = job.clip_count, job.clip_seconds, job.title
         layout = job.layout or "fill"
         # Clips this project already has (an interrupted run, or an earlier batch when asking
@@ -308,82 +310,68 @@ def _run(job_id: int) -> None:
     _check(job_id)
     _update(job_id, status=ImportStatus.ANALYZING, progress=37, title=title, duration_s=duration, thumbnail_path=thumb_public, detail="Finding the best moments")
 
-    # 2. Score the moments from the audio (new ones only, leaning toward what the user stars)
-    moments = find_highlights(media, duration, count - len(done_ids), seconds, exclude=used, taste=taste)
-
-    # 3. Links: fetch every moment's HD section at once. Platforms throttle each connection,
-    #    so parallel sections take about as long as one.
-    sections: dict[int, Path] = {}
-    if info is not None:
-        _update(job_id, status=ImportStatus.CUTTING, progress=40, detail=f"Fetching {len(moments)} clips in HD")
-        fractions = [0.0] * len(moments)
-        lock = threading.Lock()
-
-        def report(i: int, f: float) -> None:
-            with lock:
-                fractions[i] = f
-                done = sum(fractions) / len(fractions)
-            _update(job_id, progress=40 + int(done * 40), detail=f"Fetching {len(moments)} clips in HD · {int(done * 100)}%")
-
-        todo = []
-        for n, m in enumerate(moments, start=1):
-            fetched = work / "sections" / f"{_section_stem(m)}.mp4"  # from an interrupted run?
-            if fetched.exists():
-                sections[n], fractions[n - 1] = fetched, 1.0
-            else:
-                todo.append((n, m))
-        if todo:
-            with ThreadPoolExecutor(max_workers=min(4, len(todo)), thread_name_prefix=f"sections-{job_id}") as pool:
-                futures = {
-                    pool.submit(
-                        fetch_section, info, work / "sections", _section_stem(m), m.start_s, m.end_s,
-                        on_progress=lambda f, i=n - 1: report(i, f), cancel=cancel_event,
-                    ): n
-                    for n, m in todo
-                }
-                for future in futures:
-                    sections[futures[future]] = future.result()  # re-raises the first failure
-
-    # 4. Cut each moment as a 9:16 clip and hand it to the caption pipeline
-    _update(job_id, status=ImportStatus.CUTTING, progress=80 if info is not None else 40)
-    clips_dir = storage_root() / "clips"
+    # 2-3. The Producer agent picks the moments, cuts each as 9:16 and packages it (it falls
+    # back to the fixed loudness pipeline without a model key; see services/agents). It reads
+    # the audio we downloaded; a link's cuts fetch just their range in HD.
+    _update(job_id, progress=40, detail="Agent is reviewing the moments")
+    source_ctx = {
+        "source": source.value if hasattr(source, "value") else str(source),
+        "source_title": title,
+        "creator": (info.get("uploader") or info.get("channel")) if info else None,
+        "source_tags": (info.get("tags") or [])[:20] if info else [],
+        "source_categories": (info.get("categories") or []) if info else [],
+        "source_description": (info.get("description") or "")[:300] if info else None,
+        "source_url": url,
+        "import_job_id": job_id,
+    }
     clip_ids: list[int] = done_ids
     layouts: dict[str, str] = done_layouts
-    first, span = (80, 18) if info is not None else (40, 58)
-    for n, moment in enumerate(moments, start=1):
-        _check(job_id)
-        _update(job_id, detail=f"Cutting clip {n} of {len(moments)}")
-        if n in sections:
-            src, start, end = sections[n], 0.0, moment.end_s - moment.start_s
-        else:
-            src, start, end = media, moment.start_s, moment.end_s
-        number = len(clip_ids) + 1
-        out = cut_vertical(src, start, end, clips_dir / f"import_{job_id}_{number}_{int(time.time())}.mp4", layout)
-        with SessionLocal() as db:
-            clip = Clip(
-                user_id=user_id, start_s=moment.start_s, end_s=moment.end_s,
-                raw_file_path=str(out), file_path=public_path(out), highlight_score=moment.score,
-                title=f"{title} · Clip {number}", hashtags=[], status=ClipStatus.READY,
-                caption_mode=CaptionMode.PLATFORM_NATIVE, moment_features=moment.features or None,
-            )
-            db.add(clip)
-            db.commit()
-            clip_ids.append(clip.id)
-            layouts[str(clip.id)] = layout
-        if n in sections:  # keep the HD section so a layout switch needs no re-download
-            sections[n].replace(section_file(job_id, clip.id))
-        _update(job_id, clip_ids=list(clip_ids), clip_layouts=dict(layouts), progress=first + int(span * n / len(moments)))
+    wanted = max(0, count - len(done_ids))
+    last_section: list[Path] = []  # the section the latest cut used, moved next to its clip
 
-    # Fewer moments than asked means the video has run out of fresh ones: record what it has.
+    def cut(start_s: float, end_s: float, out: Path) -> None:
+        _check(job_id)
+        if info is None:  # uploads: cut straight from the file
+            cut_vertical(media, start_s, end_s, out, layout)
+            return
+        stem = _section_stem(start_s, end_s)
+        section = work / "sections" / f"{stem}.mp4"  # fetched by an interrupted run?
+        if not section.exists():
+            _update(job_id, status=ImportStatus.CUTTING, detail=f"Fetching clip {len(clip_ids) + 1} in HD")
+            section = fetch_section(info, work / "sections", stem, start_s, end_s, cancel=cancel_event)
+        _update(job_id, detail=f"Cutting clip {len(clip_ids) + 1}")
+        cut_vertical(section, 0, end_s - start_s, out, layout)
+        last_section[:] = [section]
+
+    def on_clip(clip_id: int) -> None:
+        clip_ids.append(clip_id)
+        layouts[str(clip_id)] = layout
+        if last_section:  # keep the HD section so a layout switch needs no re-download
+            last_section.pop().replace(section_file(job_id, clip_id))
+        made = len(clip_ids) - len(done_ids)
+        _update(job_id, status=ImportStatus.CUTTING, clip_ids=list(clip_ids), clip_layouts=dict(layouts),
+                progress=min(99, 45 + int(54 * made / max(1, wanted))))
+
+    if wanted:
+        run_producer(ProducerJob(
+            job_id=job_id, user_id=user_id, src=media, duration=duration, count=wanted, clip_seconds=seconds,
+            layout=layout, title=title or "Imported video", source_ctx=source_ctx, brief=brief, on_clip=on_clip,
+            cut=cut, exclude=used, taste=taste, first_number=len(done_ids) + 1,
+        ))
+
+    # Fewer clips than asked means the video has run out of fresh moments: record what it has.
+    made = len(clip_ids) - len(done_ids)
     _update(job_id, status=ImportStatus.DONE, progress=100, detail=None, error=None, clip_count=len(clip_ids), finished_at=datetime.now(UTC))
-    logger.info("Import %s has %d clips (%d new)", job_id, len(clip_ids), len(moments))
+    logger.info("Import %s has %d clips (%d new)", job_id, len(clip_ids), made)
+    if made:
+        events.notify(user_id, f"{made} clip{'s' if made != 1 else ''} ready for review", f'From "{title}". Approve them in your inbox.', "/inbox")
     if info is not None:  # warm the studio's scrubbing preview so it's ready when they open it
         start_preview(job_id)
 
 
-def _section_stem(moment) -> str:
+def _section_stem(start_s: float, end_s: float) -> str:
     """Named by time range so a resumed run finds a section it already fetched."""
-    return f"moment_{int(moment.start_s * 10)}_{int(moment.end_s * 10)}"
+    return f"moment_{int(start_s * 10)}_{int(end_s * 10)}"
 
 
 # ---------------------------------------------------------------- studio support

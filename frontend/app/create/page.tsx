@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
+import { AgentFeed } from "@/components/agents/AgentFeed";
+import { CommandBar } from "@/components/agents/CommandBar";
 import { ProjectCard } from "@/components/projects/ProjectCard";
 import { Badge, Button, Em, Icon, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
 import { api, ApiError, apiUrl } from "@/lib/api";
@@ -312,6 +314,14 @@ export default function CreatePage() {
         )}
       </Panel>
 
+      <Panel padding="lg" className="space-y-5">
+        <div>
+          <h2 className="font-display text-3xl font-semibold tracking-tight text-ink">Or just tell the agents</h2>
+          <p className="mt-2 text-lg text-ink-muted">Say what you want in your own words. The agents find your latest stream and plan the clips; you confirm before anything runs.</p>
+        </div>
+        <CommandBar onStarted={(job) => setJobs((prev) => [job, ...prev])} />
+      </Panel>
+
       {/* Projects */}
       <section className="space-y-6">
         <div className="flex items-center gap-4">
@@ -333,12 +343,34 @@ export default function CreatePage() {
           <ul className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
             {jobs.map((job) => (
               <li key={job.id}>
-                <ProjectCard job={job} onDelete={deleteProject} onRetry={retryProject} />
+                <ProjectCard job={job} onDelete={deleteProject} onRetry={retryProject}>
+                  {(job.status === "analyzing" || job.status === "cutting") && <AgentFeed importJobId={job.id} compact />}
+                  {job.status === "done" && <WhyTheseClips jobId={job.id} />}
+                </ProjectCard>
               </li>
             ))}
           </ul>
         )}
       </section>
+    </div>
+  );
+}
+
+/** Finished projects keep the agent's reasoning one click away. */
+function WhyTheseClips({ jobId }: { jobId: number }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex min-h-11 items-center gap-2 text-base font-medium text-brand hover:text-brand-strong"
+      >
+        <Icon name="bot" className="size-5" />
+        {open ? "Hide the agent's decisions" : "Why these clips?"}
+      </button>
+      {open && <AgentFeed importJobId={jobId} compact className="mt-3" />}
     </div>
   );
 }

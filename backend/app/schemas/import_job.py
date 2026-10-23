@@ -109,6 +109,7 @@ class Moment(BaseModel):
     start_s: float
     end_s: float
     score: float
+    reason: str | None = None  # set when an AI model ranked it
 
 
 class PreviewState(BaseModel):

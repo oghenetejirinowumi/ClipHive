@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { AgentStatsStrip, LearnedProfile } from "@/components/agents/AgentOverview";
 import { RecentProjects } from "@/components/projects/RecentProjects";
 import { Greeting } from "@/components/shell/Greeting";
 import { Button, buttonClass, Icon, Panel, SectionLabel, SkyHeader } from "@/components/ui";
@@ -16,18 +17,29 @@ export default function DashboardPage() {
         size="lg"
         eyebrow="Dashboard"
         title={<Greeting />}
-        description="Paste a link or upload a video to get a batch of clips, or open the studio to pick a moment yourself."
+        description="Your agents watch your channels, pick and cut the best moments, and schedule what you approve. You just review."
         actions={
           <>
-            <Button href="/create" variant="inverse" size="lg">
-              <Icon name="plus" /> Start a project
+            <Button href="/inbox" variant="inverse" size="lg">
+              <Icon name="inbox" /> Review clips
             </Button>
-            <Button href="/studio" variant="ghostInverse" size="lg">
-              Open the studio
+            <Button href="/create" variant="ghostInverse" size="lg">
+              <Icon name="plus" /> Start a project
             </Button>
           </>
         }
       />
+
+      <section className="space-y-8">
+        <div className="flex items-center justify-between gap-4">
+          <SectionLabel>Your agents</SectionLabel>
+          <Link href="/agents" className={buttonClass({ variant: "ghost", size: "sm" })}>
+            See their work <Icon name="arrowRight" className="size-5" />
+          </Link>
+        </div>
+        <AgentStatsStrip />
+        <LearnedProfile />
+      </section>
 
       <section className="space-y-6">
         <div className="flex items-center justify-between gap-4">

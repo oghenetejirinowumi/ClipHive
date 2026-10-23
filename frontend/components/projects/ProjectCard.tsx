@@ -1,23 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button, buttonClass, Icon, Panel } from "@/components/ui";
 import { API_URL } from "@/lib/api";
 import { ACTIVE_STATUSES, formatTime, projectTitle, SOURCE_LABEL, STEP_LABEL, type ImportJob } from "@/lib/imports";
 
 /**
  * One import project: thumbnail, live progress with the current step, and actions:
- * open in studio (done), retry (failed link), cancel (running) and delete (with or without its clips).
+ * review in the inbox and open in studio (done), retry (failed link), cancel (running) and delete
+ * (with or without its clips). `children` sits under the progress, e.g. the agent's live feed.
  */
 export function ProjectCard({
   job,
   onDelete,
   onRetry,
+  children,
 }: {
   job: ImportJob;
   onDelete: (job: ImportJob, withClips: boolean) => Promise<void>;
   onRetry: (job: ImportJob) => Promise<void>;
+  children?: ReactNode;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState<"delete" | "retry" | null>(null);
@@ -68,6 +71,9 @@ export function ProjectCard({
         )}
 
         {job.status === "failed" && <p className="text-base text-danger">{job.error || "This project failed."}</p>}
+        {job.status === "done" && job.error && <p className="text-base text-ink-muted">{job.error}</p>}
+
+        {children}
 
         {confirming ? (
           <div className="mt-auto space-y-3 rounded-md border border-danger/30 bg-danger-subtle p-4">
@@ -93,9 +99,14 @@ export function ProjectCard({
             </span>
             <div className="flex flex-wrap gap-2">
               {job.status === "done" && (
-                <Link href={`/studio/${job.id}`} className={buttonClass({ variant: "secondary", size: "sm" })}>
-                  <Icon name="film" className="size-5" /> Open in studio
-                </Link>
+                <>
+                  <Link href="/inbox" className={buttonClass({ size: "sm" })}>
+                    <Icon name="inbox" className="size-5" /> Review
+                  </Link>
+                  <Link href={`/studio/${job.id}`} className={buttonClass({ variant: "secondary", size: "sm" })} aria-label="Open in studio">
+                    <Icon name="film" className="size-5" />
+                  </Link>
+                </>
               )}
               {job.status === "failed" && job.url && (
                 <Button variant="secondary" size="sm" loading={busy === "retry"} onClick={() => act("retry", () => onRetry(job))}>
