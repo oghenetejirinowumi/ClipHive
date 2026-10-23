@@ -121,8 +121,9 @@ CREATE TABLE posts (
 
 | Route | Method | Owner | Purpose | Request Body / Query | Response |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `/api/auth/register` | `POST` | **C3** | User registration | `{"email", "password"}` | `{"token", "user"}` |
-| `/api/auth/login` | `POST` | **C3** | User login | `{"email", "password"}` | `{"token", "user"}` |
+| `/api/auth/register` | `POST` | **C3** | User registration | `{"email", "password"}` | `{"access_token", "token_type", "user"}` |
+| `/api/auth/login` | `POST` | **C3** | User login | `{"email", "password"}` | `{"access_token", "token_type", "user"}` |
+| `/api/auth/me` | `GET` | **C3** | Current user (send `Authorization: Bearer <token>`) | — | `UserRead` |
 | `/api/streamers` | `GET/POST`| **C1** | Manage monitored streamers | `{"platform", "channel_name"}` | `StreamerRead` |
 | `/api/clips` | `GET` | **C2/C4** | List clips (filter by `?status=ready`) | Query: `?status=ready` | `list[ClipRead]` |
 | `/api/clips/{id}` | `GET` | **C2** | Fetch single clip details | — | `ClipRead` |

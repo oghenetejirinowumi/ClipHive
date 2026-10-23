@@ -29,6 +29,7 @@ for (const root of ROOTS) {
       .split("\n")
       .forEach((line, i) => {
         if (/^\s*(?:\/\/|\/?\*)/.test(line)) return; // comments
+        if (line.includes("design-check-ignore:")) return; // explicit, reasoned opt-out (e.g. user caption colours)
         for (const rule of RULES) {
           if (rule.skip?.test(line)) continue;
           for (const match of line.matchAll(rule.pattern)) hits.push(`${file}:${i + 1}  ${match[0]}  — ${rule.name}`);

@@ -1,21 +1,33 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { Badge, Button, Field, Icon, Ledger, PageHeader, Panel } from "@/components/ui";
+import { Badge, Button, Em, Field, Icon, Input, Notice, Panel, SectionLabel, Segmented, SkyHeader, Timeline } from "@/components/ui";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/cn";
+
+type Platform = "twitch" | "kick" | "youtube";
 
 type Streamer = {
   id: number;
   user_id: number;
-  platform: "twitch" | "kick" | "youtube";
+  platform: Platform;
   username: string;
   is_active: boolean;
   created_at: string;
 };
 
+const PLATFORM_LABEL: Record<Platform, string> = { twitch: "Twitch", kick: "Kick", youtube: "YouTube" };
+
+const PIPELINE = [
+  { marker: "60s", title: "Polling", body: "Twitch Helix & Kick public endpoints." },
+  { marker: "Rec", title: "Recording", body: "streamlink captures 1080p source chunks." },
+  { marker: "Score", title: "Scoring", body: "Loudness spikes + scene-cut boundaries." },
+  { marker: "C2", title: "Handoff", body: "Raw cuts route to the Caption Studio." },
+];
+
 export default function StreamersPage() {
   const [streamers, setStreamers] = useState<Streamer[]>([]);
-  const [platform, setPlatform] = useState<"twitch" | "kick" | "youtube">("twitch");
+  const [platform, setPlatform] = useState<Platform>("twitch");
   const [username, setUsername] = useState("");
   const [message, setMessage] = useState<string | null>(null);
 
@@ -64,139 +76,119 @@ export default function StreamersPage() {
         await api(`/api/streamers/${id}`, { method: "DELETE", auth: false });
         setStreamers((prev) => prev.filter((s) => s.id !== id));
       } catch {
-        alert("Failed to remove channel.");
+        setMessage("Failed to remove channel.");
       }
     });
   }
 
   return (
     <div className="space-y-12">
-      <PageHeader
-        eyebrow="Stream Ingest"
-        title="Monitored Streamers"
+      <SkyHeader
+        eyebrow="Stream ingest"
+        title={
+          <>
+            Channels we&apos;re <Em>watching</Em>
+          </>
+        }
         description="ClipHive autonomously monitors Twitch, Kick, and YouTube channels to capture high-energy clips."
       />
 
       {message && (
-        <Panel tone="brand" padding="sm" className="flex items-center justify-between">
-          <span className="text-base font-semibold text-brand-strong">{message}</span>
-          <Button variant="ghost" size="sm" onClick={() => setMessage(null)}>
-            Dismiss
-          </Button>
-        </Panel>
+        <Notice tone={message.startsWith("Failed") ? "danger" : "success"} onDismiss={() => setMessage(null)}>
+          {message}
+        </Notice>
       )}
 
-      <div className="grid gap-8 lg:grid-cols-12">
-        {/* Left Column: Streamers List (7 cols) */}
-        <div className="space-y-6 lg:col-span-7">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-2xl font-semibold tracking-tight text-ink">Active Channels</h2>
+      <div className="grid gap-10 lg:grid-cols-12">
+        {/* Left: monitored channels */}
+        <section className="space-y-6 lg:col-span-7">
+          <div className="flex items-center justify-between gap-4">
+            <SectionLabel>Active channels</SectionLabel>
             <Badge tone="brand" size="md">
-              {streamers.length} Monitored
+              {streamers.length} monitored
             </Badge>
           </div>
 
-          <div className="grid gap-4">
-            {streamers.map((s, idx) => {
-              // Alternate status for realistic demo visual
-              const isLive = idx % 2 === 0;
+          {streamers.length > 0 ? (
+            <ul className="divide-y divide-line border-y border-line">
+              {streamers.map((s, idx) => {
+                // Alternate status for realistic demo visual
+                const isLive = idx % 2 === 0;
 
-              return (
-                <Panel key={s.id} padding="sm" className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <span className="grid size-12 shrink-0 place-items-center rounded-full bg-brand-subtle text-brand-strong">
-                      <Icon name="radio" className="size-6" />
-                    </span>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-display text-xl font-bold text-ink">{s.username}</span>
-                        <Badge tone={s.platform === "twitch" ? "brand" : "neutral"} size="sm">
-                          {s.platform.toUpperCase()}
-                        </Badge>
-                      </div>
-                      <div className="mt-1 flex items-center gap-2 text-meta">
-                        <span aria-hidden className={`size-3 rounded-full ${isLive ? "bg-success" : "bg-ink-faint"}`} />
-                        <span className={isLive ? "font-medium text-success" : "text-ink-muted"}>
-                          {isLive ? "LIVE NOW (Monitoring)" : "Offline (Watching for live)"}
-                        </span>
+                return (
+                  <li key={s.id} className="flex items-center justify-between gap-4 py-6">
+                    <div className="flex min-w-0 items-center gap-5">
+                      <span className="grid size-14 shrink-0 place-items-center rounded-full bg-brand-subtle font-display text-2xl font-semibold text-brand-strong uppercase">
+                        {s.username.charAt(0)}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span className="truncate font-display text-2xl font-semibold tracking-tight text-ink">{s.username}</span>
+                          <Badge tone="neutral">{PLATFORM_LABEL[s.platform] ?? s.platform}</Badge>
+                        </div>
+                        <div className="mt-1 flex items-center gap-2 text-base">
+                          <span aria-hidden className={cn("size-3 rounded-full", isLive ? "bg-success" : "bg-ink-faint")} />
+                          <span className={isLive ? "font-medium text-success" : "text-ink-muted"}>{isLive ? "Live now · monitoring" : "Offline · watching for live"}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={isPending}
-                    onClick={() => handleDeleteStreamer(s.id)}
-                  >
-                    Remove
-                  </Button>
-                </Panel>
-              );
-            })}
+                    <Button variant="ghost" size="sm" disabled={isPending} onClick={() => handleDeleteStreamer(s.id)}>
+                      Remove
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <Panel tone="sunken" padding="lg" className="flex flex-col items-center py-14 text-center">
+              <span className="grid size-16 place-items-center rounded-full bg-brand-subtle text-brand-strong">
+                <Icon name="radio" />
+              </span>
+              <p className="mt-6 font-display text-3xl font-semibold tracking-tight text-ink">No streamers added yet</p>
+              <p className="mt-2 text-lg text-ink-muted">Add a channel on the right and ClipHive starts watching.</p>
+            </Panel>
+          )}
+        </section>
 
-            {streamers.length === 0 && (
-              <Panel tone="sunken" className="text-center py-8">
-                <p className="text-base text-ink-muted">No streamers added yet.</p>
-              </Panel>
-            )}
-          </div>
-        </div>
+        {/* Right: add channel + pipeline */}
+        <aside className="space-y-8 lg:col-span-5">
+          <Panel padding="lg">
+            <h3 className="font-display text-3xl font-semibold tracking-tight text-ink">Add a channel</h3>
+            <p className="mt-2 text-lg text-ink-muted">Enter any Twitch, Kick, or YouTube username. ClipHive will automatically track when they go live.</p>
 
-        {/* Right Column: Add Streamer & Ingestion Status (5 cols) */}
-        <div className="space-y-6 lg:col-span-5">
-          <Panel>
-            <h3 className="font-display text-2xl font-semibold tracking-tight text-ink">Add Channel</h3>
-            <p className="mt-2 text-base text-ink-muted">
-              Enter any Twitch, Kick, or YouTube username. ClipHive will automatically track when they go live.
-            </p>
-
-            <form onSubmit={handleAddStreamer} className="mt-6 space-y-4">
-              <Field label="Platform">
-                <select
+            <form onSubmit={handleAddStreamer} className="mt-8 space-y-6">
+              <div className="space-y-2">
+                <p className="text-lg font-medium text-ink">Platform</p>
+                <Segmented
+                  label="Platform"
                   value={platform}
-                  onChange={(e) => setPlatform(e.target.value as "twitch" | "kick" | "youtube")}
-                  className="w-full rounded-md border border-line bg-surface p-3 text-base text-ink"
-                >
-                  <option value="twitch">Twitch</option>
-                  <option value="kick">Kick</option>
-                  <option value="youtube">YouTube</option>
-                </select>
-              </Field>
-
-              <Field label="Channel Username" hint="e.g. tarik, kaicenat, shroud">
-                <input
-                  type="text"
-                  placeholder="Enter channel name"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="w-full rounded-md border border-line bg-surface p-3 text-base text-ink"
-                  required
+                  onChange={setPlatform}
+                  className="w-full"
+                  options={[
+                    { value: "twitch", label: "Twitch" },
+                    { value: "kick", label: "Kick" },
+                    { value: "youtube", label: "YouTube" },
+                  ]}
                 />
+              </div>
+
+              <Field label="Channel username" hint="e.g. tarik, kaicenat, shroud">
+                <Input type="text" placeholder="Enter channel name" value={username} onChange={(e) => setUsername(e.target.value)} required />
               </Field>
 
-              <div className="pt-2">
-                <Button type="submit" size="md" className="w-full" loading={isPending}>
-                  <Icon name="radio" className="size-5" />
-                  Start Watching Channel
-                </Button>
-              </div>
+              <Button type="submit" size="lg" className="w-full" loading={isPending}>
+                <Icon name="radio" />
+                Start watching
+              </Button>
             </form>
           </Panel>
 
-          <Panel tone="sunken">
-            <h4 className="font-display text-xl font-semibold tracking-tight text-ink">Autonomous Ingest Pipeline</h4>
-            <Ledger
-              className="mt-4"
-              items={[
-                { label: "Polling", value: "Every 60s", hint: "Twitch Helix & Kick Public endpoints" },
-                { label: "Recording", value: "streamlink", hint: "Captures 1080p source stream chunks" },
-                { label: "Scoring", value: "Acoustic / Scene", hint: "Loudness spikes + cut boundaries" },
-                { label: "Handoff", value: "C2 Caption Studio", hint: "Auto-routes raw cuts for word-pop" },
-              ]}
-            />
+          <Panel tone="sunken" padding="lg">
+            <SectionLabel>Ingest pipeline</SectionLabel>
+            <Timeline items={PIPELINE} compact className="mt-6" />
           </Panel>
-        </div>
+        </aside>
       </div>
     </div>
   );

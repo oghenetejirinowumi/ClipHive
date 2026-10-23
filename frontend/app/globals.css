@@ -399,3 +399,28 @@
   .eclipse-particle,
   .eclipse-shockwave { display: none; }
 }
+
+/* ---------- Fan-out flow lines (components/marketing/FanOut.tsx) ---------- */
+.fx-flow-base {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+}
+.fx-flow-pulse {
+  fill: none;
+  stroke: var(--brand);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-dasharray: 10 90;
+  filter: drop-shadow(0 0 4px var(--brand));
+  animation: fx-flow 2.6s linear infinite;
+  animation-delay: var(--d, 0s);
+}
+@keyframes fx-flow {
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: 0; }
+}
+[data-fx-paused] .fx-flow-pulse { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .fx-flow-pulse { display: none; }
+}

@@ -96,8 +96,8 @@ storage_dir = Path("storage")
 storage_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/storage", StaticFiles(directory=str(storage_dir)), name="storage")
 
-# Include routers. Auth stays at /auth (the frontend's contract); the rest live under /api.
-app.include_router(auth.router)
+# Include routers (paths per docs/CONTRACT.md: everything under /api).
+app.include_router(auth.router, prefix="/api")
 app.include_router(streamers_router, prefix="/api")
 app.include_router(styles_router, prefix="/api")
 app.include_router(clips_router, prefix="/api")

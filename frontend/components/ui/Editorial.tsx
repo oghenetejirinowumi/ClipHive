@@ -16,18 +16,32 @@ export function SectionLabel({ children, inverse, className }: { children: React
   );
 }
 
-/** Label in a left rail, content on the right, opened by a hairline. Stacks on phones. */
+/**
+ * A section opened by a hairline. With `label`, the label sits in a left rail and content on
+ * the right. Without one, the heading is centred above full-width content. Use labels
+ * sparingly: they mark a few key sections, not every block.
+ */
 export function EditorialSection({
   label,
   title,
   children,
   className,
 }: {
-  label: ReactNode;
+  label?: ReactNode;
   title?: ReactNode;
   children?: ReactNode;
   className?: string;
 }) {
+  if (!label) {
+    return (
+      <section className={cn("border-t border-line pt-14 lg:pt-20", className)}>
+        {title && (
+          <h2 className="mx-auto max-w-4xl text-center font-display text-4xl leading-tight font-semibold tracking-tight text-balance text-ink lg:text-6xl">{title}</h2>
+        )}
+        {children && <div className={title ? "mt-12 lg:mt-16" : undefined}>{children}</div>}
+      </section>
+    );
+  }
   return (
     <section className={cn("grid gap-8 border-t border-line pt-10 lg:grid-cols-[17rem_minmax(0,1fr)] lg:gap-14 lg:pt-14", className)}>
       <SectionLabel className="lg:pt-3">{label}</SectionLabel>
@@ -57,15 +71,23 @@ export function StatStrip({ stats, className }: { stats: Stat[]; className?: str
 
 export type TimelineItem = { marker: ReactNode; title?: ReactNode; body: ReactNode };
 
-/** Oversized markers down the left, separated by hairlines; the last one is lit in brand. */
-export function Timeline({ items, className }: { items: TimelineItem[]; className?: string }) {
+/** Oversized markers down the left, separated by hairlines; the last one is lit in brand. `compact` fits a side column. */
+export function Timeline({ items, compact, className }: { items: TimelineItem[]; compact?: boolean; className?: string }) {
   return (
     <ol className={cn("divide-y divide-line border-y border-line", className)}>
       {items.map((item, i) => {
         const last = i === items.length - 1;
         return (
-          <li key={i} className="grid gap-3 py-7 sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] sm:items-baseline sm:gap-10 lg:py-9">
-            <span className={cn("font-display text-5xl font-semibold tracking-tight lg:text-7xl", last ? "text-brand" : "text-ink")}>{item.marker}</span>
+          <li
+            key={i}
+            className={cn(
+              "grid gap-3",
+              compact ? "grid-cols-[7rem_minmax(0,1fr)] items-baseline gap-6 py-5" : "py-7 sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] sm:items-baseline sm:gap-10 lg:py-9",
+            )}
+          >
+            <span className={cn("font-display font-semibold tracking-tight", compact ? "text-4xl" : "text-5xl lg:text-7xl", last ? "text-brand" : "text-ink")}>
+              {item.marker}
+            </span>
             <span>
               {item.title && <span className="block font-display text-2xl font-semibold tracking-tight text-ink lg:text-3xl">{item.title}</span>}
               <span className="mt-2 block text-lg text-ink-muted lg:text-xl">{item.body}</span>

@@ -1,16 +1,16 @@
-import { FeatureCloud, HalftoneHorizon, RevealOnScroll, RuleWall, SkyBackground, Tape } from "@/components/effects";
+import { AuroraBackground, FeatureCloud, HalftoneHorizon, RevealOnScroll, RuleWall, SkyBackground, Tape } from "@/components/effects";
+import { FanOut } from "@/components/marketing/FanOut";
+import { StyleShowcase } from "@/components/marketing/StyleShowcase";
 import {
   Button,
   EditorialSection,
   Em,
   Icon,
   Logo,
-  QuoteBanner,
   SectionLabel,
   StatStrip,
   ThemeSwitch,
   Timeline,
-  ToneSteps,
 } from "@/components/ui";
 import { SITE } from "@/lib/site";
 
@@ -21,35 +21,18 @@ const STATS = [
   { value: "1 tap", label: "From the hub to posted or downloaded" },
 ];
 
+// One stream fans out into many clips, many caption variations and many posts.
 const PIPELINE = [
-  { marker: "Watch", body: "Add a channel. We detect when it goes live, or pull the latest VOD." },
-  { marker: "Detect", body: "Loudness spikes, reaction bursts and scene cuts are scored to find the moment." },
-  { marker: "Cut", body: "The clip is trimmed and cropped to 9:16 automatically." },
-  { marker: "Caption", body: "Word-level timestamps make every word pop exactly when it's said." },
-  { marker: "Post", body: "Auto-post where the platform allows. Everything else waits in the hub." },
-];
-
-const STYLES = [
-  { eyebrow: "Preset", title: "Punch", body: "Bangers, yellow fill, word-pop." },
-  { eyebrow: "Preset", title: "Neon", body: "Cyan fill, magenta glow." },
-  { eyebrow: "Preset", title: "Clean", body: "White on a soft box, line by line." },
-  { eyebrow: "Yours", title: "Your font", body: "Upload a .ttf or .otf and make it brand." },
-];
-
-const PLATFORMS = [
-  { name: "Twitch", role: "Source" },
-  { name: "Kick", role: "Source" },
-  { name: "YouTube", role: "Source" },
-  { name: "Download", role: "Always available" },
-  { name: "TikTok", role: "Destination" },
-  { name: "YouTube Shorts", role: "Destination" },
-  { name: "Instagram Reels", role: "Destination" },
-  { name: "X", role: "Destination" },
+  { marker: "Watch", body: "Add your channels. Every live stream and VOD is picked up automatically." },
+  { marker: "Detect", body: "One stream yields dozens of moments: reactions, clutch plays, hot takes, each scored and ranked." },
+  { marker: "Cut", body: "Every moment becomes its own 9:16 clip, not just the single best one." },
+  { marker: "Caption", body: "Render each clip in different caption styles and keep the variation that hits." },
+  { marker: "Post", body: "Send every clip to every feed you use. Whatever a platform won't take waits in the hub." },
 ];
 
 const RULES = [
-  { title: "Automatic where possible.", body: "Clips are found, cut to 9:16 and captioned without you scrubbing a timeline." },
-  { title: "Frictionless where necessary.", body: "API quota hit? The clip is already in the hub, ready to download." },
+  { title: "Post right up to the limit.", body: "Clips are found, cut and captioned for you, then auto-posted as far as each platform allows." },
+  { title: "Nothing gets stuck.", body: "API quota hit? The clip is already in the hub, ready to download." },
   { title: "Captions that don't drift.", body: "Word timings, not sentence guesses." },
   { title: "Your style, every clip.", body: "Presets for speed, custom fonts for your brand." },
   { title: "Hashtags that are trending now.", body: "This week's TikTok and YouTube tags, one click into the caption." },
@@ -80,7 +63,7 @@ export default function LandingPage() {
 
         <div className="mx-auto max-w-6xl px-4 pt-20 pb-16 text-center sm:px-8 lg:pt-32">
           <SectionLabel inverse className="fx-rise">
-            For stream clippers
+            For clippers
           </SectionLabel>
           <h1
             className="fx-rise mt-8 font-display text-5xl leading-[1.05] font-semibold tracking-tight text-balance text-on-brand md:text-7xl lg:text-8xl"
@@ -111,7 +94,6 @@ export default function LandingPage() {
       <div className={`${COLUMN} space-y-28 py-24 lg:space-y-36 lg:py-32`}>
         <RevealOnScroll>
           <EditorialSection
-            label="By the numbers"
             title={
               <>
                 Fewer hours scrubbing, <Em>more clips posted</Em>
@@ -124,10 +106,9 @@ export default function LandingPage() {
 
         <RevealOnScroll>
           <EditorialSection
-            label="How it works"
             title={
               <>
-                From a ten-hour stream to a post in <Em>five moves</Em>
+                One ten-hour stream, <Em>dozens of posts</Em>
               </>
             }
           >
@@ -137,43 +118,34 @@ export default function LandingPage() {
 
         <RevealOnScroll>
           <EditorialSection
-            label="Caption styles"
             title={
               <>
                 Captions with <Em>personality</Em>
               </>
             }
           >
-            <ToneSteps steps={STYLES} />
+            <StyleShowcase />
           </EditorialSection>
         </RevealOnScroll>
       </div>
 
-      {/* Every platform, one hub: a halftone planet rising over a grid of platforms. */}
+      {/* Every platform, one hub: a halftone planet, then every source fanning out to every destination. */}
       <section className="overflow-hidden border-y border-line">
         <div className={`${COLUMN} pt-24 text-center lg:pt-32`}>
-          <SectionLabel>One network</SectionLabel>
-          <h2 className="mt-6 font-display text-5xl font-semibold tracking-tight text-ink lg:text-7xl">
+          <h2 className="font-display text-5xl font-semibold tracking-tight text-ink lg:text-7xl">
             Every platform.
             <span className="block text-ink-faint">One hub.</span>
           </h2>
+          <p className="mx-auto mt-6 max-w-2xl text-xl text-ink-muted lg:text-2xl">Each stream you watch feeds every destination you post to.</p>
         </div>
-        <HalftoneHorizon className="mt-10 h-[22rem] w-full lg:mt-16 lg:h-[30rem]" />
+        <HalftoneHorizon className="mt-10 h-[22rem] w-full lg:mt-14 lg:h-[28rem]" />
         <div className={`${COLUMN} pb-24 lg:pb-32`}>
-          <ul className="grid grid-cols-2 border-t border-l border-line sm:grid-cols-4">
-            {PLATFORMS.map((p) => (
-              <li key={p.name} className="flex min-h-36 flex-col justify-between gap-6 border-r border-b border-line p-6 lg:min-h-44 lg:p-8">
-                <span className="font-mono text-meta tracking-[0.16em] text-ink-muted uppercase">{p.role}</span>
-                <span className="font-display text-2xl font-semibold tracking-tight text-ink lg:text-3xl">{p.name}</span>
-              </li>
-            ))}
-          </ul>
+          <FanOut />
         </div>
       </section>
 
       <div className={`${COLUMN} space-y-28 py-24 lg:space-y-36 lg:py-32`}>
         <EditorialSection
-          label="Principles"
           title={
             <>
               Built the way <Em>clippers</Em> actually work
@@ -183,21 +155,28 @@ export default function LandingPage() {
           <RuleWall rules={RULES} />
         </EditorialSection>
 
+        {/* Closing statement: big, centred, one idea. */}
         <RevealOnScroll>
-          <QuoteBanner
-            quote={
-              <>
-                &ldquo;Generation is unlimited. Distribution is platform-gated. So we auto-post what the APIs allow, and{" "}
-                <Em>everything else is one tap away</Em>.&rdquo;
-              </>
-            }
-            attribution="How ClipHive thinks about quotas"
-            action={
+          <section className="relative isolate overflow-hidden rounded-xl bg-brand px-8 py-20 text-center text-on-brand shadow-glow-strong lg:px-16 lg:py-32">
+            <AuroraBackground />
+            <h2 className="mx-auto max-w-6xl font-display text-5xl leading-[1.02] font-semibold tracking-tight text-balance md:text-7xl lg:text-8xl">
+              Unlimited clips.
+              <span className="block">
+                <Em>Every feed, maxed out.</Em>
+              </span>
+            </h2>
+            <p className="mx-auto mt-8 max-w-3xl text-xl text-pretty text-on-brand/85 lg:text-2xl">
+              We auto-post right up to each platform&apos;s limit. Anything past it waits in the hub, one tap from downloaded.
+            </p>
+            <div className="mt-12 flex flex-wrap justify-center gap-4">
               <Button href="/register" variant="inverse" size="lg">
                 Get started free <Icon name="arrowRight" />
               </Button>
-            }
-          />
+              <Button href="/login" variant="ghostInverse" size="lg">
+                Sign in
+              </Button>
+            </div>
+          </section>
         </RevealOnScroll>
       </div>
 

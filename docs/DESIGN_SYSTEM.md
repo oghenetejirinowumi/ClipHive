@@ -76,7 +76,7 @@ Colours marked `TODO(brand)` are placeholders until the final brand values go in
 
 ## Auth (live)
 
-Implemented in `backend/app/api/auth.py` (bcrypt password hashing, JWT via `JWT_SECRET`).
+Implemented in `backend/app/api/auth.py`, mounted under `/api` (bcrypt password hashing, JWT via `JWT_SECRET`).
 Protect your own backend routes with the `CurrentUser` dependency:
 
 ```python
@@ -89,12 +89,12 @@ def list_streamers(user: CurrentUser, db: DbSession): ...
 Register your router in `backend/app/main.py` with `app.include_router(...)`.
 
 ```
-POST /auth/register   { "email": str, "password": str (min 8) }
-POST /auth/login      { "email": str, "password": str }
+POST /api/auth/register   { "email": str, "password": str (min 8) }
+POST /api/auth/login      { "email": str, "password": str }
 → 200 { "access_token": "<jwt>", "token_type": "bearer", "user": { "id": ..., "email": "..." } }
 → 4xx { "detail": "human-readable message" }   (shown directly in the form)
 
-GET  /auth/me          → 200 { "id", "email", "created_at" }   (the frontend checks this on load)
+GET  /api/auth/me          → 200 { "id", "email", "created_at" }   (the frontend checks this on load)
 
 Every other route: Authorization: Bearer <jwt>  → 401 if missing or expired
 ```

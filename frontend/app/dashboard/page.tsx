@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { SkyBackground } from "@/components/effects";
 import { Greeting } from "@/components/shell/Greeting";
-import { Button, Icon, Panel, SectionLabel, ToneSteps } from "@/components/ui";
+import { Button, Icon, Panel, SectionLabel, SkyHeader, ToneSteps } from "@/components/ui";
 import { APP_NAV } from "@/lib/routes";
 
 export const metadata: Metadata = { title: "Dashboard" };
@@ -20,22 +19,22 @@ const LIFECYCLE = [
 export default function DashboardPage() {
   return (
     <div className="space-y-14">
-      <section className="relative isolate overflow-hidden rounded-xl px-8 pt-12 pb-24 lg:px-14 lg:pt-16 lg:pb-32">
-        <SkyBackground />
-        <SectionLabel inverse>Dashboard</SectionLabel>
-        <h1 className="mt-4 font-display text-5xl font-semibold tracking-tight [overflow-wrap:anywhere] text-on-brand lg:text-7xl">
-          <Greeting />
-        </h1>
-        <p className="mt-4 max-w-2xl text-xl text-on-brand/85 lg:text-2xl">Here&apos;s where everything lives. Start by adding a streamer.</p>
-        <div className="mt-10 flex flex-wrap gap-3">
-          <Button href="/streamers" variant="inverse" size="lg">
-            Add a streamer <Icon name="arrowRight" />
-          </Button>
-          <Button href="/hub" variant="ghostInverse" size="lg">
-            Open the hub
-          </Button>
-        </div>
-      </section>
+      <SkyHeader
+        size="lg"
+        eyebrow="Dashboard"
+        title={<Greeting />}
+        description="Here's where everything lives. Start by adding a streamer."
+        actions={
+          <>
+            <Button href="/streamers" variant="inverse" size="lg">
+              Add a streamer <Icon name="arrowRight" />
+            </Button>
+            <Button href="/hub" variant="ghostInverse" size="lg">
+              Open the hub
+            </Button>
+          </>
+        }
+      />
 
       <section className="space-y-6">
         <SectionLabel>Workspace</SectionLabel>
