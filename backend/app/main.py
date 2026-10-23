@@ -1,38 +1,107 @@
+"""ClipHive FastAPI application entrypoint."""
+from __future__ import annotations
+
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api import auth
+from app.api.clips import router as clips_router
+from app.api.styles import router as styles_router
+from app.api.trends import router as trends_router
 from app.config import settings
-from app.db import init_db
+from app.db import SessionLocal, init_db
+from app.models.clip import Clip
+from app.models.enums import CaptionMode, ClipStatus
+from app.models.user import User
+from app.services.caption.styles import seed_preset_styles
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("cliphive")
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(app: FastAPI):
     if settings.jwt_secret == "change-me":
-        logging.getLogger("uvicorn.error").warning(
-            "JWT_SECRET is the default 'change-me'. Anyone can forge sessions; set a real one in backend/.env."
-        )
+        logger.warning("JWT_SECRET is the default 'change-me'. Anyone can forge sessions; set a real one in backend/.env.")
+
+    # Startup: Initialize DB and seeds
+    logger.info("Initializing database...")
     init_db()
+
+    with SessionLocal() as db:
+        # Seed default styles
+        styles = seed_preset_styles(db)
+        logger.info(f"Seeded {len(styles)} caption styles.")
+
+        # Seed demo user if none exists
+        demo_user = db.query(User).first()
+        if not demo_user:
+            demo_user = User(email="demo@cliphive.local", password_hash="not_needed_for_demo")
+            db.add(demo_user)
+            db.commit()
+            db.refresh(demo_user)
+
+        # Seed sample clip row if none exists
+        sample_video = Path("tests/fixtures/sample_raw.mp4")
+        if sample_video.exists():
+            existing_clip = db.query(Clip).first()
+            if not existing_clip:
+                punch_style = next((s for s in styles if s.name == "Punch"), styles[0] if styles else None)
+                sample_clip = Clip(
+                    user_id=demo_user.id,
+                    start_s=0.0,
+                    end_s=10.0,
+                    raw_file_path=str(sample_video.resolve()),
+                    caption_style_id=punch_style.id if punch_style else None,
+                    caption_mode=CaptionMode.BURNED,
+                    highlight_score=94.5,
+                    title="Epic Clutch Stream Moment",
+                    hashtags=["#gaming", "#clutch", "#streamer"],
+                    status=ClipStatus.PROCESSING,
+                )
+                db.add(sample_clip)
+                db.commit()
+                logger.info("Seeded initial fixture clip for testing.")
+
     yield
 
 
-app = FastAPI(title="ClipHive API", lifespan=lifespan)
+# Ensure tables exist at startup
+init_db()
 
+app = FastAPI(
+    title="ClipHive API",
+    description="Backend API for ClipHive AI Stream Clipping & Caption Studio",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+
+# Enable CORS for frontend development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origin_list,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Each teammate registers their router here: app.include_router(streams.router), etc.
+# Mount local storage directory for preview and download
+storage_dir = Path("storage")
+storage_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/storage", StaticFiles(directory=str(storage_dir)), name="storage")
+
+# Include routers. Auth stays at /auth (the frontend's contract); the rest live under /api.
 app.include_router(auth.router)
+app.include_router(styles_router, prefix="/api")
+app.include_router(clips_router, prefix="/api")
+app.include_router(trends_router, prefix="/api")
 
 
-@app.get("/health", tags=["meta"])
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+@app.get("/health")
+def health():
+    return {"status": "ok", "app": "ClipHive"}

@@ -3,6 +3,11 @@ __pycache__/
 .env
 *.db
 .venv/
+venv/
+*.egg-info/
 media/
+storage/
 .next/
 node_modules/
+tests/fixtures/*_output.mp4
+tests/fixtures/*_test.ass
