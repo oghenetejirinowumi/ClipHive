@@ -46,7 +46,8 @@ class AnimationType(StrEnum):
 
 
 class PostStatus(StrEnum):
-    QUEUED = "queued"
+    QUEUED = "queued"  # scheduled by the Publisher agent
+    READY = "ready"  # its time has come: export and post it
     POSTING = "posting"
     POSTED = "posted"
     FAILED = "failed"

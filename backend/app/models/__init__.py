@@ -1,3 +1,4 @@
+from app.models.agent import AgentEvent, AgentRun, CreatorFeedback, CreatorProfile, Notification
 from app.models.caption_style import CaptionStyle
 from app.models.clip import Clip
 from app.models.enums import (
@@ -26,6 +27,11 @@ from app.models.trend_data import (
 from app.models.user import User
 
 __all__ = [
+    "AgentEvent",
+    "AgentRun",
+    "CreatorFeedback",
+    "CreatorProfile",
+    "Notification",
     "AnimationType",
     "CaptionMode",
     "CaptionStyle",

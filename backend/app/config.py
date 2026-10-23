@@ -50,6 +50,30 @@ class Settings(BaseSettings):
     assemblyai_api_key: str | None = None
     whisper_model_size: str = "base"
 
+    # Groq (optional): fast hosted Whisper + LLM. Empty key = local faster-whisper and
+    # loudness-only highlights, exactly as before.
+    groq_api_key: str = ""
+    groq_transcribe_model: str = "whisper-large-v3-turbo"
+    groq_chat_model: str = "openai/gpt-oss-20b"
+    # Re-rank loudness candidates by what is said in them (needs GROQ_API_KEY).
+    ai_highlights_enabled: bool = True
+
+    # Agents (services/agents). The Producer picks and cuts clips with a tool-calling model;
+    # with no key or on error, imports fall back to the fixed pipeline.
+    agent_mode_enabled: bool = True
+    agent_provider: str = "auto"  # auto (OpenAI if its key is set, else Groq) | openai | groq
+    agent_groq_model: str = "openai/gpt-oss-120b"  # Groq model for tool calling
+    agent_max_steps: int = 25
+    agent_max_seconds: int = 240
+    # Scout: check monitored channels for new VODs in the background and import them.
+    scout_enabled: bool = False
+    scout_interval_minutes: int = 15
+    # Publisher: platforms each approved clip is queued for.
+    publisher_platforms: str = "tiktok,youtube"
+    # YouTube search scraping with yt-dlp for the studio's social-trends panel. Off by default:
+    # it is a research prototype, separate from the API-based trend collection gate.
+    social_search_enabled: bool = False
+
     youtube_api_key: str = ""
     trends_cache_ttl_s: int = 3600
     trends_default_regions: str = "NG,US"

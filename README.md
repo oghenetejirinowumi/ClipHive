@@ -40,6 +40,12 @@ cd backend
 
 Or trigger one discovery run from the signed-in UI or `POST /api/trends/jobs/run`. Check `/api/trends/status` for the approval gate, provider configuration, latest job outcome, quota and errors. The seed script exits unless a key is configured and the policy gate is enabled.
 
+## Per-clip hashtags and captions
+
+In the studio, each clip has a **Hashtags & captions** button. It reads the clip's context (game, moment type, creator; transcribing first if needed), then uses yt-dlp to read matching YouTube Shorts: hashtag feeds like `youtube.com/hashtag/valorant/shorts` plus a keyword search. It ranks the hashtags those videos use by their views, drops feed spam that only mentions the topic in hashtags, and suggests captions based on how the top titles are written. You pick tags, edit the caption, and save it to the clip. Code: `backend/app/services/trends/social_search.py`, endpoint `GET /api/clips/{id}/social-trends?platform=tiktok|youtube&refresh=false`.
+
+This scrapes public YouTube pages without an API key, which YouTube's terms don't permit. It's fine for a hackathon demo but not for production. Results are cached in memory for `TRENDS_CACHE_TTL_S` and saved on the clip. If YouTube shows a bot check, full-description lookups pause for 15 minutes and the listings alone are used; setting `YTDLP_COOKIES_FILE` helps. Hashtag data comes from YouTube Shorts and stands in for TikTok trends.
+
 ## Tests and frontend checks
 
 ```bash

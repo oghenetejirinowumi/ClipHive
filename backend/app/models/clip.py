@@ -32,6 +32,8 @@ class Clip(Base):
         Enum(ClipStatus, native_enum=False), default=ClipStatus.PROCESSING, index=True
     )
     error: Mapped[str | None] = mapped_column(Text)
+    # Creator's decision in the inbox: pending | approved | rejected
+    review_status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     stream: Mapped["Stream | None"] = relationship(back_populates="clips")

@@ -17,7 +17,8 @@ from app.core.media import public_path, storage_root
 from app.models import CaptionMode, Clip, ClipStatus, ImportJob, ImportStatus
 from app.schemas.import_job import ImportRead, LayoutRequest, Moment, StudioClip, StudioClipRequest, StudioProject
 from app.services.clip.cutter import cut_vertical
-from app.services.clip.detector import energy_curve, find_highlights
+from app.services.clip.ai_rank import pick_highlights
+from app.services.clip.detector import energy_curve
 from app.services.ingest.pipeline import job_dir, source_file
 
 router = APIRouter(prefix="/studio", tags=["studio"])
@@ -81,10 +82,12 @@ def _analysis(job: ImportJob, src: Path) -> dict:
     if cache.exists():
         return json.loads(cache.read_text(encoding="utf-8"))
     duration = job.duration_s or 0
-    moments = find_highlights(src, duration, count=8, clip_seconds=job.clip_seconds or 30)
+    moments = pick_highlights(src, duration, count=8, clip_seconds=job.clip_seconds or 30)
     data = {
         "energy": energy_curve(src, duration),
-        "moments": [{"start_s": m.start_s, "end_s": m.end_s, "score": m.score} for m in moments],
+        "moments": [
+            {"start_s": m.start_s, "end_s": m.end_s, "score": m.score, "reason": m.reason} for m in moments
+        ],
     }
     cache.write_text(json.dumps(data), encoding="utf-8")
     return data

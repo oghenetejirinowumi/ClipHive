@@ -8,6 +8,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from app.api import auth
+from app.api.agents import router as agents_router
+from app.api.inbox import router as inbox_router
 from app.api.clips import router as clips_router
 from app.api.downloads import router as downloads_router
 from app.api.imports import router as imports_router
@@ -24,6 +26,8 @@ from app.models.enums import CaptionMode, ClipStatus
 from app.models.user import User
 from app.services.caption.styles import seed_preset_styles
 from app.services.ingest.pipeline import recover_interrupted
+from app.services.agents.publisher import publisher_loop
+from app.services.agents.scout import scout_loop
 from app.services.trends.scheduler import trend_scheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -82,18 +86,19 @@ async def lifespan(app: FastAPI):
                 db.commit()
                 logger.info("Seeded initial fixture clip for testing.")
 
-    scheduler_task = (
-        asyncio.create_task(trend_scheduler())
-        if settings.trends_scheduler_enabled
-        else None
-    )
+    background = [asyncio.create_task(publisher_loop())]
+    if settings.trends_scheduler_enabled:
+        background.append(asyncio.create_task(trend_scheduler()))
+    if settings.scout_enabled:
+        logger.info("Scout agent: checking channels every %d min", settings.scout_interval_minutes)
+        background.append(asyncio.create_task(scout_loop()))
     try:
         yield
     finally:
-        if scheduler_task:
-            scheduler_task.cancel()
+        for task in background:
+            task.cancel()
             try:
-                await scheduler_task
+                await task
             except asyncio.CancelledError:
                 pass
 
@@ -131,6 +136,8 @@ app.include_router(trends_router, prefix="/api")
 app.include_router(imports_router, prefix="/api")
 app.include_router(downloads_router, prefix="/api")
 app.include_router(studio_router, prefix="/api")
+app.include_router(agents_router, prefix="/api")
+app.include_router(inbox_router, prefix="/api")
 
 
 @app.api_route("/", methods=["GET", "HEAD"])

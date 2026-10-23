@@ -23,6 +23,7 @@ class Highlight:
     start_s: float
     end_s: float
     score: float  # 0-100, relative to the rest of this video
+    reason: str | None = None  # set when an AI model ranked this moment
 
 
 def _loudness_db(path: Path, max_seconds: float) -> np.ndarray:

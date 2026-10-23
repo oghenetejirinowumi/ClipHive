@@ -5,18 +5,26 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from app.config import settings
 from app.db import SessionLocal, get_db
 from app.models.caption_style import CaptionStyle
 from app.models.clip import Clip
 from app.models.enums import CaptionMode, ClipStatus, PostPlatform
 from app.schemas.clip import CaptionRequest, ClipRead, ClipUpdate
-from app.services.ai.context_engine import apply_context_to_clip, extract_clip_context
+from app.services.ai.context_engine import (
+    GAME_SIGNATURES,
+    ClipContext,
+    apply_context_to_clip,
+    extract_clip_context,
+)
+from app.services.agents.learning import record_feedback
 from app.services.ai.proofreader import proofread_transcript
 from app.services.ai.viral_studio import generate_viral_metadata
 from app.services.caption.ass_generator import ASSGenerator
 from app.services.caption.burner import burn_subtitles
 from app.services.transcribe.whisper_service import transcribe_video
 from app.services.trends.queries import match_clip_to_trends
+from app.services.trends.social_search import SocialSearchUnavailable, find_social_trends
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
@@ -75,6 +83,15 @@ def update_clip(clip_id: int, payload: ClipUpdate, db: Session = Depends(get_db)
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
 
+    # Log edits so the agents learn this creator's taste (services/agents/learning.py).
+    feedback: list[tuple[str, dict, dict]] = []
+    if payload.title is not None and payload.title != clip.title:
+        feedback.append(("title_edit", {"title": clip.title}, {"title": payload.title}))
+    if payload.hashtags is not None and list(payload.hashtags) != list(clip.hashtags or []):
+        feedback.append(("hashtag_edit", {"hashtags": clip.hashtags or []}, {"hashtags": payload.hashtags}))
+    if payload.caption_style_id is not None and payload.caption_style_id != clip.caption_style_id:
+        feedback.append(_style_feedback(db, clip.caption_style_id, payload.caption_style_id))
+
     if payload.title is not None:
         clip.title = payload.title
     if payload.hashtags is not None:
@@ -86,7 +103,15 @@ def update_clip(clip_id: int, payload: ClipUpdate, db: Session = Depends(get_db)
 
     db.commit()
     db.refresh(clip)
+    for kind, before, after in feedback:
+        record_feedback(db, clip.user_id, clip, kind, before, after)
     return clip
+
+
+def _style_feedback(db: Session, old_id: int | None, new_id: int) -> tuple[str, dict, dict]:
+    old = db.get(CaptionStyle, old_id) if old_id else None
+    new = db.get(CaptionStyle, new_id)
+    return ("style_change", {"style": old.name if old else None}, {"style": new.name if new else None})
 
 
 @router.get("/{clip_id}/context")
@@ -106,6 +131,74 @@ def get_clip_context_endpoint(
     context = extract_clip_context(clip, db, platform=platform)
     apply_context_to_clip(clip, db, context)
     return clip.context_json
+
+
+@router.get("/{clip_id}/social-trends")
+def get_clip_social_trends(
+    clip_id: int,
+    platform: str = Query(default="tiktok", pattern="^(tiktok|youtube)$"),
+    refresh: bool = False,
+    db: Session = Depends(get_db),
+):
+    """Popular hashtags and caption ideas from short videos similar to this clip.
+
+    Reads the clip's context (transcribing it first if needed), searches YouTube
+    Shorts for matching videos, and returns hashtags ranked by how much the videos
+    using them were watched. Does not change the clip; save picks with PATCH.
+    """
+    if not settings.social_search_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Similar-video search is off. It scrapes YouTube search, so it is a research prototype; set SOCIAL_SEARCH_ENABLED=true to try it.",
+        )
+    clip = db.query(Clip).filter(Clip.id == clip_id).first()
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    saved = dict(clip.context_json or {})
+    cached = saved.get("social_trends")
+    if cached and not refresh and cached.get("platform") == platform:
+        return _social_response(clip, saved, cached)
+
+    if saved.get("summary"):
+        context = ClipContext(**saved)
+    else:
+        context = extract_clip_context(clip, db, platform=platform)
+        saved.update(context.model_dump())
+
+    try:
+        result = find_social_trends(
+            game_or_topic=context.game_or_topic,
+            event_type=context.event_type,
+            creator=context.creator,
+            summary=context.summary,
+            clip_title=clip.title,
+            suggested_title=context.viral_title,
+            topic_keywords=GAME_SIGNATURES.get(context.game_or_topic, []),
+            platform=platform,
+            refresh=refresh,
+        )
+    except SocialSearchUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+
+    saved["social_trends"] = result.model_dump()
+    clip.context_json = saved  # reassign so SQLAlchemy sees the JSON change
+    db.commit()
+    db.refresh(clip)
+    return _social_response(clip, saved, saved["social_trends"])
+
+
+def _social_response(clip: Clip, context: dict, trends: dict) -> dict:
+    return {
+        "clip_id": clip.id,
+        "current_title": clip.title,
+        "current_hashtags": clip.hashtags or [],
+        "context": {
+            key: context.get(key)
+            for key in ("summary", "game_or_topic", "event_type", "mood", "creator")
+        },
+        **trends,
+    }
 
 
 @router.post("/{clip_id}/ai-pack", response_model=ClipRead)
@@ -248,6 +341,9 @@ def caption_clip(
 
     if not clip.raw_file_path or not Path(clip.raw_file_path).exists():
         raise HTTPException(status_code=400, detail="Raw video file not found on disk")
+
+    if clip.caption_style_id and clip.caption_style_id != style.id:
+        record_feedback(db, clip.user_id, clip, *_style_feedback(db, clip.caption_style_id, style.id))
 
     if async_burn:
         clip.status = ClipStatus.CAPTIONING

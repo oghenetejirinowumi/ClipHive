@@ -16,6 +16,12 @@ class Streamer(Base):
     platform: Mapped[SourcePlatform] = mapped_column(Enum(SourcePlatform, native_enum=False))
     username: Mapped[str] = mapped_column(String(100))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Written by the Scout agent (services/agents/scout.py)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_seen_video_id: Mapped[str | None] = mapped_column(String(255))
+    last_seen_video_url: Mapped[str | None] = mapped_column(String(2048))
+    last_seen_video_title: Mapped[str | None] = mapped_column(String(300))
+    last_check_error: Mapped[str | None] = mapped_column(String(300))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped["User"] = relationship(back_populates="streamers")
