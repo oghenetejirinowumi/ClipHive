@@ -1,14 +1,11 @@
 """ClipHive FastAPI application entrypoint."""
+
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
-from fastapi.staticfiles import StaticFiles
 
 from app.api import auth
 from app.api.clips import router as clips_router
@@ -25,6 +22,11 @@ from app.models.enums import CaptionMode, ClipStatus
 from app.models.user import User
 from app.services.caption.styles import seed_preset_styles
 from app.services.ingest.pipeline import recover_interrupted
+from app.services.trends.scheduler import trend_scheduler
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("cliphive")
@@ -33,7 +35,9 @@ logger = logging.getLogger("cliphive")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if settings.jwt_secret == "change-me":
-        logger.warning("JWT_SECRET is the default 'change-me'. Anyone can forge sessions; set a real one in backend/.env.")
+        logger.warning(
+            "JWT_SECRET is the default 'change-me'. Anyone can forge sessions; set a real one in backend/.env."
+        )
 
     # Startup: Initialize DB and seeds
     logger.info("Initializing database...")
@@ -50,7 +54,9 @@ async def lifespan(app: FastAPI):
         # Seed demo user if none exists
         demo_user = db.query(User).first()
         if not demo_user:
-            demo_user = User(email="demo@cliphive.local", password_hash="not_needed_for_demo")
+            demo_user = User(
+                email="demo@cliphive.local", password_hash="not_needed_for_demo"
+            )
             db.add(demo_user)
             db.commit()
             db.refresh(demo_user)
@@ -60,7 +66,10 @@ async def lifespan(app: FastAPI):
         if sample_video.exists():
             existing_clip = db.query(Clip).first()
             if not existing_clip:
-                punch_style = next((s for s in styles if s.name == "Punch"), styles[0] if styles else None)
+                punch_style = next(
+                    (s for s in styles if s.name == "Punch"),
+                    styles[0] if styles else None,
+                )
                 sample_clip = Clip(
                     user_id=demo_user.id,
                     start_s=0.0,
@@ -77,7 +86,20 @@ async def lifespan(app: FastAPI):
                 db.commit()
                 logger.info("Seeded initial fixture clip for testing.")
 
-    yield
+    scheduler_task = (
+        asyncio.create_task(trend_scheduler())
+        if settings.trends_scheduler_enabled
+        else None
+    )
+    try:
+        yield
+    finally:
+        if scheduler_task:
+            scheduler_task.cancel()
+            try:
+                await scheduler_task
+            except asyncio.CancelledError:
+                pass
 
 
 # Ensure tables exist at startup

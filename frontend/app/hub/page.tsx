@@ -12,6 +12,11 @@ type Clip = {
   duration_s: number;
   highlight_score?: number | null;
   hashtags?: string[];
+  context_json?: {
+    game_or_topic?: string;
+    summary?: string;
+    event_type?: string;
+  } | null;
   status: string;
   created_at: string;
 };
@@ -89,7 +94,12 @@ export default function HubPage() {
 
               <div className="flex flex-1 flex-col gap-6 p-7">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="font-mono text-meta tracking-[0.12em] text-ink-muted uppercase">Clip #{clip.id}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-meta tracking-[0.12em] text-ink-muted uppercase">Clip #{clip.id}</span>
+                    {clip.context_json?.game_or_topic && (
+                      <Badge tone="brand" size="sm">{clip.context_json.game_or_topic}</Badge>
+                    )}
+                  </div>
                   <StatusBadge status={clip.status} />
                 </div>
 

@@ -27,6 +27,7 @@ class Clip(Base):
     highlight_score: Mapped[float | None] = mapped_column(Float)
     title: Mapped[str | None] = mapped_column(String(255))
     hashtags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    context_json: Mapped[dict | None] = mapped_column(JSON, default=dict)
     status: Mapped[ClipStatus] = mapped_column(
         Enum(ClipStatus, native_enum=False), default=ClipStatus.PROCESSING, index=True
     )

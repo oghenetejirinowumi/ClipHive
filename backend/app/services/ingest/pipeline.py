@@ -18,6 +18,7 @@ from app.config import settings
 from app.core.media import MediaError, probe, public_path, storage_root, thumbnail
 from app.db import SessionLocal
 from app.models import Clip, ClipStatus, ImportJob, ImportSource, ImportStatus
+from app.services.ai.context_engine import apply_context_to_clip, extract_clip_context
 from app.services.clip.cutter import cut_vertical
 from app.services.clip.detector import find_highlights
 from app.services.ingest.downloader import IngestError, download
@@ -110,8 +111,23 @@ def _run(job_id: int) -> None:
     _update(job_id, status=ImportStatus.CUTTING, progress=60)
     clips_dir = storage_root() / "clips"
     clip_ids: list[int] = []
+    source_context_base = {
+        "source": source.value if hasattr(source, "value") else str(source),
+        "source_title": title,
+        "creator": (info.get("uploader") or info.get("channel")) if info else None,
+        "source_tags": (info.get("tags") or [])[:20] if info else [],
+        "source_categories": (info.get("categories") or []) if info else [],
+        "source_description": (info.get("description") or "")[:300] if info else None,
+        "source_url": url,
+        "import_job_id": job_id,
+    }
+
     for n, moment in enumerate(moments, start=1):
         out = cut_vertical(src, moment.start_s, moment.end_s, clips_dir / f"import_{job_id}_{n}.mp4")
+        clip_ctx = dict(source_context_base)
+        clip_ctx["moment_index"] = n
+        clip_ctx["highlight_score"] = moment.score
+
         with SessionLocal() as db:
             clip = Clip(
                 user_id=user_id,
@@ -122,11 +138,21 @@ def _run(job_id: int) -> None:
                 highlight_score=moment.score,
                 title=f"{title} · Clip {n}",
                 hashtags=[],
+                context_json=clip_ctx,
                 status=ClipStatus.PROCESSING,
             )
             db.add(clip)
             db.commit()
+            db.refresh(clip)
             clip_ids.append(clip.id)
+
+            # Analyze clip context to match caption style and hashtags
+            try:
+                extracted = extract_clip_context(clip, db, platform="tiktok", source_hint=clip_ctx)
+                apply_context_to_clip(clip, db, extracted)
+            except Exception as err:
+                logger.warning("Context packaging skipped for clip %s: %s", clip.id, err)
+
         _update(job_id, clip_ids=list(clip_ids), progress=60 + int(39 * n / len(moments)))
 
     _update(job_id, status=ImportStatus.DONE, progress=100, finished_at=datetime.now(UTC))

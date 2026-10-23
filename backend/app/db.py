@@ -27,3 +27,11 @@ def init_db() -> None:
     import app.models  # noqa: F401  (registers all tables on Base.metadata)
 
     Base.metadata.create_all(bind=engine)
+    if settings.database_url.startswith("sqlite"):
+        with engine.connect() as conn:
+            from sqlalchemy import text
+            try:
+                conn.execute(text("ALTER TABLE clips ADD COLUMN context_json JSON DEFAULT '{}'"))
+                conn.commit()
+            except Exception:
+                pass
