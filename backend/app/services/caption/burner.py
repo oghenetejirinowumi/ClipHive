@@ -2,10 +2,32 @@
 from __future__ import annotations
 
 import logging
+import platform
 import subprocess
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+_has_videotoolbox: bool | None = None
+
+
+def is_videotoolbox_supported(ffmpeg_bin: str = "ffmpeg") -> bool:
+    """Checks whether h264_videotoolbox hardware encoding is available on this system."""
+    global _has_videotoolbox
+    if _has_videotoolbox is not None:
+        return _has_videotoolbox
+
+    if platform.system() != "Darwin":
+        _has_videotoolbox = False
+        return False
+
+    try:
+        res = subprocess.run([ffmpeg_bin, "-encoders"], capture_output=True, text=True)
+        _has_videotoolbox = "h264_videotoolbox" in res.stdout
+    except Exception:
+        _has_videotoolbox = False
+
+    return _has_videotoolbox
 
 
 def escape_ffmpeg_filter_path(path: str | Path) -> str:
@@ -47,14 +69,17 @@ def burn_subtitles(
     else:
         vf_arg = f"ass='{escaped_ass}'"
 
+    if is_videotoolbox_supported(ffmpeg_bin):
+        vcodec_args = ["-c:v", "h264_videotoolbox", "-b:v", "3500k"]
+    else:
+        vcodec_args = ["-c:v", "libx264", "-preset", "fast", "-crf", "20"]
+
     cmd = [
         ffmpeg_bin,
         "-y",
         "-i", str(raw_path),
         "-vf", vf_arg,
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "20",
+        *vcodec_args,
         "-c:a", "aac",
         "-b:a", "128k",
         "-movflags", "+faststart",
