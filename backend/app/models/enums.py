@@ -50,3 +50,21 @@ class PostStatus(StrEnum):
     POSTING = "posting"
     POSTED = "posted"
     FAILED = "failed"
+
+
+class ImportSource(StrEnum):
+    """Where an import job's video came from: a pasted link or an uploaded file."""
+
+    TWITCH = "twitch"
+    KICK = "kick"
+    YOUTUBE = "youtube"
+    UPLOAD = "upload"
+
+
+class ImportStatus(StrEnum):
+    QUEUED = "queued"
+    DOWNLOADING = "downloading"
+    ANALYZING = "analyzing"  # scoring the audio for highlight moments
+    CUTTING = "cutting"  # writing the 9:16 clips
+    DONE = "done"
+    FAILED = "failed"

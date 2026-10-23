@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ButtonHTMLAttributes, ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
-type Variant = "primary" | "secondary" | "ghost" | "danger";
+type Variant = "primary" | "secondary" | "ghost" | "danger" | "inverse" | "ghostInverse";
 type Size = "sm" | "md" | "lg";
 
 const base =
@@ -14,6 +14,9 @@ const variants: Record<Variant, string> = {
   ghost: "text-ink-muted hover:bg-brand-subtle hover:text-ink [--tactile-glow:none]",
   // Destructive actions only (delete, disconnect) — status colours are for state.
   danger: "bg-danger text-on-brand shadow-glow",
+  // For use on the brand sky / brand fills (SkyBackground, QuoteBanner).
+  inverse: "bg-on-brand text-brand-deep shadow-glow hover:bg-on-brand/90",
+  ghostInverse: "border border-on-brand/45 text-on-brand hover:bg-on-brand/12 hover:text-on-brand [--tactile-glow:none]",
 };
 
 // Generous by default: 56px. Compact (sm) is 48px; the 44px floor is never crossed. min-w keeps icon-only buttons square.

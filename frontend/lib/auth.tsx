@@ -1,12 +1,12 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { api } from "./api";
+import { api, ApiError } from "./api";
 import { clearSession, readSession, writeSession, type User } from "./session";
 
 export type { User };
 
-/** Response body of POST /auth/login and POST /auth/register (see docs/DESIGN_SYSTEM.md). */
+/** Response body of POST /api/auth/login and POST /api/auth/register (see docs/DESIGN_SYSTEM.md). */
 export type AuthResponse = { access_token: string; token_type: "bearer"; user: User };
 
 type AuthStatus = "loading" | "authenticated" | "anonymous";
@@ -38,17 +38,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const session = readSession();
     setUser(session?.user ?? null);
     setStatus(session ? "authenticated" : "anonymous");
+    if (!session || AUTH_MOCK) return;
+
+    // Restore instantly from storage, then confirm the token with the backend.
+    // A 401 means it expired or was revoked; a network error keeps the session (backend may be restarting).
+    api<User>("/api/auth/me", { redirectOn401: false })
+      .then((fresh) => setUser(fresh))
+      .catch((err) => {
+        if (err instanceof ApiError && err.status === 401) {
+          setUser(null);
+          setStatus("anonymous");
+        }
+      });
   }, []);
 
-  const authenticate = useCallback(async (path: "/auth/login" | "/auth/register", email: string, password: string) => {
+  const authenticate = useCallback(async (path: "/api/auth/login" | "/api/auth/register", email: string, password: string) => {
     const res = AUTH_MOCK ? mockAuth(email) : await api<AuthResponse>(path, { method: "POST", body: { email, password }, auth: false });
     writeSession(res.access_token, res.user);
     setUser(res.user);
     setStatus("authenticated");
   }, []);
 
-  const login = useCallback((email: string, password: string) => authenticate("/auth/login", email, password), [authenticate]);
-  const register = useCallback((email: string, password: string) => authenticate("/auth/register", email, password), [authenticate]);
+  const login = useCallback((email: string, password: string) => authenticate("/api/auth/login", email, password), [authenticate]);
+  const register = useCallback((email: string, password: string) => authenticate("/api/auth/register", email, password), [authenticate]);
 
   const logout = useCallback(() => {
     clearSession();

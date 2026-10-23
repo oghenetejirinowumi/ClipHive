@@ -102,6 +102,29 @@ CREATE TABLE trends (
 );
 ```
 
+### `import_jobs`
+```sql
+CREATE TABLE import_jobs (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    source VARCHAR(50) NOT NULL,        -- 'twitch' | 'kick' | 'youtube' | 'upload'
+    url VARCHAR(2048),
+    original_filename VARCHAR(255),
+    title VARCHAR(255),
+    duration_s FLOAT,
+    thumbnail_path VARCHAR(1024),       -- public "storage/..." path
+    clip_count INTEGER DEFAULT 5,       -- requested
+    clip_seconds INTEGER DEFAULT 30,
+    clip_ids JSON DEFAULT '[]',         -- clips rows written (status='processing', ready for C2)
+    status VARCHAR(50) NOT NULL,        -- 'queued' | 'downloading' | 'analyzing' | 'cutting' | 'done' | 'failed'
+    progress INTEGER DEFAULT 0,         -- 0-100
+    error TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    finished_at TIMESTAMP
+);
+```
+Each import writes its clips as normal `clips` rows (`raw_file_path` = the 9:16 cut, `file_path` = the same file until C2 burns captions, `status='processing'`).
+
 ### `posts`
 ```sql
 CREATE TABLE posts (
@@ -121,8 +144,9 @@ CREATE TABLE posts (
 
 | Route | Method | Owner | Purpose | Request Body / Query | Response |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `/api/auth/register` | `POST` | **C3** | User registration | `{"email", "password"}` | `{"token", "user"}` |
-| `/api/auth/login` | `POST` | **C3** | User login | `{"email", "password"}` | `{"token", "user"}` |
+| `/api/auth/register` | `POST` | **C3** | User registration | `{"email", "password"}` | `{"access_token", "token_type", "user"}` |
+| `/api/auth/login` | `POST` | **C3** | User login | `{"email", "password"}` | `{"access_token", "token_type", "user"}` |
+| `/api/auth/me` | `GET` | **C3** | Current user (send `Authorization: Bearer <token>`) | — | `UserRead` |
 | `/api/streamers` | `GET/POST`| **C1** | Manage monitored streamers | `{"platform", "channel_name"}` | `StreamerRead` |
 | `/api/clips` | `GET` | **C2/C4** | List clips (filter by `?status=ready`) | Query: `?status=ready` | `list[ClipRead]` |
 | `/api/clips/{id}` | `GET` | **C2** | Fetch single clip details | — | `ClipRead` |
@@ -136,6 +160,12 @@ CREATE TABLE posts (
 | `/api/hub/clips` | `GET` | **C4** | Grid of ready clips for hub | Query: `?page=1` | `PaginatedClips` |
 | `/api/hub/clips/{id}/post` | `POST` | **C4** | Auto-post clip to platforms | `{"platforms": ["tiktok", "youtube"]}` | `PostStatus` |
 | `/api/hub/clips/{id}/download` | `GET` | **C4** | Direct MP4 stream/download | — | Binary MP4 file |
+| `/api/imports/link` | `POST` | **C1** | Paste a Twitch / Kick / YouTube link → several clips (async) | `{"url", "clip_count": 1-10, "clip_seconds": 10-90}` | `ImportRead` (202) |
+| `/api/imports/upload` | `POST` | **C1** | Upload a video (camera roll) → several clips (async) | `multipart/form-data (file, clip_count, clip_seconds)` | `ImportRead` (202) |
+| `/api/imports` | `GET` | **C1** | Your import projects, newest first (poll while active) | — | `list[ImportRead]` |
+| `/api/imports/{id}` | `GET` | **C1** | One import's status / progress / clip_ids | — | `ImportRead` |
+| `/api/downloads/instagram` | `POST` | **C1** | Fetch a public Instagram post/reel as MP4 | `{"url"}` | `DownloadRead` |
+| `/api/downloads/{id}/file` | `GET` | **C1** | The fetched file, as an attachment | — | Binary MP4 file |
 
 ---
 

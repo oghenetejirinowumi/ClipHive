@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { Badge, Button, Field, Icon, PageHeader, Panel } from "@/components/ui";
+import { Badge, Button, Em, Field, Icon, Notice, Panel, SectionLabel, Segmented, Select, SkyHeader, StatusBadge } from "@/components/ui";
 import { api } from "@/lib/api";
 
 type Trend = {
@@ -99,165 +99,142 @@ export default function TrendsPage() {
     });
   }
 
+  const messageTone = actionMessage?.startsWith("Failed") || actionMessage?.startsWith("AI analysis failed") ? "danger" : actionMessage?.startsWith("Applied") || actionMessage?.startsWith("AI Virality Pack Generated") ? "success" : "brand";
+  const platformName = platform === "tiktok" ? "TikTok" : "YouTube Shorts";
+
   return (
     <div className="space-y-12">
-      <PageHeader
-        eyebrow="Trend Studio"
-        title="Trending Topics & Hashtags"
+      <SkyHeader
+        eyebrow="Trend studio"
+        title={
+          <>
+            What&apos;s <Em>trending</Em> right now
+          </>
+        }
         description="Discover viral tags across TikTok and YouTube Shorts, with one-click injection into your clips."
       />
 
-      <div className="grid gap-8 lg:grid-cols-12">
-        {/* Left Column: Platform Trends (7 cols) */}
-        <div className="space-y-8 lg:col-span-7">
-          {/* Platform Switcher Tabs */}
-          <div className="flex items-center gap-4">
-            <Button
-              variant={platform === "tiktok" ? "primary" : "secondary"}
-              size="sm"
-              onClick={() => setPlatform("tiktok")}
-            >
-              <Icon name="trending" className="size-5" />
-              TikTok Trends
-            </Button>
-            <Button
-              variant={platform === "youtube" ? "primary" : "secondary"}
-              size="sm"
-              onClick={() => setPlatform("youtube")}
-            >
-              <Icon name="play" className="size-5" />
-              YouTube Shorts
+      {actionMessage && (
+        <Notice tone={messageTone} onDismiss={() => setActionMessage(null)}>
+          {actionMessage}
+        </Notice>
+      )}
+
+      <div className="grid gap-10 lg:grid-cols-12">
+        {/* Left: ranked trends */}
+        <section className="space-y-6 lg:col-span-7">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <Segmented
+              label="Platform"
+              value={platform}
+              onChange={setPlatform}
+              options={[
+                { value: "tiktok", label: "TikTok", icon: "trending" },
+                { value: "youtube", label: "YouTube Shorts", icon: "play" },
+              ]}
+            />
+            <Badge tone="neutral" size="md">
+              Refreshed hourly
+            </Badge>
+          </div>
+
+          <SectionLabel>Top {trends.length || 10} on {platformName}</SectionLabel>
+
+          {trends.length > 0 ? (
+            <ol className="divide-y divide-line border-y border-line">
+              {trends.map((t, i) => (
+                <li key={t.id} className="grid grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-x-5 gap-y-4 py-6 sm:grid-cols-[4.5rem_minmax(0,1fr)_auto]">
+                  <span className={`font-display text-4xl font-semibold tracking-tight tabular-nums ${i === 0 ? "text-brand" : "text-ink-faint"}`}>
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate font-display text-2xl font-semibold tracking-tight text-ink">{t.hashtag}</p>
+                    {t.topic && <p className="mt-1 truncate text-lg text-ink-muted">{t.topic}</p>}
+                    {/* Virality meter */}
+                    <div className="mt-3 flex items-center gap-3">
+                      <div className="h-2.5 w-40 overflow-hidden rounded-full bg-surface-sunken" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(t.score)} aria-label="Virality">
+                        <div className="h-full rounded-full bg-brand" style={{ width: `${Math.min(100, Math.max(0, t.score))}%` }} />
+                      </div>
+                      <span className="text-base text-ink-muted tabular-nums">{t.score.toFixed(1)} virality</span>
+                    </div>
+                  </div>
+                  <Button variant="secondary" size="sm" disabled={isPending || !activeClip} onClick={() => handleApplySingleTag(t.hashtag)} className="col-start-2 justify-self-start sm:col-start-auto">
+                    <Icon name="plus" className="size-5" />
+                    Add to clip
+                  </Button>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <Panel tone="sunken" padding="lg" className="text-center">
+              <p className="text-lg text-ink-muted">No trending hashtags found for this platform.</p>
+            </Panel>
+          )}
+        </section>
+
+        {/* Right: AI pack + active clip */}
+        <aside className="space-y-8 lg:col-span-5">
+          <div className="relative isolate overflow-hidden rounded-xl bg-brand p-8 text-on-brand shadow-glow lg:p-10">
+            <div className="flex items-center justify-between gap-4">
+              <SectionLabel inverse>AI virality studio</SectionLabel>
+              <span className="shrink-0 rounded-full bg-on-brand/15 px-3 py-1 font-mono text-fine whitespace-nowrap text-on-brand">gpt-4o-mini</span>
+            </div>
+            <p className="mt-6 font-display text-3xl leading-tight font-semibold tracking-tight">
+              Titles and tags that <Em>hook</Em>
+            </p>
+            <p className="mt-3 text-lg text-on-brand/85">Analyze clip transcript to generate high-CTR titles, compute hook retention scores, and inject viral tags.</p>
+            <Button variant="inverse" size="lg" className="mt-8 w-full" loading={isPending} disabled={!activeClip || isPending} onClick={handleGenerateAiPack}>
+              <Icon name="sparkles" />
+              Generate AI virality pack
             </Button>
           </div>
 
-          {/* Trends List */}
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-display text-2xl font-semibold tracking-tight text-ink">
-                Top 10 {platform === "tiktok" ? "TikTok" : "YouTube"} Tags
-              </h2>
-              <Badge tone="brand" size="md">
-                1-Hour Cache
-              </Badge>
-            </div>
-
-            <div className="grid gap-3">
-              {trends.map((t) => (
-                <Panel key={t.id} padding="sm" className="flex items-center justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-3">
-                      <span className="font-display text-xl font-bold text-ink">{t.hashtag}</span>
-                      <Badge tone={t.score > 90 ? "success" : "brand"} size="sm">
-                        {t.score.toFixed(1)} Virality
-                      </Badge>
-                    </div>
-                    {t.topic && (
-                      <p className="mt-1 truncate text-base text-ink-muted">{t.topic}</p>
-                    )}
-                  </div>
-
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={isPending || !activeClip}
-                    onClick={() => handleApplySingleTag(t.hashtag)}
-                  >
-                    + Add to Clip
-                  </Button>
-                </Panel>
-              ))}
-
-              {trends.length === 0 && (
-                <Panel tone="sunken">
-                  <p className="text-base text-ink-muted">No trending hashtags found for this platform.</p>
-                </Panel>
-              )}
-            </div>
-          </section>
-        </div>
-
-        {/* Right Column: Active Clip & AI Virality Studio (5 cols) */}
-        <div className="space-y-6 lg:col-span-5">
-          <Panel tone="brand">
-            <div className="flex items-center justify-between">
-              <span className="font-display text-xl font-semibold text-ink">AI Virality Studio</span>
-              <Badge tone="brand" size="md">
-                gpt-4o-mini
-              </Badge>
-            </div>
-            <p className="mt-2 text-base text-ink-muted">
-              Analyze clip transcript to generate high-CTR titles, compute hook retention scores, and inject viral tags.
-            </p>
-
-            <div className="mt-6">
-              <Button
-                variant="primary"
-                size="md"
-                className="w-full"
-                loading={isPending}
-                disabled={!activeClip || isPending}
-                onClick={handleGenerateAiPack}
-              >
-                <Icon name="radio" className="size-5" />
-                Generate AI Virality Pack
-              </Button>
-            </div>
-
-            {actionMessage && (
-              <p className="mt-4 text-base font-medium text-brand-strong">{actionMessage}</p>
-            )}
-          </Panel>
-
-          {/* Active Clip Card */}
-          <Panel>
-            <div className="flex items-center justify-between">
-              <h3 className="font-display text-2xl font-semibold text-ink">Active Clip Metadata</h3>
-              {activeClip?.highlight_score && (
-                <Badge tone="success" size="md">
-                  Hook Score: {activeClip.highlight_score}/100
+          <Panel padding="lg">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h3 className="font-display text-2xl font-semibold tracking-tight text-ink">Active clip</h3>
+              {activeClip?.highlight_score ? (
+                <Badge tone="brand" size="md">
+                  Hook {activeClip.highlight_score}/100
                 </Badge>
-              )}
+              ) : null}
             </div>
 
-            <div className="mt-6 space-y-4">
+            <div className="mt-6 space-y-6">
               {clips.length > 0 ? (
-                <Field label="Selected Clip" hint="Target clip for hashtag injection">
-                  <select
-                    value={selectedClipId ?? ""}
-                    onChange={(e) => setSelectedClipId(Number(e.target.value))}
-                    className="w-full rounded-md border border-line bg-surface p-3 text-base text-ink"
-                  >
+                <Field label="Selected clip" hint="Target clip for hashtag injection">
+                  <Select value={selectedClipId ?? ""} onChange={(e) => setSelectedClipId(Number(e.target.value))}>
                     {clips.map((c) => (
                       <option key={c.id} value={c.id}>
                         Clip #{c.id} — {c.title || "Untitled"} ({c.status})
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </Field>
               ) : (
-                <p className="text-base text-ink-muted">No clips available in database.</p>
+                <p className="text-lg text-ink-muted">No clips available in database.</p>
               )}
 
               {activeClip && (
-                <div className="space-y-4 pt-2">
-                  <div>
-                    <span className="text-meta font-medium text-ink-faint">Viral Title:</span>
-                    <p className="mt-1 font-display text-xl font-semibold text-ink">
-                      {activeClip.title || "No title set"}
-                    </p>
+                <div className="space-y-6 border-t border-line pt-6">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-lg text-ink-muted">Status</span>
+                    <StatusBadge status={activeClip.status} />
                   </div>
-
                   <div>
-                    <span className="text-meta font-medium text-ink-faint">Current Hashtags:</span>
-                    <div className="mt-2 flex flex-wrap gap-2">
+                    <span className="text-lg text-ink-muted">Viral title</span>
+                    <p className="mt-1 font-display text-2xl font-semibold tracking-tight text-ink">{activeClip.title || "No title set"}</p>
+                  </div>
+                  <div>
+                    <span className="text-lg text-ink-muted">Hashtags</span>
+                    <div className="mt-3 flex flex-wrap gap-2">
                       {activeClip.hashtags && activeClip.hashtags.length > 0 ? (
                         activeClip.hashtags.map((tag, idx) => (
-                          <Badge key={idx} tone="neutral" size="md">
+                          <Badge key={idx} tone="brand" size="md">
                             {tag}
                           </Badge>
                         ))
                       ) : (
-                        <span className="text-base text-ink-muted">No hashtags attached yet.</span>
+                        <span className="text-lg text-ink-faint">No hashtags attached yet.</span>
                       )}
                     </div>
                   </div>
@@ -265,7 +242,7 @@ export default function TrendsPage() {
               )}
             </div>
           </Panel>
-        </div>
+        </aside>
       </div>
     </div>
   );

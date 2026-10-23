@@ -16,6 +16,8 @@ type ApiInit = Omit<RequestInit, "body"> & {
   body?: BodyInit | Record<string, unknown> | unknown[] | null;
   /** Attach the signed-in user's bearer token (default true). */
   auth?: boolean;
+  /** On 401, send the user to /login (default true). The session is cleared either way. */
+  redirectOn401?: boolean;
 };
 
 export const apiUrl = (path: string) => `${API_URL}${path.startsWith("/") ? path : `/${path}`}`;
@@ -28,7 +30,10 @@ const isPlainJson = (body: unknown): body is Record<string, unknown> | unknown[]
  * Throws ApiError with FastAPI's `detail` message on non-2xx. An authenticated request
  * that gets a 401 clears the session and sends the user to /login.
  */
-export async function api<T = unknown>(path: string, { body, auth = true, headers, ...init }: ApiInit = {}): Promise<T> {
+export async function api<T = unknown>(
+  path: string,
+  { body, auth = true, redirectOn401 = true, headers, ...init }: ApiInit = {},
+): Promise<T> {
   const token = auth ? getToken() : null;
   const json = isPlainJson(body);
 
@@ -45,12 +50,14 @@ export async function api<T = unknown>(path: string, { body, auth = true, header
   if (!res.ok) {
     if (res.status === 401 && token) {
       clearSession();
-      window.location.assign(`/login?next=${encodeURIComponent(location.pathname)}`);
+      if (redirectOn401) window.location.assign(`/login?next=${encodeURIComponent(location.pathname)}`);
     }
     let message = res.statusText || "Request failed";
     try {
       const data = await res.json();
       if (typeof data?.detail === "string") message = data.detail;
+      // FastAPI validation errors (422): [{ loc, msg }, ...]
+      else if (Array.isArray(data?.detail) && typeof data.detail[0]?.msg === "string") message = data.detail[0].msg;
     } catch {}
     throw new ApiError(res.status, message);
   }

@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, type ReactNode } from "react";
-import { Button, Icon, Logo } from "@/components/ui";
+import { Button, Icon, Logo, ThemeSwitch } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import { APP_NAV, isActive } from "@/lib/routes";
+import { APP_NAV, TAB_NAV, isActive } from "@/lib/routes";
 
 /** Sidebar on desktop, top bar + bottom tabs on phones. Wraps every route in APP_NAV. */
 export function AppShell({ children }: { children: ReactNode }) {
@@ -51,6 +51,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
+        <div className="mb-5 flex items-center justify-between gap-3 rounded-md border border-line px-4 py-3">
+          <span className="text-base font-medium text-ink-muted">Theme</span>
+          <ThemeSwitch />
+        </div>
         <div className="rounded-md bg-surface-sunken p-4">
           <p className="truncate text-base font-medium text-ink">{user?.email ?? " "}</p>
           <Button variant="ghost" size="sm" onClick={signOut} className="mt-2 -ml-3">
@@ -61,11 +65,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="flex min-w-0 flex-col">
-        <header className="sticky top-0 z-20 flex h-18 items-center justify-between border-b border-line bg-surface/95 px-4 lg:hidden">
+        <header className="sticky top-0 z-20 flex h-20 items-center justify-between border-b border-line bg-surface/95 px-4 lg:hidden">
           <Logo href="/dashboard" />
-          <Button variant="ghost" size="sm" onClick={signOut} aria-label="Sign out">
-            <Icon name="logout" className="size-6" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <ThemeSwitch />
+            <Button variant="ghost" size="sm" onClick={signOut} aria-label="Sign out">
+              <Icon name="logout" className="size-6" />
+            </Button>
+          </div>
         </header>
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 pt-8 pb-32 sm:px-8 lg:px-12 lg:py-14">{children}</main>
       </div>
@@ -74,7 +81,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         aria-label="Main"
         className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 gap-2 border-t border-line bg-surface/95 px-2 pb-[env(safe-area-inset-bottom)] lg:hidden"
       >
-        {APP_NAV.map((item) => {
+        {TAB_NAV.map((item) => {
           const active = isActive(pathname, item.href);
           return (
             <Link

@@ -21,6 +21,7 @@
   --color-brand-strong: var(--brand-strong);
   --color-brand-soft: var(--brand-soft);
   --color-brand-subtle: var(--brand-subtle);
+  --color-brand-deep: var(--brand-deep);
   --color-on-brand: var(--on-brand);
   --color-success: var(--success);
   --color-success-subtle: var(--success-subtle);
@@ -189,4 +190,237 @@
     transform: none;
     transition: none;
   }
+}
+
+/* ---------- Theme switching ---------- */
+
+/* View-transition reveal (lib/theme-mode.tsx): the new theme grows from the switch while
+   the old page recedes slightly underneath it. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+:root[data-theme-switching]::view-transition-old(root) {
+  animation: fx-recede 820ms var(--motion-ease-in-out) both;
+}
+:root[data-theme-switching]::view-transition-new(root) {
+  z-index: 1;
+}
+@keyframes fx-recede {
+  to { transform: scale(0.965); filter: brightness(0.7) saturate(0.8); border-radius: 28px; }
+}
+
+/* Fallback when View Transitions aren't available: cross-fade colours. */
+.theme-fading,
+.theme-fading *,
+.theme-fading *::before,
+.theme-fading *::after {
+  transition: background-color 420ms var(--motion-ease-out), color 420ms var(--motion-ease-out),
+    border-color 420ms var(--motion-ease-out), fill 420ms var(--motion-ease-out) !important;
+}
+
+/* ---------- Eclipse switch (components/ui/ThemeSwitch.tsx) ---------- */
+
+.eclipse {
+  isolation: isolate;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--glow-soft);
+  color: var(--brand);
+  --eclipse-ease: cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+.eclipse[data-mode="dark"] {
+  background: radial-gradient(circle at 30% 25%, color-mix(in oklab, var(--brand) 38%, var(--brand-deep)), var(--brand-deep) 70%);
+  border-color: color-mix(in oklab, var(--brand) 45%, transparent);
+  color: var(--on-brand);
+}
+
+/* Slowly turning brand corona around the rim; spins up on hover. */
+.eclipse-corona {
+  position: absolute;
+  inset: -4px;
+  z-index: -1;
+  border-radius: 9999px;
+  background: conic-gradient(from 0deg, transparent, color-mix(in oklab, var(--brand) 70%, transparent), transparent 40%,
+    color-mix(in oklab, var(--brand-soft) 80%, transparent), transparent 75%);
+  -webkit-mask: radial-gradient(closest-side, transparent calc(100% - 4px), black calc(100% - 3px));
+  mask: radial-gradient(closest-side, transparent calc(100% - 4px), black calc(100% - 3px));
+  opacity: 0.55;
+  animation: fx-spin 9s linear infinite;
+  transition: opacity var(--motion-base) var(--motion-ease-out);
+}
+.eclipse:hover .eclipse-corona { opacity: 1; animation-duration: 2.4s; }
+.eclipse[data-mode="dark"] .eclipse-corona { opacity: 0.9; }
+@keyframes fx-spin { to { transform: rotate(1turn); } }
+
+.eclipse-art { overflow: visible; }
+/* Rays already carry rotate(a 16 16); only the groups/discs get a CSS origin, or the rays would rotate twice. */
+.eclipse-rays,
+.eclipse-body,
+.eclipse-shadow { transform-box: view-box; transform-origin: 16px 16px; }
+
+.eclipse-body {
+  fill: currentColor;
+  transition: transform 700ms var(--eclipse-ease), fill 500ms var(--motion-ease-out);
+}
+.eclipse[data-mode="dark"] .eclipse-body { transform: scale(1.28); }
+/* Moonglow on the whole icon: filtering the masked disc itself would clip the glow to a square. */
+.eclipse[data-mode="dark"] .eclipse-art {
+  filter: drop-shadow(0 0 4px color-mix(in oklab, var(--on-brand) 55%, transparent));
+}
+
+/* The moon's shadow: parked off the disc in light mode, slides in to leave a crescent. */
+.eclipse-shadow {
+  transform: translate(13px, -11px);
+  transition: transform 760ms var(--eclipse-ease);
+}
+.eclipse[data-mode="dark"] .eclipse-shadow { transform: translate(4.2px, -3.4px); }
+
+.eclipse-rays line {
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+.eclipse-rays {
+  transition: transform 640ms var(--eclipse-ease), opacity 380ms var(--motion-ease-out);
+}
+.eclipse:hover .eclipse-rays { transform: rotate(22deg); }
+.eclipse[data-mode="dark"] .eclipse-rays { transform: rotate(-90deg) scale(0.3); opacity: 0; }
+
+.eclipse-stars path {
+  fill: currentColor;
+  opacity: 0;
+  transform: scale(0) rotate(-45deg);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 500ms var(--eclipse-ease), opacity 300ms var(--motion-ease-out);
+}
+.eclipse[data-mode="dark"] .eclipse-stars path {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
+  transition-delay: calc(260ms + var(--i) * 110ms);
+  animation: fx-twinkle 2.6s var(--motion-ease-in-out) calc(900ms + var(--i) * 0.7s) infinite;
+}
+@keyframes fx-twinkle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+/* Stardust burst + shockwave on every press. */
+.eclipse-burst {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+}
+.eclipse-shockwave {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid var(--brand);
+  animation: fx-shockwave 700ms var(--motion-ease-out) forwards;
+}
+.eclipse-particle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px;
+  border-radius: 9999px;
+  background: var(--brand);
+  box-shadow: 0 0 8px var(--brand);
+  animation: fx-burst 720ms var(--motion-ease-out) var(--bd) both;
+}
+.eclipse[data-mode="dark"] .eclipse-particle {
+  background: var(--on-brand);
+  box-shadow: 0 0 10px var(--brand-soft);
+}
+@keyframes fx-burst {
+  0% { transform: translate(0, 0) scale(1.2); opacity: 1; }
+  100% { transform: translate(var(--bx), var(--by)) scale(0); opacity: 0; }
+}
+@keyframes fx-shockwave {
+  0% { transform: scale(1); opacity: 0.9; }
+  100% { transform: scale(2.8); opacity: 0; border-width: 0.5px; }
+}
+
+/* ---------- Sky (components/effects/SkyBackground.tsx) ---------- */
+
+/* Night-to-day wash: deep brand sky at the top dissolving into the page. */
+.fx-sky-base {
+  position: absolute;
+  inset: 0;
+  /* Brand holds to ~62% so on-brand text keeps contrast; the fade to the page happens below that. */
+  background: linear-gradient(180deg, var(--brand-deep) 0%, var(--brand-deep) 8%,
+    color-mix(in oklab, var(--brand) 72%, var(--brand-deep)) 34%,
+    color-mix(in oklab, var(--brand) 88%, var(--brand-deep)) 62%,
+    color-mix(in oklab, var(--brand) 40%, var(--paper)) 84%, var(--paper) 100%);
+}
+.fx-sky-cloud {
+  position: absolute;
+  left: -30%;
+  width: 160%;
+  border-radius: 50%;
+  will-change: transform;
+}
+.fx-sky-cloud-1 {
+  top: 14%;
+  height: 52%;
+  background: radial-gradient(closest-side, color-mix(in oklab, var(--brand) 80%, transparent), transparent);
+  animation: fx-sky-drift 19s var(--motion-ease-in-out) infinite alternate;
+}
+.fx-sky-cloud-2 {
+  top: 40%;
+  height: 40%;
+  background: radial-gradient(closest-side, color-mix(in oklab, var(--brand-soft) 75%, transparent), transparent);
+  animation: fx-sky-drift 25s var(--motion-ease-in-out) infinite alternate-reverse;
+}
+.fx-sky-cloud-3 {
+  top: -18%;
+  height: 46%;
+  background: radial-gradient(closest-side, color-mix(in oklab, var(--brand-deep) 90%, transparent), transparent);
+  animation: fx-sky-drift 31s var(--motion-ease-in-out) infinite alternate;
+}
+@keyframes fx-sky-drift {
+  from { transform: translate3d(-7%, 0, 0) scaleY(1); }
+  to { transform: translate3d(7%, -5%, 0) scaleY(1.18); }
+}
+[data-fx-paused] .fx-sky-cloud { animation-play-state: paused; }
+
+@media (prefers-reduced-motion: reduce) {
+  .eclipse-corona,
+  .eclipse-particle,
+  .eclipse-shockwave,
+  .eclipse[data-mode="dark"] .eclipse-stars path,
+  .fx-sky-cloud {
+    animation: none !important;
+  }
+  .eclipse-particle,
+  .eclipse-shockwave { display: none; }
+}
+
+/* ---------- Fan-out flow lines (components/marketing/FanOut.tsx) ---------- */
+.fx-flow-base {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+}
+.fx-flow-pulse {
+  fill: none;
+  stroke: var(--brand);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-dasharray: 10 90;
+  filter: drop-shadow(0 0 4px var(--brand));
+  animation: fx-flow 2.6s linear infinite;
+  animation-delay: var(--d, 0s);
+}
+@keyframes fx-flow {
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: 0; }
+}
+[data-fx-paused] .fx-flow-pulse { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .fx-flow-pulse { display: none; }
 }

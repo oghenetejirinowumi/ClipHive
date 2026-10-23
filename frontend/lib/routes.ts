@@ -9,11 +9,21 @@ export type NavItem = {
   short: string;
   icon: IconName;
   description: string;
+  /** Shown in the phone bottom bar (max 5); everything is always in the desktop sidebar. */
+  tab?: boolean;
 };
 
 /** Every route here is wrapped in the app shell and requires sign-in. */
 export const APP_NAV: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", short: "Home", icon: "home", description: "Your overview." },
+  { href: "/dashboard", label: "Dashboard", short: "Home", icon: "home", description: "Your overview.", tab: true },
+  {
+    href: "/create",
+    label: "Create",
+    short: "Create",
+    icon: "plus",
+    description: "Paste a Twitch, Kick or YouTube link, or upload a video, and get a batch of clips.",
+    tab: true,
+  },
   {
     href: "/streamers",
     label: "Streamers",
@@ -27,6 +37,7 @@ export const APP_NAV: NavItem[] = [
     short: "Hub",
     icon: "grid",
     description: "Ready clips: preview, download or post.",
+    tab: true,
   },
   {
     href: "/captions",
@@ -34,6 +45,7 @@ export const APP_NAV: NavItem[] = [
     short: "Styles",
     icon: "captions",
     description: "Pick a preset or upload your own font.",
+    tab: true,
   },
   {
     href: "/trends",
@@ -42,7 +54,17 @@ export const APP_NAV: NavItem[] = [
     icon: "trending",
     description: "This week's hashtags for TikTok and YouTube.",
   },
+  {
+    href: "/download",
+    label: "IG downloader",
+    short: "Download",
+    icon: "download",
+    description: "Paste an Instagram post or reel link and save the full video.",
+    tab: true,
+  },
 ];
+
+export const TAB_NAV = APP_NAV.filter((item) => item.tab);
 
 export const AUTH_ROUTES = ["/login", "/register"];
 

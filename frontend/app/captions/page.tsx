@@ -1,8 +1,26 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { Badge, Button, Field, Icon, PageHeader, Panel } from "@/components/ui";
+import { CaptionPreview } from "@/components/captions/CaptionPreview";
+import { PhoneFrame } from "@/components/captions/PhoneFrame";
+import {
+  Badge,
+  Button,
+  Checkbox,
+  Em,
+  Field,
+  Icon,
+  Input,
+  Notice,
+  Panel,
+  SectionLabel,
+  Segmented,
+  Select,
+  SkyHeader,
+  StatusBadge,
+} from "@/components/ui";
 import { api, API_URL } from "@/lib/api";
+import { cn } from "@/lib/cn";
 
 type CaptionColors = {
   primary?: string;
@@ -40,6 +58,10 @@ const SAMPLE_WORDS = [
   { word: "THAT!", start: 1.7, end: 2.2, hype: true },
 ];
 
+const ANIMATION_LABELS: Record<string, string> = { word_pop: "Word pop", karaoke: "Karaoke", line: "Line by line" };
+
+const outcomeTone = (msg: string) => (msg.startsWith("Failed") || msg.startsWith("Error") ? "danger" : msg.startsWith("Burn Complete") || msg.startsWith("Installed") ? "success" : "brand");
+
 export default function CaptionsPage() {
   const [styles, setStyles] = useState<CaptionStyle[]>([]);
   const [selectedStyleId, setSelectedStyleId] = useState<number | null>(null);
@@ -62,6 +84,7 @@ export default function CaptionsPage() {
   const [primaryColor, setPrimaryColor] = useState("&H0000FFFF");
   const [outlineColor, setOutlineColor] = useState("&H00000000");
   const [highlightColor, setHighlightColor] = useState("&H0000FFFF");
+  const [styleError, setStyleError] = useState<string | null>(null);
 
   const [isPending, startTransition] = useTransition();
 
@@ -129,6 +152,7 @@ export default function CaptionsPage() {
   async function handleCreateStyle(e: React.FormEvent) {
     e.preventDefault();
     if (!newStyleName.trim()) return;
+    setStyleError(null);
 
     try {
       const created = await api<CaptionStyle>("/api/styles", {
@@ -154,7 +178,7 @@ export default function CaptionsPage() {
       setIsCreatingStyle(false);
       setNewStyleName("");
     } catch {
-      alert("Could not create style. Check backend connection.");
+      setStyleError("Could not create style. Check backend connection.");
     }
   }
 
@@ -189,71 +213,50 @@ export default function CaptionsPage() {
 
   return (
     <div className="space-y-12">
-      <PageHeader
-        eyebrow="Caption Studio"
-        title="Style & Kinetic Captions"
+      <SkyHeader
+        eyebrow="Caption studio"
+        title={
+          <>
+            Captions with <Em>personality</Em>
+          </>
+        }
         description="Choose a high-converting subtitle aesthetic, preview live word-pop animations, or upload custom fonts."
       />
 
-      <div className="grid gap-8 lg:grid-cols-12">
-        {/* Left Column: Preset Styles & Actions (7 cols) */}
-        <div className="space-y-8 lg:col-span-7">
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-display text-2xl font-semibold tracking-tight text-ink">Built-in Presets</h2>
-              <div className="flex items-center gap-3">
-                <Button variant="secondary" size="sm" onClick={() => setIsCreatingStyle(!isCreatingStyle)}>
-                  {isCreatingStyle ? "Cancel" : "+ New Custom Style"}
-                </Button>
-                <Badge tone="brand" size="md">
-                  {styles.length} Styles Loaded
-                </Badge>
+      <div className="grid gap-10 lg:grid-cols-12">
+        {/* Left: styles, font upload, burn */}
+        <div className="space-y-12 lg:col-span-7">
+          <section className="space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <SectionLabel>Styles</SectionLabel>
+                <Badge tone="brand">{styles.length} loaded</Badge>
               </div>
+              <Button variant={isCreatingStyle ? "ghost" : "secondary"} size="sm" onClick={() => setIsCreatingStyle(!isCreatingStyle)}>
+                <Icon name={isCreatingStyle ? "x" : "plus"} className="size-5" />
+                {isCreatingStyle ? "Cancel" : "New custom style"}
+              </Button>
             </div>
 
-            {/* Custom Style Form Drawer */}
             {isCreatingStyle && (
-              <Panel tone="brand" className="space-y-4">
-                <h3 className="font-display text-xl font-bold text-ink">Create Custom Style</h3>
-                <form onSubmit={handleCreateStyle} className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Style Name">
-                    <input
-                      type="text"
-                      placeholder="e.g. Cyberpunk Pop"
-                      value={newStyleName}
-                      onChange={(e) => setNewStyleName(e.target.value)}
-                      className="w-full rounded-md border border-line bg-surface p-3 text-base text-ink"
-                      required
-                    />
+              <Panel tone="brand" padding="lg">
+                <h3 className="font-display text-3xl font-semibold tracking-tight text-ink">Create a custom style</h3>
+                <form onSubmit={handleCreateStyle} className="mt-8 grid gap-6 sm:grid-cols-2">
+                  <Field label="Style name">
+                    <Input type="text" placeholder="e.g. Cyberpunk Pop" value={newStyleName} onChange={(e) => setNewStyleName(e.target.value)} required />
                   </Field>
-                  <Field label="Font Name">
-                    <input
-                      type="text"
-                      placeholder="e.g. Bangers, Poppins"
-                      value={newFontName}
-                      onChange={(e) => setNewFontName(e.target.value)}
-                      className="w-full rounded-md border border-line bg-surface p-3 text-base text-ink"
-                      required
-                    />
+                  <Field label="Font name" hint="Bangers, Poppins, Luckiest Guy, or one you uploaded">
+                    <Input type="text" placeholder="e.g. Bangers" value={newFontName} onChange={(e) => setNewFontName(e.target.value)} required />
                   </Field>
-                  <Field label="Font Size">
-                    <input
-                      type="number"
-                      value={newFontSize}
-                      onChange={(e) => setNewFontSize(Number(e.target.value))}
-                      className="w-full rounded-md border border-line bg-surface p-3 text-base text-ink"
-                    />
+                  <Field label="Font size" hint="In video pixels (1080 wide)">
+                    <Input type="number" min={8} max={300} value={newFontSize} onChange={(e) => setNewFontSize(Number(e.target.value))} />
                   </Field>
-                  <Field label="Animation Mode">
-                    <select
-                      value={newAnimationType}
-                      onChange={(e) => setNewAnimationType(e.target.value)}
-                      className="w-full rounded-md border border-line bg-surface p-3 text-base text-ink"
-                    >
-                      <option value="word_pop">Word Pop</option>
+                  <Field label="Animation">
+                    <Select value={newAnimationType} onChange={(e) => setNewAnimationType(e.target.value)}>
+                      <option value="word_pop">Word pop</option>
                       <option value="karaoke">Karaoke</option>
-                      <option value="line">Line-by-Line</option>
-                    </select>
+                      <option value="line">Line by line</option>
+                    </Select>
                   </Field>
                   <div className="space-y-2 sm:col-span-2">
                     <span className="block text-meta font-medium text-ink">Text Fill Color</span>
@@ -298,237 +301,138 @@ export default function CaptionsPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 sm:col-span-2">
-                    <label className="flex items-center gap-2 text-base text-ink">
-                      <input
-                        type="checkbox"
-                        checked={newUppercase}
-                        onChange={(e) => setNewUppercase(e.target.checked)}
-                        className="size-5 rounded"
-                      />
-                      Force All-Caps
-                    </label>
-                  </div>
-                  <div className="pt-2 sm:col-span-2">
-                    <Button type="submit" size="sm">
-                      Save Style
-                    </Button>
+                  <Checkbox label="Force all caps" checked={newUppercase} onChange={(e) => setNewUppercase(e.target.checked)} className="sm:col-span-2" />
+                  {styleError && <Notice tone="danger" className="sm:col-span-2">{styleError}</Notice>}
+                  <div className="sm:col-span-2">
+                    <Button type="submit">Save style</Button>
                   </div>
                 </form>
               </Panel>
             )}
 
-            {/* Presets Grid */}
-            <div className="grid gap-4 sm:grid-cols-2">
+            {/* Style cards: each one previews itself in its own font and colours. */}
+            <div className="grid gap-6 sm:grid-cols-2">
               {styles.map((style) => {
                 const isSelected = style.id === selectedStyleId;
                 return (
-                  <Panel
+                  <button
                     key={style.id}
-                    interactive
+                    type="button"
+                    aria-pressed={isSelected}
                     onClick={() => setSelectedStyleId(style.id)}
-                    tone={isSelected ? "brand" : "surface"}
-                    className={isSelected ? "ring-2 ring-brand" : ""}
+                    className={cn(
+                      "tactile overflow-hidden rounded-lg border text-left",
+                      isSelected ? "border-brand bg-brand-subtle shadow-glow-strong" : "border-line bg-surface shadow-glow",
+                    )}
                   >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <span className="block font-display text-2xl font-semibold text-ink">{style.name}</span>
-                        <span className="mt-1 block text-meta text-ink-muted">
-                          Font: {style.font_name} ({style.font_size}pt)
-                        </span>
+                    <div className="@container grid h-32 place-items-center bg-brand-deep px-6">
+                      <CaptionPreview style={{ ...style, font_size: Math.min(style.font_size, 90) * 1.6 }} words={[{ word: "Clip" }, { word: "it" }]} activeIndex={1} />
+                    </div>
+                    <div className="p-6">
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="font-display text-2xl font-semibold tracking-tight text-ink">{style.name}</span>
+                        <Badge tone={isSelected ? "brand" : "neutral"}>{ANIMATION_LABELS[style.animation_type] ?? style.animation_type}</Badge>
                       </div>
-                      <Badge tone={isSelected ? "brand" : "neutral"} size="sm">
-                        {style.animation_type.replace("_", " ").toUpperCase()}
-                      </Badge>
+                      <p className="mt-2 text-base text-ink-muted">
+                        {style.font_name} · {style.font_size}px · {style.uppercase ? "All caps" : "Sentence case"} · {style.is_preset ? "Preset" : "Custom"}
+                      </p>
                     </div>
-
-                    <div className="mt-4 flex items-center gap-2">
-                      <span className="text-meta text-ink-faint">Case:</span>
-                      <span className="text-meta font-medium text-ink">
-                        {style.uppercase ? "ALL CAPS" : "Standard"}
-                      </span>
-                      <span className="mx-2 text-ink-faint">•</span>
-                      <span className="text-meta text-ink-faint">Type:</span>
-                      <span className="text-meta font-medium text-ink">
-                        {style.is_preset ? "Preset" : "Custom"}
-                      </span>
-                    </div>
-                  </Panel>
+                  </button>
                 );
               })}
             </div>
           </section>
 
           {/* Custom Font Upload */}
-          <Panel tone="sunken">
-            <h3 className="font-display text-2xl font-semibold tracking-tight text-ink">Custom Font Uploader</h3>
-            <p className="mt-2 text-base text-ink-muted">
-              Add your creator font (.ttf or .otf). It will be indexed and available for FFmpeg ASS burning.
-            </p>
+          <Panel tone="sunken" padding="lg">
+            <SectionLabel>Your font</SectionLabel>
+            <h3 className="mt-3 font-display text-3xl font-semibold tracking-tight text-ink">Upload a custom font</h3>
+            <p className="mt-2 text-lg text-ink-muted">Add your creator font (.ttf or .otf). It will be indexed and available for FFmpeg ASS burning.</p>
 
-            <form onSubmit={handleFontUpload} className="mt-6 flex flex-wrap items-center gap-4">
-              <input
-                type="file"
-                accept=".ttf,.otf"
-                onChange={(e) => setFontFile(e.target.files?.[0] || null)}
-                className="text-base text-ink file:mr-4 file:rounded-full file:border-0 file:bg-brand-subtle file:px-5 file:py-2.5 file:font-medium file:text-brand-strong"
-              />
-              <Button type="submit" size="sm" disabled={!fontFile}>
-                Upload Font
+            <form onSubmit={handleFontUpload} className="mt-8 flex flex-wrap items-center gap-4">
+              <label className="flex min-h-14 flex-1 cursor-pointer items-center gap-4 rounded-md border border-dashed border-line-strong bg-surface px-5 text-lg text-ink-muted transition-colors hover:border-brand">
+                <Icon name="upload" className="size-6 text-brand" />
+                <span className="truncate">{fontFile ? fontFile.name : "Choose a .ttf or .otf file"}</span>
+                <input type="file" accept=".ttf,.otf" onChange={(e) => setFontFile(e.target.files?.[0] || null)} className="sr-only" />
+              </label>
+              <Button type="submit" disabled={!fontFile}>
+                Upload font
               </Button>
             </form>
 
             {uploadStatus && (
-              <p className="mt-4 text-base font-medium text-ink-muted">{uploadStatus}</p>
+              <Notice tone={outcomeTone(uploadStatus)} className="mt-6">
+                {uploadStatus}
+              </Notice>
             )}
           </Panel>
 
           {/* Burn to Clip Action */}
-          <Panel>
-            <h3 className="font-display text-2xl font-semibold tracking-tight text-ink">Burn to Selected Clip</h3>
-            <p className="mt-2 text-base text-ink-muted">
-              Apply {activeStyle?.name} captions to a clip using faster-whisper and libass.
+          <Panel padding="lg">
+            <SectionLabel>Render</SectionLabel>
+            <h3 className="mt-3 font-display text-3xl font-semibold tracking-tight text-ink">Burn to a clip</h3>
+            <p className="mt-2 text-lg text-ink-muted">
+              Apply <span className="font-semibold text-ink">{activeStyle?.name}</span> captions to a clip using faster-whisper and libass.
             </p>
 
-            <div className="mt-6 space-y-4">
+            <div className="mt-8 space-y-6">
               {clips.length > 0 ? (
-                <Field label="Choose Clip to Burn" hint="Select an active clip from your pipeline">
-                  <select
-                    value={selectedClipId ?? ""}
-                    onChange={(e) => setSelectedClipId(Number(e.target.value))}
-                    className="w-full rounded-md border border-line bg-surface p-3 text-base text-ink"
-                  >
+                <Field label="Clip to burn" hint="Select an active clip from your pipeline">
+                  <Select value={selectedClipId ?? ""} onChange={(e) => setSelectedClipId(Number(e.target.value))}>
                     {clips.map((c) => (
                       <option key={c.id} value={c.id}>
                         Clip #{c.id} — {c.title || "Untitled"} ({c.status})
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </Field>
               ) : (
-                <p className="text-base text-ink-muted">No clips found in database.</p>
+                <p className="text-lg text-ink-muted">No clips found in database.</p>
               )}
 
-              <div className="flex items-center gap-4 pt-2">
-                <Button
-                  onClick={handleBurnSubtitles}
-                  loading={isPending}
-                  disabled={!selectedClipId || !selectedStyleId || isPending}
-                >
-                  <Icon name="captions" className="size-5" />
-                  Render & Burn Captions
-                </Button>
-                {burnResult && (
-                  <span className="text-base font-medium text-brand-strong">{burnResult}</span>
-                )}
-              </div>
+              {activeClip && (
+                <div className="flex items-center gap-3 text-lg text-ink-muted">
+                  Current status <StatusBadge status={activeClip.status} />
+                </div>
+              )}
+
+              <Button size="lg" onClick={handleBurnSubtitles} loading={isPending} disabled={!selectedClipId || !selectedStyleId || isPending}>
+                <Icon name="captions" />
+                Render & burn captions
+              </Button>
+              {burnResult && <Notice tone={outcomeTone(burnResult)}>{burnResult}</Notice>}
             </div>
           </Panel>
         </div>
 
-        {/* Right Column: 9:16 Kinetic Phone Canvas (5 cols) */}
+        {/* Right: live 9:16 canvas */}
         <div className="lg:col-span-5">
-          <div className="sticky top-8 space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="font-display text-xl font-semibold text-ink">9:16 Canvas</span>
-              {/* Preview Toggle Buttons */}
-              <div className="flex items-center gap-2">
-                <Button
-                  variant={previewMode === "simulation" ? "primary" : "secondary"}
-                  size="sm"
-                  onClick={() => setPreviewMode("simulation")}
-                >
-                  Simulation
-                </Button>
-                <Button
-                  variant={previewMode === "video" ? "primary" : "secondary"}
-                  size="sm"
-                  onClick={() => setPreviewMode("video")}
-                >
-                  Rendered MP4
-                </Button>
-              </div>
+          <div className="space-y-6 lg:sticky lg:top-10">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <SectionLabel>9:16 preview</SectionLabel>
+              <Segmented
+                label="Preview mode"
+                value={previewMode}
+                onChange={setPreviewMode}
+                options={[
+                  { value: "simulation", label: "Live" },
+                  { value: "video", label: "Rendered MP4" },
+                ]}
+              />
             </div>
 
-            {/* Smartphone Canvas Frame */}
-            <div className="relative mx-auto flex aspect-[9/16] w-full max-w-[340px] flex-col justify-between overflow-hidden rounded-xl border-4 border-line-strong bg-ink p-6 shadow-glow">
-              {/* Top Notch & Time */}
-              <div className="z-10 flex items-center justify-between text-meta font-medium text-surface opacity-75">
-                <span>9:41</span>
-                <span className="flex items-center gap-1">
-                  <span>5G</span>
-                  <span>100%</span>
-                </span>
-              </div>
-
-              {/* Mode 1: Rendered Video Player */}
+            <PhoneFrame>
               {previewMode === "video" ? (
-                <div className="absolute inset-0 flex items-center justify-center bg-ink">
-                  <video
-                    key={renderedVideoSrc}
-                    src={renderedVideoSrc}
-                    autoPlay
-                    loop
-                    muted
-                    playsInline
-                    controls
-                    className="size-full object-cover"
-                  />
-                </div>
+                <video key={renderedVideoSrc} src={renderedVideoSrc} autoPlay loop muted playsInline controls className="size-full object-cover" />
               ) : (
-                /* Mode 2: Kinetic Simulated Word Pop */
-                <div className="my-auto flex flex-col items-center justify-center text-center">
-                  <div className="flex flex-wrap items-center justify-center gap-2">
-                    {SAMPLE_WORDS.map((w, idx) => {
-                      const isActive = idx === activeWordIdx;
-                      const isPunch = activeStyle?.name === "Punch";
-                      const isNeon = activeStyle?.name === "Neon";
-
-                      return (
-                        <span
-                          key={idx}
-                          className="inline-block transition-transform duration-(--motion-fast)"
-                          style={{
-                            transform: isActive
-                              ? w.hype
-                                ? "scale(1.3)"
-                                : "scale(1.15)"
-                              : "scale(1.0)",
-                            fontWeight: isActive || isPunch ? 800 : 600,
-                            color: isActive
-                              ? isNeon
-                                ? "var(--brand)"
-                                : isPunch
-                                ? "var(--warning)"
-                                : "var(--surface)"
-                              : "var(--surface)",
-                            textShadow: isPunch
-                              ? "0 2px 4px var(--ink)"
-                              : isNeon && isActive
-                              ? "0 0 12px var(--brand)"
-                              : "0 1px 2px var(--ink)",
-                          }}
-                        >
-                          {activeStyle?.uppercase ? w.word.toUpperCase() : w.word}
-                        </span>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mt-8 rounded-full bg-surface-sunken/20 px-4 py-1 text-meta text-surface/80 backdrop-blur-md">
-                    Active: {activeStyle?.name} ({activeStyle?.animation_type})
-                  </div>
+                <div className="flex size-full flex-col items-center justify-center gap-10 px-[8cqw]">
+                  <CaptionPreview style={activeStyle} words={SAMPLE_WORDS} activeIndex={activeWordIdx} />
+                  <span className="rounded-full border border-on-brand/20 bg-on-brand/10 px-4 py-1.5 text-meta text-on-brand/85">
+                    {activeStyle?.name} · {ANIMATION_LABELS[activeStyle?.animation_type ?? ""] ?? activeStyle?.animation_type}
+                  </span>
                 </div>
               )}
-
-              {/* Bottom TikTok/Reels UI Overlay Protection Zone */}
-              <div className="z-10 border-t border-dashed border-surface/20 pt-4 text-center">
-                <div className="flex items-center justify-between text-meta text-surface/50">
-                  <span>TikTok UI Margin (480px Safe)</span>
-                  <span>Protected</span>
-                </div>
-              </div>
-            </div>
+            </PhoneFrame>
           </div>
         </div>
       </div>

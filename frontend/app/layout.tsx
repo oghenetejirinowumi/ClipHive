@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ShellGate } from "@/components/shell/ShellGate";
 import { AuthProvider } from "@/lib/auth";
 import { SITE } from "@/lib/site";
+import { ThemeModeProvider, themeInitScript } from "@/lib/theme-mode";
 import { theme, themeToCss } from "@/theme";
 import "./globals.css";
 
@@ -18,14 +19,18 @@ export const viewport: Viewport = { width: "device-width", initialScale: 1, view
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
+    // data-theme is set by themeInitScript before hydration, hence suppressHydrationWarning.
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`} suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <style id="theme-tokens" dangerouslySetInnerHTML={{ __html: themeToCss(theme) }} />
       </head>
       <body>
-        <AuthProvider>
-          <ShellGate>{children}</ShellGate>
-        </AuthProvider>
+        <ThemeModeProvider>
+          <AuthProvider>
+            <ShellGate>{children}</ShellGate>
+          </AuthProvider>
+        </ThemeModeProvider>
       </body>
     </html>
   );

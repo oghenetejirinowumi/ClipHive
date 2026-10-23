@@ -4,11 +4,14 @@ from app.models.enums import (
     AnimationType,
     CaptionMode,
     ClipStatus,
+    ImportSource,
+    ImportStatus,
     PostPlatform,
     PostStatus,
     SourcePlatform,
     StreamStatus,
 )
+from app.models.import_job import ImportJob
 from app.models.post import Post
 from app.models.streamer import Stream, Streamer
 from app.models.trend import Trend
@@ -20,6 +23,9 @@ __all__ = [
     "CaptionStyle",
     "Clip",
     "ClipStatus",
+    "ImportJob",
+    "ImportSource",
+    "ImportStatus",
     "Post",
     "PostPlatform",
     "PostStatus",
