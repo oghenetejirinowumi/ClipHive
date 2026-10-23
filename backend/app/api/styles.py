@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models.caption_style import CaptionStyle
 from app.schemas.caption_style import CaptionStyleCreate, CaptionStyleRead
+from app.services.caption.font_inspector import extract_font_family_name
 from app.services.caption.styles import seed_preset_styles
 
 router = APIRouter(prefix="/styles", tags=["styles"])
@@ -70,7 +71,8 @@ async def upload_font(file: UploadFile):
     with open(target_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    font_name = Path(clean_filename).stem.replace("-", " ")
+    # Extract true internal font family name from TrueType header tables
+    font_name = extract_font_family_name(target_path) or Path(clean_filename).stem.replace("-", " ")
 
     return {
         "font_name": font_name,
