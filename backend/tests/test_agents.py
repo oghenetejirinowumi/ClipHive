@@ -367,3 +367,25 @@ def test_command_reports_missing_stream(Session, monkeypatch):
     monkeypatch.setattr(command, "agent_client", lambda: (None, None, None))
     plan = command.parse_command(1, "clip my last stream")
     assert plan.url is None and plan.error
+
+
+def test_producer_cannot_cut_a_moment_it_rejected(Session, media, monkeypatch):
+    client = FakeClient(
+        [
+            {"tool_calls": [call("list_candidates", {}, "1")]},
+            {"tool_calls": [call("reject_moments", {"rejections": [{"id": 1, "reason": "reading chat"}]}, "2")]},
+            {"tool_calls": [call("cut_clip", {"candidate_id": 1, "start_s": 100, "end_s": 130, "reason": "thanks chat"}, "3")]},
+            {"tool_calls": [call("cut_clip", {"candidate_id": 0, "start_s": 10, "end_s": 40, "reason": "reaction"}, "4")]},
+            {"tool_calls": [call("finish", {"summary": "ok"}, "5")]},
+        ]
+    )
+    monkeypatch.setattr(producer, "agent_client", lambda: (client, "fake", "fake:model"))
+    job, _ = make_job(Session, count=2)
+
+    ids = producer.run_producer(job)
+
+    assert len(ids) == 1
+    with Session() as db:
+        assert db.get(Clip, ids[0]).start_s == 10
+    tool_msgs = [m["content"] for m in client.requests[-1]["messages"] if m["role"] == "tool"]
+    assert any("which you rejected (reading chat)" in c for c in tool_msgs)

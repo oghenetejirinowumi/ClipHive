@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, type ReactNode } from "react";
+import { NotificationBell } from "@/components/agents/NotificationBell";
 import { Button, Icon, Logo, ThemeSwitch } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
@@ -31,8 +32,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-dvh bg-paper lg:grid lg:grid-cols-[19rem_minmax(0,1fr)]">
       <aside className="sticky top-0 hidden h-dvh flex-col border-r border-line bg-surface px-5 py-8 lg:flex">
-        <Logo href="/dashboard" className="px-2" />
-        <nav aria-label="Main" className="mt-10 flex-1 space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <Logo href="/dashboard" className="px-2" />
+          <NotificationBell />
+        </div>
+        <nav aria-label="Main" className="mt-10 flex-1 space-y-2 overflow-y-auto">
           {APP_NAV.map((item) => {
             const active = isActive(pathname, item.href);
             return (
@@ -68,6 +72,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="sticky top-0 z-20 flex h-20 items-center justify-between border-b border-line bg-surface/95 px-4 lg:hidden">
           <Logo href="/dashboard" />
           <div className="flex items-center gap-2">
+            <NotificationBell align="right" />
             <ThemeSwitch />
             <Button variant="ghost" size="sm" onClick={signOut} aria-label="Sign out">
               <Icon name="logout" className="size-6" />

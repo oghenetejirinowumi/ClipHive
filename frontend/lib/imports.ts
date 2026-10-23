@@ -49,8 +49,8 @@ export const SOURCE_LABEL: Record<ImportJob["source"], string> = { twitch: "Twit
 export const STEP_LABEL: Record<ImportJob["status"], string> = {
   queued: "Waiting for a worker",
   downloading: "Downloading",
-  analyzing: "Finding the best moments",
-  cutting: "Cutting 9:16 clips",
+  analyzing: "Agent is reviewing the moments",
+  cutting: "Cutting and packaging clips",
   done: "Done",
   failed: "Failed",
 };

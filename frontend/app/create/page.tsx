@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
+import { AgentFeed } from "@/components/agents/AgentFeed";
+import { CommandBar } from "@/components/agents/CommandBar";
 import { Badge, Button, buttonClass, Em, Icon, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
 import { api, ApiError, API_URL, apiUrl } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -250,6 +252,14 @@ export default function CreatePage() {
         )}
       </Panel>
 
+      <Panel padding="lg" className="space-y-5">
+        <div>
+          <h2 className="font-display text-3xl font-semibold tracking-tight text-ink">Or just tell the agents</h2>
+          <p className="mt-2 text-lg text-ink-muted">Say what you want in your own words. The agents find your latest stream and plan the clips; you confirm before anything runs.</p>
+        </div>
+        <CommandBar onStarted={(job) => setJobs((prev) => [job, ...prev])} />
+      </Panel>
+
       {/* Projects */}
       <section className="space-y-6">
         <div className="flex items-center gap-4">
@@ -304,7 +314,11 @@ export default function CreatePage() {
                       </div>
                     )}
 
+                    {(job.status === "analyzing" || job.status === "cutting") && <AgentFeed importJobId={job.id} compact />}
+
                     {job.status === "failed" && <p className="text-base text-danger">{job.error || "This project failed."}</p>}
+
+                    {job.status === "done" && <WhyTheseClips jobId={job.id} />}
 
                     <div className="mt-auto flex items-center justify-between gap-3 border-t border-line pt-4">
                       <span className="text-base text-ink-muted">
@@ -313,9 +327,14 @@ export default function CreatePage() {
                           : `${job.clip_count} × ${job.clip_seconds}s requested`}
                       </span>
                       {job.status === "done" && (
-                        <Link href={`/studio/${job.id}`} className={buttonClass({ variant: "secondary", size: "sm" })}>
-                          <Icon name="film" className="size-5" /> Open in studio
-                        </Link>
+                        <div className="flex gap-2">
+                          <Link href="/inbox" className={buttonClass({ size: "sm" })}>
+                            <Icon name="inbox" className="size-5" /> Review
+                          </Link>
+                          <Link href={`/studio/${job.id}`} className={buttonClass({ variant: "secondary", size: "sm" })} aria-label="Open in studio">
+                            <Icon name="film" className="size-5" />
+                          </Link>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -325,6 +344,25 @@ export default function CreatePage() {
           </ul>
         )}
       </section>
+    </div>
+  );
+}
+
+/** Finished projects keep the agent's reasoning one click away. */
+function WhyTheseClips({ jobId }: { jobId: number }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex min-h-11 items-center gap-2 text-base font-medium text-brand hover:text-brand-strong"
+      >
+        <Icon name="bot" className="size-5" />
+        {open ? "Hide the agent's decisions" : "Why these clips?"}
+      </button>
+      {open && <AgentFeed importJobId={jobId} compact className="mt-3" />}
     </div>
   );
 }

@@ -62,6 +62,7 @@ class ClipRead(ORMModel):
     hashtags: list[str]
     context_json: dict | None = None
     status: ClipStatus
+    review_status: str = "approved"
     error: str | None
     created_at: datetime
 
