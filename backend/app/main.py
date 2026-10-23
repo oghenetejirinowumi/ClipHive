@@ -12,6 +12,7 @@ from app.api.agents import router as agents_router
 from app.api.inbox import router as inbox_router
 from app.api.clips import router as clips_router
 from app.api.downloads import router as downloads_router
+from app.api.hub import router as hub_router
 from app.api.imports import router as imports_router
 from app.api.live import router as live_router
 from app.api.streamers import router as streamers_router
@@ -137,6 +138,7 @@ app.include_router(clips_router, prefix="/api")
 app.include_router(trends_router, prefix="/api")
 app.include_router(imports_router, prefix="/api")
 app.include_router(downloads_router, prefix="/api")
+app.include_router(hub_router, prefix="/api")
 app.include_router(studio_router, prefix="/api")
 app.include_router(agents_router, prefix="/api")
 app.include_router(inbox_router, prefix="/api")
