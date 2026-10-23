@@ -1,0 +1,192 @@
+@import "tailwindcss";
+
+/*
+ * Token VALUES live in theme.ts and are written onto :root by themeToCss() in
+ * app/layout.tsx. This file only maps those variables onto Tailwind utilities.
+ *
+ * Tailwind's built-in palette, radii and shadows are wiped, so `bg-blue-500`,
+ * `rounded-2xl` or `shadow-lg` produce nothing. Use the role utilities below.
+ */
+@theme inline {
+  --color-*: initial;
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-subtle: var(--brand-subtle);
+  --color-on-brand: var(--on-brand);
+  --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
+  --color-warning: var(--warning);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-danger: var(--danger);
+  --color-danger-subtle: var(--danger-subtle);
+
+  --radius-*: initial;
+  --radius-sm: var(--rounded-sm);
+  --radius-md: var(--rounded-md);
+  --radius-lg: var(--rounded-lg);
+  --radius-xl: var(--rounded-xl);
+  --radius-full: var(--rounded-pill);
+
+  --shadow-*: initial;
+  --shadow-glow: var(--glow-soft);
+  --shadow-glow-strong: var(--glow-strong);
+  --shadow-ring: var(--glow-ring);
+
+  --ease-soft: var(--motion-ease-out);
+
+  --font-sans: var(--typeface-sans);
+  --font-display: var(--typeface-display);
+  --font-mono: var(--typeface-mono);
+
+  /* Sizing floor: text-xs and text-sm don't exist. Smallest content size is text-meta (15px). */
+  --text-xs: initial;
+  --text-xs--line-height: initial;
+  --text-sm: initial;
+  --text-sm--line-height: initial;
+  --text-fine: var(--type-fine);
+  --text-fine--line-height: var(--type-fine-leading);
+  --text-meta: var(--type-meta);
+  --text-meta--line-height: var(--type-meta-leading);
+  --text-base: var(--type-body);
+  --text-base--line-height: var(--type-body-leading);
+}
+
+@layer base {
+  html {
+    font-size: var(--type-root-size);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--typeface-sans);
+    font-size: var(--type-body);
+    line-height: var(--type-body-leading);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: clip;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--brand) 22%, transparent);
+  }
+
+  /* Every focusable thing gets a visible keyboard ring; the outline follows border-radius. */
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+}
+
+/* Tactile: lift on hover, squeeze on press. Hover only on devices that really hover. */
+@utility tactile {
+  transition-property: transform, translate, rotate, box-shadow, background-color, border-color, color;
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--motion-ease-out);
+
+  @media (hover: hover) {
+    &:hover:not(:disabled, [aria-disabled="true"]) {
+      transform: translateY(var(--motion-lift));
+      box-shadow: var(--tactile-glow, var(--glow-strong));
+    }
+  }
+
+  &:active:not(:disabled, [aria-disabled="true"]) {
+    transform: scale(var(--motion-press));
+  }
+}
+
+/* ---------- Effects (components/effects). Transform + opacity only. ---------- */
+
+@keyframes fx-drift {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(var(--dx), var(--dy), 0) scale(1.08); }
+  100% { transform: translate3d(calc(var(--dx) * -0.6), calc(var(--dy) * 0.4), 0) scale(0.96); }
+}
+
+@keyframes fx-float {
+  0%, 100% { transform: translateY(0) rotate(var(--tilt, 0deg)); }
+  50% { transform: translateY(-8px) rotate(var(--tilt, 0deg)); }
+}
+
+@keyframes fx-marquee {
+  to { transform: translate3d(-50%, 0, 0); }
+}
+
+@keyframes fx-rise {
+  from { opacity: 0; transform: translateY(var(--motion-reveal-distance)); }
+  to { opacity: 1; transform: none; }
+}
+
+.fx-blob {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  width: var(--size);
+  aspect-ratio: 1;
+  border-radius: 9999px;
+  /* A radial gradient instead of filter: blur() — same softness, far cheaper on phones. */
+  background: radial-gradient(closest-side, color-mix(in oklab, var(--blob) 48%, transparent), transparent);
+  animation: fx-drift var(--dur) var(--motion-ease-in-out) infinite alternate;
+  animation-delay: var(--delay);
+  will-change: transform;
+}
+
+.fx-float {
+  transform: rotate(var(--tilt, 0deg));
+  animation: fx-float 6s var(--motion-ease-in-out) infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+.fx-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: fx-marquee var(--duration, 40s) linear infinite;
+}
+
+.fx-reveal {
+  opacity: 0;
+  transform: translateY(var(--motion-reveal-distance));
+  transition:
+    opacity var(--motion-slow) var(--motion-ease-out),
+    transform var(--motion-slow) var(--motion-ease-out);
+  transition-delay: var(--delay, 0ms);
+}
+.fx-reveal[data-revealed] {
+  opacity: 1;
+  transform: none;
+}
+
+.fx-rise {
+  animation: fx-rise var(--motion-slow) var(--motion-ease-out) both;
+  animation-delay: calc(var(--i, 0) * var(--motion-stagger));
+}
+
+/* Offscreen or low-budget: freeze the loop (components set data-fx-paused). */
+[data-fx-paused] :is(.fx-blob, .fx-float, .fx-marquee-track) {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-blob,
+  .fx-float,
+  .fx-marquee-track,
+  .fx-rise {
+    animation: none !important;
+  }
+  .fx-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
