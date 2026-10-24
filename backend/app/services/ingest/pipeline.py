@@ -1,4 +1,4 @@
-"""Import jobs: one link or upload → several clips.
+"""Import jobs: one link or upload â†’ several clips.
 
 Runs on a small worker pool (settings.import_workers), never inside a request.
 
@@ -15,8 +15,8 @@ with the clips it already has excluded, so every new clip is a moment it hasn't 
 from __future__ import annotations
 
 import json
-import re
 import logging
+import re
 import shutil
 import threading
 import time
@@ -38,7 +38,7 @@ from app.core.media import (
     storage_root,
     thumbnail,
 )
-from app.db import SessionLocal, engine
+from app.db import SessionLocal, column_ddl, engine
 from app.models import (
     CaptionMode,
     Clip,
@@ -121,7 +121,7 @@ def ensure_columns() -> None:
             existing = {c["name"] for c in inspect(conn).get_columns(table)}
             for name, ddl in columns.items():
                 if name not in existing:
-                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {column_ddl(ddl, conn.dialect.name)}"))
 
 
 def repair_clip_states() -> None:
@@ -535,7 +535,7 @@ def cut_and_handoff(
                 raw_file_path=str(out),
                 file_path=public_path(out),
                 highlight_score=moment.score,
-                title=f"{title} · Clip {number}"[:255],
+                title=f"{title} Â· Clip {number}"[:255],
                 hashtags=[],
                 status=ClipStatus.READY,
                 caption_mode=CaptionMode.PLATFORM_NATIVE,

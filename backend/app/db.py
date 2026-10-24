@@ -5,8 +5,23 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import settings
 
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, connect_args=connect_args)
+
+def database_url(url: str) -> str:
+    """Hosted Postgres hands out postgres:// or postgresql:// URLs; use the psycopg 3 driver for both."""
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
+DATABASE_URL = database_url(settings.database_url)
+IS_SQLITE = DATABASE_URL.startswith("sqlite")
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False} if IS_SQLITE else {},
+    # Free hosted Postgres (Neon, Render) closes idle connections; test each one before use.
+    pool_pre_ping=not IS_SQLITE,
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
@@ -53,6 +68,13 @@ ADDED_COLUMNS: dict[str, dict[str, str]] = {
 }
 
 
+def column_ddl(ddl: str, dialect: str) -> str:
+    """The ADDED_COLUMNS types are written for SQLite; Postgres spells two of them differently."""
+    if dialect != "postgresql":
+        return ddl
+    return ddl.replace("DATETIME", "TIMESTAMP").replace("BOOLEAN DEFAULT 0", "BOOLEAN DEFAULT FALSE").replace("BOOLEAN DEFAULT 1", "BOOLEAN DEFAULT TRUE")
+
+
 def ensure_added_columns(bind=None) -> None:
     from sqlalchemy import inspect, text
 
@@ -67,7 +89,7 @@ def ensure_added_columns(bind=None) -> None:
             for name, ddl in columns.items():
                 if name in existing:
                     continue
-                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {column_ddl(ddl, conn.dialect.name)}"))
                 if (table, name) == ("users", "google_sub"):
                     # One ClipHive account per Google account (NULLs, i.e. password users, don't clash).
                     conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_google_sub ON users (google_sub)"))

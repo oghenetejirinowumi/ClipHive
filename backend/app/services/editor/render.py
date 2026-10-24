@@ -19,7 +19,7 @@ from sqlalchemy import inspect, text
 from app.config import settings
 from app.core.daemon_pool import DaemonPool
 from app.core.media import public_path
-from app.db import SessionLocal, engine
+from app.db import SessionLocal, column_ddl, engine
 from app.models import Clip, ClipStatus, EditorProject
 from app.schemas.editor import Timeline
 from app.services.editor.compose import compose, font_file
@@ -51,7 +51,7 @@ def ensure_columns() -> None:
     with engine.begin() as conn:
         for name, ddl in _ADDED_COLUMNS.items():
             if name not in existing:
-                conn.execute(text(f"ALTER TABLE editor_projects ADD COLUMN {name} {ddl}"))
+                conn.execute(text(f"ALTER TABLE editor_projects ADD COLUMN {name} {column_ddl(ddl, conn.dialect.name)}"))
 
 
 def recover_interrupted() -> None:
