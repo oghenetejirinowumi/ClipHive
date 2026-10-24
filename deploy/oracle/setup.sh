@@ -134,6 +134,9 @@ EOF
 sudo systemctl enable caddy
 sudo systemctl reload caddy || sudo systemctl restart caddy
 
+say "Installing extras and turning on automatic updates"
+sudo bash "$APP_DIR/deploy/oracle/update.sh"
+
 say "Checking the API"
 for i in $(seq 1 30); do
   if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then break; fi
