@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AgentFeed } from "@/components/agents/AgentFeed";
 import { CommandBar } from "@/components/agents/CommandBar";
 import { Bee, BEE_VARIANT, BeeLoader, BeeSwarm, CombLegend, HexBadge, HiveComb, HoneycombLattice, SleepingBee } from "@/components/hive";
-import { Em, Icon, Panel, SectionLabel, Segmented, SkyHeader, StatusBadge } from "@/components/ui";
+import { Button, Em, Icon, Panel, SectionLabel, Segmented, SkyHeader, StatusBadge } from "@/components/ui";
 import { api } from "@/lib/api";
 import { AGENT_LABEL, AGENT_ROLE, timeAgo, type AgentKind, type AgentRun } from "@/lib/agents";
 import { cn, cssVars } from "@/lib/cn";
@@ -25,10 +25,14 @@ function prefersReducedMotion() {
   return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
+const FEED_PAGE = 6;
+
 export default function HivePage() {
   const [runs, setRuns] = useState<AgentRun[] | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [open, setOpen] = useState<number | null>(null);
+  // Show the feed a page at a time, so it never becomes an endless scroll.
+  const [shown, setShown] = useState(FEED_PAGE);
   // Which bees are mid-job. Learned from whatever list is loaded, so a filter only updates its own bee.
   const [busy, setBusy] = useState<Partial<Record<AgentKind, boolean>>>({});
 
@@ -58,11 +62,14 @@ export default function HivePage() {
   function showBee(kind: AgentKind) {
     setFilter((f) => (f === kind ? "all" : kind));
     setOpen(null);
+    setShown(FEED_PAGE);
     document.getElementById("swarm-activity")?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
   }
 
   function openRun(run: AgentRun) {
     setOpen(run.id);
+    const index = runs?.findIndex((r) => r.id === run.id) ?? -1;
+    setShown((n) => Math.max(n, index + 1));
     // Wait a frame so the opened run has rendered before scrolling to it.
     requestAnimationFrame(() =>
       document.getElementById(`run-${run.id}`)?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" }),
@@ -72,7 +79,7 @@ export default function HivePage() {
   const working = Object.values(busy).filter(Boolean).length;
 
   return (
-    <div className="space-y-12 lg:space-y-14">
+    <div className="space-y-10 sm:space-y-12 lg:space-y-14">
       <SkyHeader
         size="lg"
         className="fx-rise"
@@ -97,7 +104,7 @@ export default function HivePage() {
       />
 
       {/* The four bees. Tap one to filter the activity to its work. */}
-      <ul className="grid gap-4 sm:grid-cols-2 sm:gap-6 xl:grid-cols-4">
+      <ul className="rail grid gap-4 sm:grid-cols-2 sm:gap-6 xl:grid-cols-4">
         {TEAM.map((kind, i) => {
           const active = filter === kind;
           const isBusy = !!busy[kind];
@@ -172,6 +179,7 @@ export default function HivePage() {
               onChange={(v) => {
                 setFilter(v);
                 setOpen(null);
+                setShown(FEED_PAGE);
               }}
               options={FILTERS}
             />
@@ -187,8 +195,9 @@ export default function HivePage() {
             <p className="mt-2 text-lg text-ink-muted">Start a project or send the Queen Bee a request.</p>
           </Panel>
         ) : (
+          <>
           <ul className="space-y-4">
-            {runs.map((run, i) => {
+            {runs.slice(0, shown).map((run, i) => {
               const expanded = open === run.id;
               const running = run.status === "running";
               return (
@@ -226,6 +235,12 @@ export default function HivePage() {
               );
             })}
           </ul>
+          {runs.length > shown && (
+            <Button variant="secondary" className="w-full" onClick={() => setShown((n) => n + FEED_PAGE)}>
+              Show {Math.min(FEED_PAGE, runs.length - shown)} more <span className="text-ink-muted">· {runs.length - shown} left</span>
+            </Button>
+          )}
+          </>
         )}
       </section>
     </div>

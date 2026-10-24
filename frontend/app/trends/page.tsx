@@ -10,7 +10,7 @@ import { Icon } from "@/components/ui";
  */
 export default function TrendsPage() {
   return (
-    <div className="space-y-14">
+    <div className="space-y-10 sm:space-y-14">
       <ClipRadar />
       <details className="group rounded-lg border border-line bg-surface">
         <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-6 py-4 font-display text-xl font-semibold tracking-tight text-ink">

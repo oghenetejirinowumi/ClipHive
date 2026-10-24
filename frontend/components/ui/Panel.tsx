@@ -10,12 +10,12 @@ const tones: Record<Tone, string> = {
   brand: "border border-brand/15 bg-brand-subtle",
 };
 
-// Sizing floor: ≥ 24px. Padding may grow on large screens but never shrinks on phones.
+// Sizing floor: ≥ 24px on every screen. Phones get the floor so content keeps its width.
 const paddings: Record<Padding, string> = {
   none: "",
   sm: "p-6",
-  md: "p-8",
-  lg: "p-10 lg:p-12",
+  md: "p-6 sm:p-8",
+  lg: "p-6 sm:p-10 lg:p-12",
 };
 
 export type PanelProps = HTMLAttributes<HTMLElement> & {

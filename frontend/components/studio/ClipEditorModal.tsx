@@ -56,8 +56,13 @@ export function ClipEditorModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs">
-      <Panel tone="surface" padding="lg" className="relative w-full max-w-lg space-y-6 shadow-2xl">
+    // Phones: a bottom sheet that scrolls inside itself. sm+: a centred card.
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 backdrop-blur-xs sm:items-center sm:p-4">
+      <Panel
+        tone="surface"
+        padding="lg"
+        className="relative max-h-[92dvh] w-full max-w-lg space-y-6 overflow-y-auto overscroll-contain rounded-b-none pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-b-lg"
+      >
         <div className="flex items-center justify-between border-b border-line pb-4">
           <div>
             <h3 className="font-display text-2xl font-semibold tracking-tight text-ink">Edit & Polish Clip</h3>
@@ -66,7 +71,8 @@ export function ClipEditorModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full p-2 text-ink-muted transition-colors hover:bg-surface-sunken hover:text-ink"
+            aria-label="Close"
+            className="grid size-11 shrink-0 place-items-center rounded-full text-ink-muted transition-colors hover:bg-surface-sunken hover:text-ink"
           >
             <Icon name="x" className="size-5" />
           </button>
@@ -81,13 +87,13 @@ export function ClipEditorModal({
               <span className="text-meta font-medium text-ink">Speed</span>
               <span className="font-mono text-meta font-semibold text-brand-strong">{speed}x</span>
             </div>
-            <div className="grid grid-cols-6 gap-1.5">
+            <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
               {SPEED_OPTIONS.map((s) => (
                 <button
                   key={s}
                   type="button"
                   onClick={() => setSpeed(s)}
-                  className={`rounded-md py-1.5 text-center font-mono text-meta font-semibold transition-colors ${
+                  className={`min-h-11 rounded-md text-center font-mono text-meta font-semibold transition-colors ${
                     speed === s ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/50"
                   }`}
                 >
@@ -119,7 +125,7 @@ export function ClipEditorModal({
                   key={v.val}
                   type="button"
                   onClick={() => setVolume(v.val)}
-                  className={`rounded-md py-1.5 text-center text-meta font-medium transition-colors ${
+                  className={`min-h-11 rounded-md text-center text-meta font-medium transition-colors ${
                     volume === v.val ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/50"
                   }`}
                 >
@@ -138,7 +144,7 @@ export function ClipEditorModal({
                   key={f.value}
                   type="button"
                   onClick={() => setColorFilter(f.value)}
-                  className={`rounded-full px-3 py-1 text-meta font-medium transition-colors ${
+                  className={`min-h-11 rounded-full px-4 text-meta font-medium transition-colors ${
                     colorFilter === f.value ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/50"
                   }`}
                 >
@@ -179,7 +185,7 @@ export function ClipEditorModal({
                   key={p.pos}
                   type="button"
                   onClick={() => setCaptionPosition(p.pos)}
-                  className={`rounded-md py-1.5 text-meta font-medium transition-colors ${
+                  className={`min-h-11 rounded-md text-meta font-medium transition-colors ${
                     captionPosition === p.pos ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/50"
                   }`}
                 >
@@ -193,7 +199,8 @@ export function ClipEditorModal({
               max={86}
               value={captionPosition}
               onChange={(e) => setCaptionPosition(Number(e.target.value))}
-              className="w-full accent-brand"
+              aria-label="Caption position"
+              className="h-11 w-full accent-brand"
             />
             {styles.length > 0 && (
               <Field label="Caption style" hint="Burned ASS subtitle aesthetic">
@@ -208,7 +215,7 @@ export function ClipEditorModal({
             )}
           </div>
 
-          <div className="flex justify-end gap-3 pt-2">
+          <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
             <Button variant="ghost" onClick={onClose} disabled={saving}>
               Cancel
             </Button>

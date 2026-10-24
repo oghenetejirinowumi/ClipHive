@@ -29,7 +29,7 @@ export function SkyHeader({
     <header
       className={cn(
         "relative isolate overflow-hidden rounded-xl px-6 sm:px-8 lg:px-12",
-        size === "lg" ? "pt-10 pb-16 lg:pt-12 lg:pb-20" : "pt-7 pb-10 lg:pt-8 lg:pb-12",
+        size === "lg" ? "pt-8 pb-10 sm:pt-10 sm:pb-16 lg:pt-12 lg:pb-20" : "pt-6 pb-8 sm:pt-7 sm:pb-10 lg:pt-8 lg:pb-12",
         className,
       )}
     >
@@ -45,7 +45,7 @@ export function SkyHeader({
         {title}
       </h1>
       {description && <p className="mt-3 max-w-3xl text-lg text-on-brand/85 lg:text-xl">{description}</p>}
-      {actions && <div className="mt-6 flex flex-wrap gap-3">{actions}</div>}
+      {actions && <div className="mt-6 flex flex-wrap gap-3 max-sm:[&>a]:w-full max-sm:[&>button]:w-full">{actions}</div>}
     </header>
   );
 }

@@ -58,11 +58,11 @@ export type Stat = { value: ReactNode; label: ReactNode };
 /** Big numbers in a row, each opened by a hairline. */
 export function StatStrip({ stats, className }: { stats: Stat[]; className?: string }) {
   return (
-    <dl className={cn("grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-4", className)}>
+    <dl className={cn("grid grid-cols-2 gap-x-5 gap-y-8 sm:gap-x-8 sm:gap-y-10 lg:grid-cols-4", className)}>
       {stats.map((s, i) => (
-        <div key={i} className="flex flex-col-reverse gap-3 border-t border-line-strong pt-6">
-          <dt className="text-lg text-ink-muted">{s.label}</dt>
-          <dd className="font-display text-5xl font-semibold tracking-tight text-ink tabular-nums lg:text-6xl">{s.value}</dd>
+        <div key={i} className="flex min-w-0 flex-col-reverse gap-2 border-t border-line-strong pt-4 sm:gap-3 sm:pt-6">
+          <dt className="text-base text-ink-muted sm:text-lg">{s.label}</dt>
+          <dd className="font-display text-4xl font-semibold tracking-tight text-ink tabular-nums sm:text-5xl lg:text-6xl">{s.value}</dd>
         </div>
       ))}
     </dl>

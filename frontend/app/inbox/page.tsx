@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ClipDialog, ClipDialogActions, ClipTile } from "@/components/clips";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ClipDialog, ClipDialogActions, ClipShelves, ClipTile, ClipToolbar, matchesQuery, shelvesBy } from "@/components/clips";
 import { Bee, BeeLoader, BeeSwarm, HoneycombLattice } from "@/components/hive";
 import { Badge, Button, buttonClass, Em, Icon, Notice, Panel, Segmented, SkyHeader } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
@@ -15,6 +15,13 @@ import { usePersistentState } from "@/lib/usePersistentState";
 const QUICK_REASONS = ["Not funny", "Needs context", "Too long", "Boring", "Wrong moment"];
 const PLATFORMS: PostPlatform[] = ["tiktok", "youtube", "instagram"];
 const POLL_MS = 10_000;
+
+type GroupBy = "source" | "topic" | "all";
+const GROUP_OPTIONS = [
+  { value: "source" as const, label: "Video" },
+  { value: "topic" as const, label: "Topic" },
+  { value: "all" as const, label: "All" },
+];
 
 type Done = { kind: "approved" | "rejected"; clip: InboxClip; posts?: ScheduledPost[] };
 
@@ -29,6 +36,8 @@ export default function InboxPage() {
   const [platforms, setPlatforms] = usePersistentState<PostPlatform[]>("ch_inbox_platforms", ["tiktok", "youtube"]);
   const [last, setLast] = useState<Done | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [groupBy, setGroupBy] = usePersistentState<GroupBy>("ch_inbox_group", "source");
 
   const load = useCallback(async () => {
     try {
@@ -51,16 +60,24 @@ export default function InboxPage() {
     };
   }, [load]);
 
-  const openIndex = clips?.findIndex((c) => c.id === openId) ?? -1;
-  const open = openIndex >= 0 ? clips![openIndex] : null;
+  // Search, then split into shelves; the popup's prev / next follow the order shown.
+  const shelves = useMemo(() => {
+    const found = (clips ?? []).filter((c) => matchesQuery(c, query));
+    if (groupBy === "all") return found.length ? [{ key: "all", label: "All clips", items: found }] : [];
+    if (groupBy === "topic") return shelvesBy(found, (c) => c.context_json?.game_or_topic, "Other topics");
+    return shelvesBy(found, (c) => c.source_title, "Other clips");
+  }, [clips, query, groupBy]);
+  const ordered = useMemo(() => shelves.flatMap((s) => s.items), [shelves]);
+
+  const openIndex = ordered.findIndex((c) => c.id === openId);
+  const open = openIndex >= 0 ? ordered[openIndex] : (clips?.find((c) => c.id === openId) ?? null);
 
   /** Take a reviewed clip out; the popup moves on to the next clip, or closes after the last. */
   function done(result: Done) {
-    const list = clips ?? [];
-    const i = list.findIndex((c) => c.id === result.clip.id);
-    const rest = list.filter((c) => c.id !== result.clip.id);
-    setClips(rest);
-    setOpenId(rest[Math.min(i, rest.length - 1)]?.id ?? null);
+    const i = ordered.findIndex((c) => c.id === result.clip.id);
+    const rest = ordered.filter((c) => c.id !== result.clip.id);
+    setClips((prev) => prev?.filter((c) => c.id !== result.clip.id) ?? prev);
+    setOpenId(rest[Math.min(Math.max(i, 0), rest.length - 1)]?.id ?? null);
     setLast(result);
   }
 
@@ -136,24 +153,28 @@ export default function InboxPage() {
           </div>
         </Panel>
       ) : (
-        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 2xl:grid-cols-5">
-          {clips.map((clip) => (
-            <li key={clip.id} className="min-w-0">
+        <div className="space-y-6">
+          <ClipToolbar query={query} onQuery={setQuery} groupBy={groupBy} onGroupBy={setGroupBy} groupOptions={GROUP_OPTIONS} />
+          <ClipShelves
+            shelves={shelves}
+            query={query}
+            onClearQuery={() => setQuery("")}
+            renderTile={(clip) => (
               <ClipTile title={clip.title} filePath={clip.file_path} durationS={clip.duration_s} label={clip.layout} onOpen={() => setOpenId(clip.id)} />
-            </li>
-          ))}
-        </ul>
+            )}
+          />
+        </div>
       )}
 
       {open && clips && (
         <InboxClipDialog
           clip={open}
-          position={openIndex + 1}
-          total={clips.length}
+          position={Math.max(openIndex, 0) + 1}
+          total={ordered.length || clips.length}
           platforms={platforms}
           onTogglePlatform={(p) => setPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))}
-          onPrev={openIndex > 0 ? () => setOpenId(clips[openIndex - 1].id) : undefined}
-          onNext={openIndex < clips.length - 1 ? () => setOpenId(clips[openIndex + 1].id) : undefined}
+          onPrev={openIndex > 0 ? () => setOpenId(ordered[openIndex - 1].id) : undefined}
+          onNext={openIndex >= 0 && openIndex < ordered.length - 1 ? () => setOpenId(ordered[openIndex + 1].id) : undefined}
           onClose={() => setOpenId(null)}
           onDone={done}
           onReplace={replace}

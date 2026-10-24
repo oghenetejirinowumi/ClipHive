@@ -9,11 +9,11 @@ export type Rule = { title: ReactNode; body?: ReactNode };
 /** A wall of tilted "sticker" cards that straighten on hover. */
 export function RuleWall({ rules, className }: { rules: Rule[]; className?: string }) {
   return (
-    <div className={cn("grid gap-6 sm:grid-cols-2 lg:grid-cols-3", className)}>
+    <div className={cn("rail grid gap-6 sm:grid-cols-2 lg:grid-cols-3", className)}>
       {rules.map((rule, i) => (
         <RevealOnScroll key={i} delay={i * 70}>
           <div
-            className="tactile h-full rounded-lg border border-line bg-surface p-8 shadow-glow lg:p-10 rotate-(--tilt) hover:rotate-0"
+            className="tactile h-full rounded-lg border border-line bg-surface p-6 shadow-glow sm:p-8 lg:p-10 sm:rotate-(--tilt) hover:rotate-0"
             style={cssVars({ "--tilt": `${TILTS[i % TILTS.length]}deg` })}
           >
             <p className="font-display text-2xl font-semibold tracking-tight text-ink lg:text-3xl">{rule.title}</p>

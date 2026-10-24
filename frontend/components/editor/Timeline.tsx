@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, type DragEvent, type PointerEvent } from "react";
+import { useEffect, useRef, type DragEvent, type PointerEvent } from "react";
 import { ASSET_DRAG_TYPE, SFX_DRAG_TYPE } from "@/components/editor/LibraryPanel";
 import { Icon } from "@/components/ui";
 import { cn } from "@/lib/cn";
@@ -10,7 +10,9 @@ import {
 } from "@/lib/editor";
 
 const LANE_H = 48; // px; matches h-12
+const LANE_H_COMPACT = 40; // px; matches h-10 (phones)
 const SNAP_PX = 8;
+const TAP_SLOP = 8; // px a finger may wander and still count as a tap
 
 /** sfx: the audio lanes split in two, sound effects (is_sfx) in their own lane under the music. */
 type Lane = { key: string; label: string; kind: ItemKind; track?: number; sfx?: boolean };
@@ -35,8 +37,12 @@ type Drag = {
 
 type Props = {
   className?: string;
+  /** Phones: shorter lanes, icon-only lane labels. */
+  compact?: boolean;
   timeline: TimelineDoc;
   playhead: number;
+  /** While playing, the view follows the playhead. */
+  playing?: boolean;
   selectedId: string | null;
   pxPerSec: number;
   onSelect(id: string | null): void;
@@ -51,9 +57,17 @@ type Props = {
   onDropSfx?(name: string, at: number): void;
 };
 
-export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, onSelect, onSeek, onPreview, onCommit, onDropAsset, onDropSfx }: Props) {
+/**
+ * Touch: a swipe scrolls the timeline. Tap a clip to select it, then drag it (or its edges) to
+ * move or trim; tap empty lane space to move the playhead, or drag along the ruler to scrub.
+ * Mouse: press and drag anything straight away.
+ */
+export function Timeline({ className, compact, timeline, playhead, playing, selectedId, pxPerSec, onSelect, onSeek, onPreview, onCommit, onDropAsset, onDropSfx }: Props) {
   const content = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
+  const tap = useRef<{ x: number; y: number; id: string | null } | null>(null);
+  const laneH = compact ? LANE_H_COMPACT : LANE_H;
   const total = Math.max(duration(timeline) + 10, 30);
   const width = total * pxPerSec;
 
@@ -67,8 +81,21 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
     return Math.abs(near - t) * pxPerSec <= SNAP_PX ? near : t;
   }
 
+  // Keep the playhead in view while playing.
+  useEffect(() => {
+    const el = scroller.current;
+    if (!playing || !el) return;
+    const x = playhead * pxPerSec;
+    if (x < el.scrollLeft || x > el.scrollLeft + el.clientWidth - 24) el.scrollLeft = Math.max(0, x - 24);
+  }, [playhead, playing, pxPerSec]);
+
   function beginDrag(e: PointerEvent, kind: ItemKind, item: Item, mode: Drag["mode"]) {
     e.stopPropagation();
+    // A finger on a clip that isn't selected yet may be starting a swipe: select it on tap only.
+    if (e.pointerType === "touch" && item.id !== selectedId) {
+      tap.current = { x: e.clientX, y: e.clientY, id: item.id };
+      return;
+    }
     onSelect(item.id);
     e.currentTarget.setPointerCapture(e.pointerId);
     drag.current = { id: item.id, kind, mode, x0: e.clientX, y0: e.clientY, item, before: timeline, changed: false };
@@ -89,7 +116,7 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
       const snappedEnd = snap(s + length, points);
       if (snappedStart !== s) s = snappedStart;
       else if (snappedEnd !== s + length) s = snappedEnd - length;
-      const track = d.kind === "clips" ? (d.item as { track: number }).track - Math.round((e.clientY - d.y0) / LANE_H) : undefined;
+      const track = d.kind === "clips" ? (d.item as { track: number }).track - Math.round((e.clientY - d.y0) / laneH) : undefined;
       next = move(d.before, d.id, s, track);
     } else if (d.mode === "start") {
       next = trimStart(d.before, d.id, snap(start + dt, points));
@@ -100,6 +127,16 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
   }
 
   function endDrag(e: PointerEvent) {
+    const t = tap.current;
+    tap.current = null;
+    if (t && Math.abs(e.clientX - t.x) < TAP_SLOP && Math.abs(e.clientY - t.y) < TAP_SLOP) {
+      e.stopPropagation();
+      if (t.id) onSelect(t.id);
+      else {
+        onSelect(null);
+        onSeek(timeAt(e.clientX));
+      }
+    }
     const d = drag.current;
     drag.current = null;
     if (!d) return;
@@ -107,18 +144,36 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
     if (d.changed) onCommit(timeline, d.before);
   }
 
-  // Scrub: press on the ruler (or empty lane space) and drag to move the playhead.
+  /** The browser took the gesture over (a scroll): drop the drag and put the item back. */
+  function cancelDrag() {
+    tap.current = null;
+    scrubbing.current = false;
+    const d = drag.current;
+    drag.current = null;
+    if (d?.changed) onPreview(d.before);
+  }
+
+  // Scrub: press on the ruler (or, with a mouse, empty lane space) and drag to move the playhead.
+  // On a touchscreen empty lane space only seeks on a tap, so swiping still scrolls.
   const scrubbing = useRef(false);
-  const scrubProps = {
+  const scrub = (lane: boolean) => ({
     onPointerDown: (e: PointerEvent<HTMLDivElement>) => {
+      if (lane && e.pointerType === "touch") {
+        tap.current = { x: e.clientX, y: e.clientY, id: null };
+        return;
+      }
       scrubbing.current = true;
       e.currentTarget.setPointerCapture(e.pointerId);
       onSelect(null);
       onSeek(timeAt(e.clientX));
     },
     onPointerMove: (e: PointerEvent<HTMLDivElement>) => scrubbing.current && onSeek(timeAt(e.clientX)),
-    onPointerUp: () => (scrubbing.current = false),
-  };
+    onPointerUp: (e: PointerEvent<HTMLDivElement>) => {
+      scrubbing.current = false;
+      endDrag(e);
+    },
+    onPointerCancel: cancelDrag,
+  });
 
   const sfxDropProps = {
     onDragOver: (e: DragEvent<HTMLDivElement>) => {
@@ -159,22 +214,35 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
   const ticks = Array.from({ length: Math.floor(total / step) + 1 }, (_, i) => i * step);
 
   return (
-    <div className={cn("flex min-w-0 select-none overflow-y-auto rounded-lg border border-line bg-surface", className)}>
-      {/* Lane labels */}
-      <div className="sticky left-0 h-fit w-28 shrink-0 border-r border-line">
-        <div className="h-8 border-b border-line" />
+    <div
+      className={cn(
+        "flex min-w-0 overflow-y-auto overscroll-contain bg-surface select-none",
+        compact ? "border-t border-line" : "rounded-lg border border-line",
+        className,
+      )}
+    >
+      {/* Lane labels (icons only on phones) */}
+      <div className={cn("sticky left-0 h-fit shrink-0 border-r border-line", compact ? "w-11" : "w-28")}>
+        <div className={cn("border-b border-line", compact ? "h-7" : "h-8")} />
         {LANES.map((lane) => (
-          <div key={lane.key} className="flex h-12 items-center gap-2 border-b border-line px-3 text-meta font-medium text-ink-muted last:border-b-0">
-            <Icon name={lane.kind === "texts" ? "type" : lane.kind === "audio" ? "music" : lane.kind === "effects" ? "sparkles" : "film"} className="size-5 shrink-0" />
-            <span className="truncate">{lane.label}</span>
+          <div
+            key={lane.key}
+            title={lane.label}
+            className={cn(
+              "flex items-center gap-2 border-b border-line text-meta font-medium text-ink-muted last:border-b-0",
+              compact ? "h-10 justify-center" : "h-12 px-3",
+            )}
+          >
+            <Icon name={lane.kind === "texts" ? "type" : lane.kind === "audio" ? (lane.sfx ? "sparkles" : "music") : lane.kind === "effects" ? "sparkles" : "film"} className="size-5 shrink-0" />
+            <span className={compact ? "sr-only" : "truncate"}>{lane.label}</span>
           </div>
         ))}
       </div>
 
       {/* Scrollable time area */}
-      <div className="h-fit min-w-0 flex-1 overflow-x-auto">
+      <div ref={scroller} className="h-fit min-w-0 flex-1 overflow-x-auto overscroll-x-contain">
         <div ref={content} className="relative" style={{ width, minWidth: "100%" }}>
-          <div className="relative h-8 cursor-col-resize border-b border-line bg-surface-sunken" {...scrubProps}>
+          <div className={cn("relative cursor-col-resize touch-none border-b border-line bg-surface-sunken", compact ? "h-7" : "h-8")} {...scrub(false)}>
             {ticks.map((t) => (
               <span key={t} className="absolute top-0 h-full border-l border-line-strong pl-1 text-meta text-ink-faint" style={{ left: t * pxPerSec }}>
                 {formatTime(t)}
@@ -191,7 +259,7 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
                   : (timeline[lane.kind] ?? [])
             ) as Item[];
             return (
-              <div key={lane.key} className="relative h-12 border-b border-line last:border-b-0" {...scrubProps} {...dropProps(lane)}>
+              <div key={lane.key} className={cn("relative border-b border-line last:border-b-0", compact ? "h-10" : "h-12")} {...scrub(true)} {...dropProps(lane)}>
                 {items.map((item) => {
                   const selected = item.id === selectedId;
                   const label =
@@ -218,17 +286,18 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
                         lane.sfx && "border-brand-soft bg-surface-sunken text-ink",
                         lane.kind === "effects" && "border-brand-soft bg-paper text-brand-strong",
                         lane.kind === "effects" && (item as Effect).auto && "border-dashed",
-                        selected && "z-10 ring-2 ring-brand",
+                        selected && "z-10 touch-none ring-2 ring-brand",
                       )}
-                      style={{ left: item.start * pxPerSec, width: Math.max(item.duration * pxPerSec, 8) }}
+                      style={{ left: item.start * pxPerSec, width: Math.max(item.duration * pxPerSec, compact ? 16 : 8) }}
                       onPointerDown={(e) => beginDrag(e, lane.kind, item, "move")}
                       onPointerMove={onDragMove}
                       onPointerUp={endDrag}
+                      onPointerCancel={cancelDrag}
                       onKeyDown={(e) => e.key === "Enter" && onSelect(item.id)}
                     >
                       <span
                         aria-hidden
-                        className="absolute inset-y-0 left-0 w-2.5 cursor-ew-resize bg-brand-soft/60 hover:bg-brand"
+                        className={cn("absolute inset-y-0 left-0 cursor-ew-resize bg-brand-soft/60 hover:bg-brand", selected && compact ? "w-4 bg-brand" : "w-2.5")}
                         onPointerDown={(e) => beginDrag(e, lane.kind, item, "start")}
                       />
                       <span className="flex min-w-0 items-baseline gap-2 truncate px-4">
@@ -244,7 +313,7 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
                       </span>
                       <span
                         aria-hidden
-                        className="absolute inset-y-0 right-0 w-2.5 cursor-ew-resize bg-brand-soft/60 hover:bg-brand"
+                        className={cn("absolute inset-y-0 right-0 cursor-ew-resize bg-brand-soft/60 hover:bg-brand", selected && compact ? "w-4 bg-brand" : "w-2.5")}
                         onPointerDown={(e) => beginDrag(e, lane.kind, item, "end")}
                       />
                     </div>

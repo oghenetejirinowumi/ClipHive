@@ -111,8 +111,36 @@ def _place(timeline: Timeline, asset_id: str) -> Timeline:
 # --- projects -----------------------------------------------------------------------------
 
 @router.get("/projects", response_model=list[ProjectSummary])
-def list_projects(user: Owner, db: DbSession) -> list[EditorProject]:
-    return list(db.scalars(select(EditorProject).where(EditorProject.user_id == user.id).order_by(EditorProject.id.desc()).limit(100)))
+def list_projects(user: Owner, db: DbSession) -> list[ProjectSummary]:
+    projects = db.scalars(select(EditorProject).where(EditorProject.user_id == user.id).order_by(EditorProject.id.desc()).limit(100))
+    return [_summary(p) for p in projects]
+
+
+def _summary(project: EditorProject) -> ProjectSummary:
+    """The list card: shape, length, a cover frame and layer counts, read from the stored timeline."""
+    tl = project.timeline if isinstance(project.timeline, dict) else {}
+    assets = {a.get("id"): a for a in tl.get("assets") or [] if isinstance(a, dict)}
+    clips = [c for c in tl.get("clips") or [] if isinstance(c, dict)]
+    items = clips + [i for key in ("texts", "audio", "effects") for i in tl.get(key) or [] if isinstance(i, dict)]
+    end = max((float(i.get("start") or 0) + float(i.get("duration") or 0) for i in items), default=0.0)
+    placed = [assets.get(c.get("asset_id")) for c in sorted(clips, key=lambda c: float(c.get("start") or 0))]
+    visual = [a for a in placed + list(assets.values()) if a and a.get("kind") in ("video", "image")]
+    cover = visual[0] if visual else None
+    return ProjectSummary(
+        id=project.id,
+        title=project.title,
+        revision=project.revision,
+        render_status=project.render_status,
+        updated_at=project.updated_at,
+        created_at=project.created_at,
+        aspect=str(tl.get("aspect") or "9:16"),
+        duration=round(end, 2),
+        cover=cover.get("src") if cover else None,
+        cover_kind=cover.get("kind") if cover else None,
+        clips=len(clips),
+        texts=len(tl.get("texts") or []),
+        render_path=project.render_path if project.render_status == "done" else None,
+    )
 
 
 @router.post("/projects", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)

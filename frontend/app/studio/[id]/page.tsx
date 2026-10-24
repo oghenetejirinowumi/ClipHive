@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useRef, useState } from "react";
+import { ClipDialog, ClipDialogActions, ClipTile } from "@/components/clips";
 import { MoreClips } from "@/components/projects/MoreClips";
 import { StarButton } from "@/components/projects/StarButton";
 import { ClipEditorModal } from "@/components/studio/ClipEditorModal";
@@ -54,6 +55,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
   const [busyClip, setBusyClip] = useState<number | null>(null);
   const [editingClip, setEditingClip] = useState<StudioClip | null>(null);
   const [trendsClip, setTrendsClip] = useState<StudioClip | null>(null);
+  const [openClipId, setOpenClipId] = useState<number | null>(null);
   const [message, setMessage] = useState<Message>(null);
 
   const duration = project?.job.duration_s ?? 0;
@@ -305,16 +307,18 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
   }
 
   const length = end - start;
+  const openClipIndex = project.clips.findIndex((c) => c.id === openClipId);
+  const openClip = openClipIndex >= 0 ? project.clips[openClipIndex] : null;
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-8 sm:space-y-10">
       {/* Header: calm on purpose, the workspace is the focus */}
       <header className="flex flex-wrap items-end justify-between gap-6">
         <div className="min-w-0">
           <Link href="/studio" className="inline-flex min-h-11 items-center gap-2 text-lg font-medium text-ink-muted hover:text-ink">
             <Icon name="arrowRight" className="size-5 rotate-180" /> All projects
           </Link>
-          <h1 className="mt-2 font-display text-4xl font-semibold tracking-tight text-balance text-ink lg:text-5xl">
+          <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-balance [overflow-wrap:anywhere] text-ink sm:text-4xl lg:text-5xl">
             <Em>Studio</Em> · {projectTitle(project.job)}
           </h1>
         </div>
@@ -372,7 +376,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
           {project.moments.length > 0 && (
             <div className="space-y-3">
               <p className="text-lg font-medium text-ink">Suggested moments</p>
-              <div className="flex flex-wrap gap-2">
+              <div className="rail-chips flex flex-wrap gap-2">
                 {project.moments.map((m, i) => {
                   const active = Math.abs(m.start_s - start) < 0.5 && Math.abs(m.end_s - end) < 0.5;
                   return (
@@ -396,7 +400,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
 
           <Scrubber duration={duration} energy={project.energy} moments={project.moments} current={current} start={start} end={end} onSeek={seek} onRangeChange={setRange} />
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 max-sm:[&>button]:flex-1">
             <Button onClick={playSelection}>
               <Icon name="play" className="size-5" /> Play selection
             </Button>
@@ -415,23 +419,23 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
           </div>
 
           {/* Fine-tune Trim Nudge Controls */}
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface-sunken p-3 text-fine">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface-sunken p-3 text-meta">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-semibold text-ink">Fine-tune start:</span>
               <div className="inline-flex items-center rounded border border-line bg-surface">
-                <button type="button" onClick={() => nudgeStart(-1)} className="px-2 py-1 font-mono font-bold text-ink-muted hover:text-ink">-1s</button>
-                <button type="button" onClick={() => nudgeStart(-0.1)} className="border-l border-line px-2 py-1 font-mono text-ink-muted hover:text-ink">-0.1s</button>
-                <button type="button" onClick={() => nudgeStart(0.1)} className="border-l border-line px-2 py-1 font-mono text-ink-muted hover:text-ink">+0.1s</button>
-                <button type="button" onClick={() => nudgeStart(1)} className="border-l border-line px-2 py-1 font-mono font-bold text-ink-muted hover:text-ink">+1s</button>
+                <button type="button" onClick={() => nudgeStart(-1)} className="min-h-11 px-2.5 font-mono font-bold text-ink-muted hover:text-ink">-1s</button>
+                <button type="button" onClick={() => nudgeStart(-0.1)} className="min-h-11 border-l border-line px-2.5 font-mono text-ink-muted hover:text-ink">-0.1s</button>
+                <button type="button" onClick={() => nudgeStart(0.1)} className="min-h-11 border-l border-line px-2.5 font-mono text-ink-muted hover:text-ink">+0.1s</button>
+                <button type="button" onClick={() => nudgeStart(1)} className="min-h-11 border-l border-line px-2.5 font-mono font-bold text-ink-muted hover:text-ink">+1s</button>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-semibold text-ink">Fine-tune end:</span>
               <div className="inline-flex items-center rounded border border-line bg-surface">
-                <button type="button" onClick={() => nudgeEnd(-1)} className="px-2 py-1 font-mono font-bold text-ink-muted hover:text-ink">-1s</button>
-                <button type="button" onClick={() => nudgeEnd(-0.1)} className="border-l border-line px-2 py-1 font-mono text-ink-muted hover:text-ink">-0.1s</button>
-                <button type="button" onClick={() => nudgeEnd(0.1)} className="border-l border-line px-2 py-1 font-mono text-ink-muted hover:text-ink">+0.1s</button>
-                <button type="button" onClick={() => nudgeEnd(1)} className="border-l border-line px-2 py-1 font-mono font-bold text-ink-muted hover:text-ink">+1s</button>
+                <button type="button" onClick={() => nudgeEnd(-1)} className="min-h-11 px-2.5 font-mono font-bold text-ink-muted hover:text-ink">-1s</button>
+                <button type="button" onClick={() => nudgeEnd(-0.1)} className="min-h-11 border-l border-line px-2.5 font-mono text-ink-muted hover:text-ink">-0.1s</button>
+                <button type="button" onClick={() => nudgeEnd(0.1)} className="min-h-11 border-l border-line px-2.5 font-mono text-ink-muted hover:text-ink">+0.1s</button>
+                <button type="button" onClick={() => nudgeEnd(1)} className="min-h-11 border-l border-line px-2.5 font-mono font-bold text-ink-muted hover:text-ink">+1s</button>
               </div>
             </div>
             <p className="font-mono text-meta text-ink tabular-nums">
@@ -474,13 +478,13 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                 <p className="text-lg font-medium text-ink">Speed</p>
                 <span className="font-mono text-meta font-semibold text-brand-strong">{speed}x</span>
               </div>
-              <div className="grid grid-cols-6 gap-1">
+              <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
                 {SPEED_OPTIONS.map((s) => (
                   <button
                     key={s}
                     type="button"
                     onClick={() => changeSpeed(s)}
-                    className={`rounded py-1 text-center font-mono text-meta font-semibold transition-colors ${
+                    className={`min-h-11 rounded-md text-center font-mono text-meta font-semibold transition-colors ${
                       speed === s ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/40"
                     }`}
                   >
@@ -496,13 +500,13 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
             {/* Color Grade Styling */}
             <div className="space-y-2">
               <p className="text-lg font-medium text-ink">Color Grade</p>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="rail-chips flex flex-wrap gap-1.5">
                 {FILTER_OPTIONS.map((f) => (
                   <button
                     key={f.value}
                     type="button"
                     onClick={() => setColorFilter(f.value)}
-                    className={`rounded-full px-3 py-1 text-meta font-medium transition-colors ${
+                    className={`min-h-11 rounded-full px-4 text-meta font-medium transition-colors ${
                       colorFilter === f.value ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/40"
                     }`}
                   >
@@ -531,7 +535,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                     key={v.val}
                     type="button"
                     onClick={() => setVolume(v.val)}
-                    className={`rounded py-1 text-center text-meta font-medium transition-colors ${
+                    className={`min-h-11 rounded-md text-center text-meta font-medium transition-colors ${
                       volume === v.val ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/40"
                     }`}
                   >
@@ -583,7 +587,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                           key={p.pos}
                           type="button"
                           onClick={() => setCaptionPosition(p.pos)}
-                          className={`rounded py-1 text-meta font-medium transition-colors ${
+                          className={`min-h-11 rounded-md text-meta font-medium transition-colors ${
                             captionPosition === p.pos ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/40"
                           }`}
                         >
@@ -597,7 +601,8 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                       max={86}
                       value={captionPosition}
                       onChange={(e) => setCaptionPosition(Number(e.target.value))}
-                      className="w-full accent-brand"
+                      aria-label="Caption position"
+                      className="h-11 w-full accent-brand"
                     />
                     <p className="text-meta text-ink-muted">Drag directly on the phone preview above to position.</p>
                   </div>
@@ -629,69 +634,117 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
             <p className="text-lg text-ink-muted">Pick a range on the timeline and create your first clip.</p>
           </Panel>
         ) : (
-          <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-6">
-            {/* Columns come from the space actually available (not the window width), so a card never gets squeezed. */}
+          <ul className="rail rail-media grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 2xl:grid-cols-5">
             {project.clips.map((clip) => (
-              <li key={clip.id}>
-                <Panel padding="none" className="flex h-full flex-col overflow-hidden">
-                  <div className="relative">
-                    {clip.file_path && <video key={clip.file_path} src={`${API_URL}/${clip.file_path}`} controls playsInline preload="metadata" className="aspect-[9/16] w-full bg-brand-deep object-cover" />}
-                    <StarButton clipId={clip.id} starred={clip.starred} className="absolute top-3 right-3" />
-                  </div>
-                  <div className="flex flex-1 flex-col gap-4 p-5">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-mono text-meta whitespace-nowrap text-ink-muted tabular-nums">
-                        {formatTime(clip.start_s)}–{formatTime(clip.end_s)}
-                      </span>
-                      <StatusBadge status={clip.status} />
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      <Badge tone="brand">{LAYOUT_LABEL[clip.layout]}</Badge>
-                      <Badge tone="neutral">{clip.captioned ? "Captions burned" : "No captions"}</Badge>
-                      {clip.speed && clip.speed !== 1.0 && <Badge tone="brand">{clip.speed}x speed</Badge>}
-                      {clip.color_filter && clip.color_filter !== "none" && <Badge tone="neutral">{clip.color_filter}</Badge>}
-                      {clip.caption_position_y && <Badge tone="neutral">Pos: {clip.caption_position_y}%</Badge>}
-                    </div>
-                    {clip.error && <p className="text-base text-danger">{friendly(clip.error)}</p>}
-                    <Segmented
-                      label={`Layout for clip ${clip.id}`}
-                      value={clip.layout}
-                      onChange={(v) => v !== clip.layout && clipAction(clip, v)}
-                      className="w-full"
-                      options={[
-                        { value: "fill", label: "Fill" },
-                        { value: "blur", label: "Blur" },
-                      ]}
-                    />
-                    <div className="mt-auto grid gap-2">
-                      <Button variant="secondary" size="sm" onClick={() => setEditingClip(clip)}>
-                        <Icon name="sparkles" className="size-5" /> Edit & Polish
-                      </Button>
-                      {clip.captioned ? (
-                        <Button variant="secondary" size="sm" loading={busyClip === clip.id} onClick={() => clipAction(clip, "remove")}>
-                          <Icon name="x" className="size-5" /> Remove captions
-                        </Button>
-                      ) : (
-                        <Button variant="secondary" size="sm" loading={busyClip === clip.id} disabled={!styleId} onClick={() => clipAction(clip, "burn")}>
-                          <Icon name="captions" className="size-5" /> Burn captions
-                        </Button>
-                      )}
-                      <Button variant={trendsClip?.id === clip.id ? "primary" : "secondary"} size="sm" onClick={() => setTrendsClip(clip)}>
-                        <Icon name="trending" className="size-5" /> Hashtags & captions
-                      </Button>
-                      {clip.file_path && (
-                        <a href={`${API_URL}/${clip.file_path}`} target="_blank" rel="noopener noreferrer" className={buttonClass({ variant: "ghost", size: "sm" })}>
-                          <Icon name="download" className="size-5" /> Download
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                </Panel>
+              <li key={clip.id} className="min-w-0">
+                <ClipTile
+                  title={clip.title || `Clip ${formatTime(clip.start_s)}–${formatTime(clip.end_s)}`}
+                  filePath={clip.file_path}
+                  durationS={clip.end_s - clip.start_s}
+                  label={
+                    <>
+                      {clip.starred && <Icon name="star" aria-hidden className="size-3.5" fill="currentColor" />}
+                      {clip.status === "ready" ? LAYOUT_LABEL[clip.layout] : clip.status}
+                    </>
+                  }
+                  onOpen={() => setOpenClipId(clip.id)}
+                />
               </li>
             ))}
           </ul>
         )}
       </section>
+
+      {openClip && (
+        <ClipDialog
+          title={openClip.title}
+          filePath={openClip.file_path}
+          position={openClipIndex + 1}
+          total={project.clips.length}
+          onPrev={openClipIndex > 0 ? () => setOpenClipId(project.clips[openClipIndex - 1].id) : undefined}
+          onNext={openClipIndex < project.clips.length - 1 ? () => setOpenClipId(project.clips[openClipIndex + 1].id) : undefined}
+          onClose={() => setOpenClipId(null)}
+          videoOverlay={
+            <StarButton
+              key={openClip.id}
+              clipId={openClip.id}
+              starred={openClip.starred}
+              onChange={(r) => setProject((p) => (p ? { ...p, clips: p.clips.map((c) => (c.id === r.id ? { ...c, starred: r.starred } : c)) } : p))}
+              className="absolute top-3 right-3"
+            />
+          }
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="font-mono text-base whitespace-nowrap text-ink-muted tabular-nums">
+              {formatTime(openClip.start_s)}–{formatTime(openClip.end_s)} · {(openClip.end_s - openClip.start_s).toFixed(0)}s
+            </span>
+            <StatusBadge status={openClip.status} />
+          </div>
+          {message && (
+            <Notice tone={message.tone} onDismiss={() => setMessage(null)}>
+              {message.text}
+            </Notice>
+          )}
+          <div className="flex flex-wrap gap-1.5">
+            <Badge tone="brand">{LAYOUT_LABEL[openClip.layout]}</Badge>
+            <Badge tone="neutral">{openClip.captioned ? "Captions burned" : "No captions"}</Badge>
+            {openClip.speed && openClip.speed !== 1.0 && <Badge tone="brand">{openClip.speed}x speed</Badge>}
+            {openClip.color_filter && openClip.color_filter !== "none" && <Badge tone="neutral">{openClip.color_filter}</Badge>}
+            {openClip.caption_position_y && <Badge tone="neutral">Pos: {openClip.caption_position_y}%</Badge>}
+          </div>
+          {openClip.error && <p className="text-base text-danger">{friendly(openClip.error)}</p>}
+          <Segmented
+            label={`Layout for clip ${openClip.id}`}
+            value={openClip.layout}
+            onChange={(v) => v !== openClip.layout && clipAction(openClip, v)}
+            className="w-full"
+            options={[
+              { value: "fill", label: "Fill" },
+              { value: "blur", label: "Blur" },
+            ]}
+          />
+          <ClipDialogActions>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setOpenClipId(null);
+                  setEditingClip(openClip);
+                }}
+              >
+                <Icon name="sparkles" className="size-5" /> Edit & Polish
+              </Button>
+              {openClip.captioned ? (
+                <Button variant="secondary" size="sm" loading={busyClip === openClip.id} onClick={() => clipAction(openClip, "remove")}>
+                  <Icon name="x" className="size-5" /> Remove captions
+                </Button>
+              ) : (
+                <Button variant="secondary" size="sm" loading={busyClip === openClip.id} disabled={!styleId} onClick={() => clipAction(openClip, "burn")}>
+                  <Icon name="captions" className="size-5" /> Burn captions
+                </Button>
+              )}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setOpenClipId(null);
+                  setTrendsClip(openClip);
+                }}
+              >
+                <Icon name="trending" className="size-5" /> Hashtags
+              </Button>
+              {openClip.file_path ? (
+                <a href={`${API_URL}/${openClip.file_path}`} download target="_blank" rel="noopener noreferrer" className={buttonClass({ size: "sm" })}>
+                  <Icon name="download" className="size-5" /> Download
+                </a>
+              ) : (
+                <span />
+              )}
+            </div>
+          </ClipDialogActions>
+        </ClipDialog>
+      )}
 
       {/* Editing Polish Modal */}
       {editingClip && (

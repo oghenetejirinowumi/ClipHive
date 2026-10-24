@@ -1,11 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { Badge, Button, buttonClass, Em, Icon, Notice, Panel, SkyHeader } from "@/components/ui";
-import { api, ApiError, API_URL } from "@/lib/api";
-import { formatTime, projectTitle, SOURCE_LABEL, type ImportJob } from "@/lib/imports";
+import { ProjectDialog, ProjectTile } from "@/components/projects/ProjectCard";
+import { Button, Em, Icon, Notice, Panel, SkyHeader } from "@/components/ui";
+import { api, ApiError } from "@/lib/api";
+import type { ImportJob } from "@/lib/imports";
 
 /** Project picker. `/studio?clip=ID` (from the Hub) jumps straight to that clip's project. */
 function StudioIndex() {
@@ -13,6 +13,8 @@ function StudioIndex() {
   const clipId = useSearchParams().get("clip");
   const [jobs, setJobs] = useState<ImportJob[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<number | null>(null);
+  const open = jobs?.find((j) => j.id === openId) ?? null;
 
   useEffect(() => {
     if (clipId) {
@@ -26,7 +28,7 @@ function StudioIndex() {
   }, [clipId, router]);
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-10 sm:space-y-12">
       <SkyHeader
         eyebrow="Clipping studio"
         title={
@@ -58,34 +60,15 @@ function StudioIndex() {
           </Button>
         </Panel>
       ) : (
-        <ul className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+        <ul className="rail rail-media grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 2xl:grid-cols-5">
           {jobs.map((job) => (
-            <li key={job.id}>
-              <Panel padding="none" className="flex h-full flex-col overflow-hidden">
-                <div className="relative aspect-video bg-brand-deep">
-                  {job.thumbnail_path && (
-                    // eslint-disable-next-line @next/next/no-img-element -- thumbnails come from the API host
-                    <img src={`${API_URL}/${job.thumbnail_path}`} alt="" className="size-full object-cover" />
-                  )}
-                  <span className="absolute top-3 left-3 rounded-full bg-brand-deep/85 px-3 py-1 text-meta font-semibold text-on-brand tabular-nums">{formatTime(job.duration_s)}</span>
-                </div>
-                <div className="flex flex-1 flex-col gap-4 p-6">
-                  <p className="line-clamp-2 font-display text-xl leading-snug font-semibold tracking-tight text-ink">{projectTitle(job)}</p>
-                  <div className="flex flex-wrap gap-2">
-                    <Badge tone="neutral">{SOURCE_LABEL[job.source]}</Badge>
-                    <Badge tone="brand">
-                      {job.clip_ids.length} clip{job.clip_ids.length === 1 ? "" : "s"}
-                    </Badge>
-                  </div>
-                  <Link href={`/studio/${job.id}`} className={buttonClass({ className: "mt-auto" })}>
-                    Open in studio <Icon name="arrowRight" className="size-5" />
-                  </Link>
-                </div>
-              </Panel>
+            <li key={job.id} className="min-w-0">
+              <ProjectTile job={job} onOpen={() => setOpenId(job.id)} />
             </li>
           ))}
         </ul>
       )}
+      {open && <ProjectDialog key={open.id} job={open} onClose={() => setOpenId(null)} />}
     </div>
   );
 }

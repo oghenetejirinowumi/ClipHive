@@ -174,9 +174,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="flex min-w-0 flex-col">
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-line bg-surface/95 px-4 lg:hidden">
-          <Logo href="/dashboard" />
-          <div className="flex items-center gap-2">
+        {/* Phones: full-bleed work screens (the editor) bring their own top bar and tool dock. */}
+        <header className={cn("sticky top-0 z-20 h-[calc(4rem+env(safe-area-inset-top))] items-center justify-between border-b border-line bg-surface/95 px-4 pt-[env(safe-area-inset-top)] lg:hidden", fullBleed ? "hidden" : "flex")}>
+          <Logo href="/dashboard" nameClassName="max-[420px]:sr-only" />
+          <div className="flex items-center gap-1">
             <span data-tour="bell" className="inline-flex">
               <NotificationBell align="right" />
             </span>
@@ -187,8 +188,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
         <main
           className={cn(
-            "w-full flex-1 px-4 pb-32",
-            fullBleed ? "pt-4 lg:px-5 lg:py-5" : "mx-auto max-w-7xl pt-6 sm:px-8 lg:px-10 lg:pt-8 lg:pb-10",
+            "w-full flex-1",
+            fullBleed ? "lg:px-5 lg:py-5" : "mx-auto max-w-7xl px-4 pt-6 pb-32 sm:px-8 lg:px-10 lg:pt-8 lg:pb-10",
           )}
         >
           {!fullBleed && group && group.items.length > 1 && <SectionTabs pathname={pathname} items={group.items} label={group.label} />}
@@ -198,7 +199,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <nav
         aria-label="Main"
-        className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 gap-2 border-t border-line bg-surface/95 px-2 pb-[env(safe-area-inset-bottom)] lg:hidden"
+        className={cn(
+          "fixed inset-x-0 bottom-0 z-20 grid-cols-5 gap-1 border-t border-line bg-surface/95 px-1 pb-[env(safe-area-inset-bottom)] lg:hidden",
+          fullBleed ? "hidden" : "grid",
+        )}
       >
         {NAV_GROUPS.map((g) => {
           const active = g === group;
@@ -208,10 +212,10 @@ export function AppShell({ children }: { children: ReactNode }) {
               href={g.items[0].href}
               data-tour={`nav-${g.id}`}
               aria-current={active ? "page" : undefined}
-              className={cn("flex min-h-16 flex-col items-center justify-center gap-1 rounded-md py-2 text-meta font-medium", active ? "text-brand" : "text-ink-muted")}
+              className={cn("flex min-h-16 min-w-0 flex-col items-center justify-center gap-1 rounded-md py-2 text-meta font-medium", active ? "text-brand" : "text-ink-muted")}
             >
               <Icon name={g.icon} className="size-6" />
-              {g.label}
+              <span className="max-w-full truncate">{g.label}</span>
             </Link>
           );
         })}

@@ -33,6 +33,8 @@ const TABS: { value: LibraryTab; label: string }[] = [
 type Props = {
   tab: LibraryTab;
   onTab(tab: LibraryTab): void;
+  /** Phones: the editor's tool dock switches tabs, so the panel's own tab row is hidden. */
+  hideTabs?: boolean;
   projectId: number;
   assets: Asset[];
   /** The Properties tab (the selected item's settings). */
@@ -64,10 +66,10 @@ export type EmojiPlacement = "mix" | "above" | "beside";
 
 /** Left panel: media bin (search, sort, tiles), text styles, audio, and the selection's properties. */
 export function LibraryPanel(props: Props) {
-  const { tab, onTab } = props;
+  const { tab, onTab, hideTabs } = props;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div role="tablist" aria-label="Library" className="flex gap-1 border-b border-line px-2">
+      <div role="tablist" aria-label="Library" className={cn("shrink-0 gap-1 overflow-x-auto border-b border-line px-2 [scrollbar-width:none]", hideTabs ? "hidden" : "flex")}>
         {TABS.map((t) => (
           <button
             key={t.value}
@@ -76,7 +78,7 @@ export function LibraryPanel(props: Props) {
             aria-selected={tab === t.value}
             onClick={() => onTab(t.value)}
             className={cn(
-              "-mb-px min-h-11 border-b-2 px-3 text-meta font-medium transition-colors",
+              "-mb-px min-h-11 shrink-0 border-b-2 px-3 text-meta font-medium whitespace-nowrap transition-colors",
               tab === t.value ? "border-brand text-ink" : "border-transparent text-ink-muted hover:text-ink",
             )}
           >
@@ -84,7 +86,7 @@ export function LibraryPanel(props: Props) {
           </button>
         ))}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
         {tab === "media" && <MediaTab {...props} kinds={["video", "image"]} />}
         {tab === "audio" && (
           <div className="space-y-5">
