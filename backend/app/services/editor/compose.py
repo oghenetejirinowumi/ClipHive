@@ -1,0 +1,196 @@
+"""Compile an editor timeline into a HyperFrames composition (one standalone index.html).
+
+The same compiler feeds both the browser preview (<hyperframes-player srcdoc>, media loaded
+from the API's /storage URLs) and the server render (`hyperframes render`, media copied next
+to the file), so what the user previews is what gets exported.
+
+Conventions follow the HyperFrames core contract: timing lives on the media/text element
+itself (`data-start`, `data-duration`, `data-media-start`, `data-playback-rate`), never on a
+timed ancestor; fades animate an untimed wrapper; text animations tween an inner span, so no
+GSAP tween ever touches a `.clip` element or fights a CSS transform.
+"""
+from __future__ import annotations
+
+import json
+from collections.abc import Callable
+from html import escape
+
+from app.schemas.editor import Asset, AudioTrack, Clip, Text, Timeline
+
+GSAP_URL = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"
+
+# Fonts shipped in backend/assets/fonts. "System" uses the generic sans-serif stack.
+FONT_FILES = {"Bangers": "Bangers-Regular.ttf", "Luckiest Guy": "LuckiestGuy-Regular.ttf", "Poppins": "Poppins-SemiBold.ttf"}
+FONT_STACK = {"Bangers": "'Bangers'", "Luckiest Guy": "'Luckiest Guy'", "Poppins": "'Poppins'", "System": "system-ui"}
+
+TEXT_IN_S = 0.3
+TEXT_OUT_S = 0.2
+
+
+def _n(value: float) -> str:
+    return f"{value:.3f}".rstrip("0").rstrip(".") or "0"
+
+
+def _attr(value: str) -> str:
+    return escape(value, quote=True)
+
+
+def _volume_lane(volume: float, duration: float, fade_in: float, fade_out: float) -> str | None:
+    """A data-automation volume lane for fades, in clip-local seconds. None when there's no fade."""
+    fade_in, fade_out = min(fade_in, duration / 2), min(fade_out, duration / 2)
+    if not fade_in and not fade_out:
+        return None
+    points = [{"t": 0, "v": 0 if fade_in else volume}]
+    if fade_in:
+        points.append({"t": round(fade_in, 3), "v": volume})
+    if fade_out:
+        points.append({"t": round(duration - fade_out, 3), "v": volume})
+        points.append({"t": round(duration, 3), "v": 0})
+    else:
+        points.append({"t": round(duration, 3), "v": volume})
+    return json.dumps({"version": 1, "lanes": [{"target": "volume", "points": points}]}, separators=(",", ":"))
+
+
+def _sound_attrs(volume: float, duration: float, fade_in: float, fade_out: float) -> str:
+    lane = _volume_lane(volume, duration, fade_in, fade_out)
+    # With a lane, the lane carries the level; data-volume would be ignored or doubled.
+    return f" data-automation='{lane}'" if lane else f' data-volume="{_n(volume)}"'
+
+
+def _clip_html(clip: Clip, asset: Asset, url: str, z: int) -> str:
+    wrap = f"w-{clip.id}"
+    timing = f'data-start="{_n(clip.start)}" data-duration="{_n(clip.duration)}" data-track-index="{clip.track}"'
+    style = f"object-fit: {clip.fit}"
+    if asset.kind == "image":
+        media = f'<img id="m-{clip.id}" class="clip media" src="{_attr(url)}" {timing} style="{style}" alt="" />'
+    else:
+        audible = asset.has_audio and not clip.muted and clip.volume > 0
+        sound = f' data-has-audio="true"{_sound_attrs(clip.volume, clip.duration, clip.fade_in, clip.fade_out)}' if audible else " muted"
+        rate = f' data-playback-rate="{_n(clip.speed)}"' if clip.speed != 1 else ""
+        media = (
+            f'<video id="m-{clip.id}" class="clip media" src="{_attr(url)}" {timing} '
+            f'data-media-start="{_n(clip.source_in)}"{rate}{sound} playsinline style="{style}"></video>'
+        )
+    return f'<div id="{wrap}" class="layer" style="z-index: {z}">{media}</div>'
+
+
+def _clip_tweens(clip: Clip) -> list[str]:
+    sel = json.dumps(f"#w-{clip.id}")
+    fade_in, fade_out = min(clip.fade_in, clip.duration / 2), min(clip.fade_out, clip.duration / 2)
+    out = []
+    if fade_in:
+        out.append(f"tl.fromTo({sel}, {{opacity: 0}}, {{opacity: 1, duration: {_n(fade_in)}, ease: 'none'}}, {_n(clip.start)});")
+    if fade_out:
+        out.append(f"tl.fromTo({sel}, {{opacity: 1}}, {{opacity: 0, duration: {_n(fade_out)}, ease: 'none', immediateRender: false}}, {_n(clip.end - fade_out)});")
+    return out
+
+
+def _text_html(text: Text, width: int, height: int, z: int) -> str:
+    content = text.text.upper() if text.uppercase else text.text
+    stroke = (
+        f"-webkit-text-stroke: {text.stroke_width * 2}px {text.stroke_color}; paint-order: stroke fill;"
+        if text.stroke_color and text.stroke_width
+        else ""
+    )
+    box = f"background: {text.background}; padding: 0.12em 0.35em; border-radius: 0.2em;" if text.background else ""
+    outer = (
+        f"left: {_n(text.x * width)}px; top: {_n(text.y * height)}px; width: {_n(text.width * width)}px; z-index: {z}"
+    )
+    inner = f"font-family: {FONT_STACK[text.font]}, system-ui, sans-serif; font-size: {text.size}px; color: {text.color}; {stroke} {box}"
+    return (
+        f'<div id="t-{text.id}" class="clip text" data-start="{_n(text.start)}" data-duration="{_n(text.duration)}" '
+        f'data-track-index="5" style="{outer}"><span id="ts-{text.id}" class="text-inner" style="{inner}">{escape(content)}</span></div>'
+    )
+
+
+def _text_tweens(text: Text) -> list[str]:
+    sel = json.dumps(f"#ts-{text.id}")
+    start, dur = text.start, text.duration
+    in_s = min(TEXT_IN_S, dur / 3)
+    out_s = min(TEXT_OUT_S, dur / 4)
+    tweens = {
+        "fade": f"tl.fromTo({sel}, {{opacity: 0}}, {{opacity: 1, duration: {_n(in_s)}, ease: 'power1.out'}}, {_n(start)});",
+        "pop": f"tl.fromTo({sel}, {{opacity: 0, scale: 0.6}}, {{opacity: 1, scale: 1, duration: {_n(in_s)}, ease: 'back.out(2.2)'}}, {_n(start)});",
+        "slide_up": f"tl.fromTo({sel}, {{opacity: 0, yPercent: 60}}, {{opacity: 1, yPercent: 0, duration: {_n(in_s)}, ease: 'power3.out'}}, {_n(start)});",
+        "typewriter": (
+            f"tl.fromTo({sel}, {{clipPath: 'inset(0 100% 0 0)'}}, {{clipPath: 'inset(0 0% 0 0)', "
+            f"duration: {_n(min(1.2, dur * 0.6))}, ease: 'steps({max(2, min(40, len(text.text)))})'}}, {_n(start)});"
+        ),
+    }
+    # "none" adds no entry tween: the runtime hides the clip before its start. (Zero-length
+    # opacity sets at 0 combined with the end kill below left the text hidden in renders.)
+    out = [tweens[text.animation]] if text.animation in tweens else []
+    # Everything but "none" eases out too; captions cut hard so the next phrase can land.
+    if text.animation != "none" and not text.is_caption and dur > 1:
+        out.append(f"tl.to({sel}, {{opacity: 0, duration: {_n(out_s)}, ease: 'power1.in'}}, {_n(start + dur - out_s)});")
+    # Hard kill on the inner span at the end. The runtime hides the timed .clip too, but parallel
+    # video renders were seen leaving a caption on screen past its window; this makes it certain.
+    out.append(f"tl.set({sel}, {{opacity: 0}}, {_n(start + dur)});")
+    return out
+
+
+def _audio_html(track: AudioTrack, url: str, index: int) -> str:
+    return (
+        f'<audio id="a-{track.id}" src="{_attr(url)}" data-start="{_n(track.start)}" data-duration="{_n(track.duration)}" '
+        f'data-media-start="{_n(track.source_in)}" data-track-index="{10 + index}"'
+        f"{_sound_attrs(track.volume, track.duration, track.fade_in, track.fade_out)}></audio>"
+    )
+
+
+def compose(timeline: Timeline, *, media_url: Callable[[Asset], str], font_url: Callable[[str], str], title: str = "ClipHive edit") -> str:
+    width, height = timeline.size
+    duration = max(timeline.duration, 0.5)
+
+    used_fonts = sorted({t.font for t in timeline.texts if t.font in FONT_FILES})
+    font_faces = "\n".join(
+        f"      @font-face {{ font-family: '{name}'; src: url('{_attr(font_url(FONT_FILES[name]))}'); font-display: block; }}"
+        for name in used_fonts
+    )
+
+    body: list[str] = []
+    tweens: list[str] = []
+    # Visual tracks stack bottom-up; within a track later clips draw over earlier ones.
+    for z, clip in enumerate(sorted(timeline.clips, key=lambda c: (c.track, c.start)), start=1):
+        asset = timeline.asset(clip.asset_id)
+        if asset:
+            body.append(_clip_html(clip, asset, media_url(asset), z))
+            tweens += _clip_tweens(clip)
+    for z, text in enumerate(sorted(timeline.texts, key=lambda t: t.start), start=1000):
+        body.append(_text_html(text, width, height, z))
+        tweens += _text_tweens(text)
+    for index, track in enumerate(timeline.audio):
+        asset = timeline.asset(track.asset_id)
+        if asset:
+            body.append(_audio_html(track, media_url(asset), index))
+
+    indent = "\n      "
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width={width}, height={height}" />
+    <title>{escape(title)}</title>
+    <script src="{GSAP_URL}"></script>
+    <style>
+{font_faces}
+      html, body {{ margin: 0; background: {timeline.background}; }}
+      #root {{ position: relative; width: 100%; height: 100%; overflow: hidden; background: {timeline.background}; }}
+      .layer {{ position: absolute; inset: 0; }}
+      .media {{ position: absolute; left: 0; top: 0; width: {width}px; height: {height}px; }}
+      .text {{ position: absolute; transform: translate(-50%, -50%); text-align: center; line-height: 1.12; white-space: pre-line; }}
+      .text-inner {{ display: inline-block; font-weight: 700; }}
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-width="{width}" data-height="{height}" data-duration="{_n(duration)}">
+      {indent.join(body)}
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {{}};
+      const tl = gsap.timeline({{ paused: true }});
+      {indent.join(tweens)}
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>
+"""

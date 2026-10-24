@@ -10,7 +10,7 @@ from app.schemas.common import ORMModel
 # POST /api/imports/link  (uploads send the same two numbers as form fields)
 class ImportLinkRequest(BaseModel):
     url: str = Field(min_length=8, max_length=2048)
-    clip_count: int = Field(default=5, ge=1, le=10)
+    clip_count: int = Field(default=5, ge=1, le=30)
     clip_seconds: int = Field(default=30, ge=10, le=90)
     layout: Literal["fill", "blur"] = "fill"
 

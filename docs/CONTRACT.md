@@ -36,7 +36,7 @@ CREATE TABLE streamers (
     id INTEGER PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     platform VARCHAR(50) NOT NULL, -- 'twitch' | 'kick' | 'youtube'
-    channel_name VARCHAR(100) NOT NULL,
+    username VARCHAR(100) NOT NULL,      -- case-insensitive; pasted channel links are reduced to the name
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -47,8 +47,9 @@ CREATE TABLE streamers (
 CREATE TABLE streams (
     id INTEGER PRIMARY KEY,
     streamer_id INTEGER REFERENCES streamers(id) ON DELETE CASCADE,
-    platform_stream_id VARCHAR(255),
-    status VARCHAR(50) NOT NULL, -- 'live' | 'recording' | 'ended' | 'processed'
+    platform_stream_id VARCHAR(255),     -- the platform's broadcast id (one row per recorded broadcast)
+    recording_path VARCHAR(1024),        -- folder of gapless .ts segments (deleted after cutting unless KEEP_RECORDINGS)
+    status VARCHAR(50) NOT NULL, -- 'recording' -> 'ended' (segment saved) -> 'processed' (clips cut) | 'failed'
     started_at TIMESTAMP,
     ended_at TIMESTAMP
 );
@@ -131,7 +132,32 @@ CREATE TABLE import_jobs (
     finished_at TIMESTAMP
 );
 ```
+Live recordings take the same path: the stream monitor (`app/workers/ingest_worker.py`) polls active streamers every `LIVE_POLL_INTERVAL_S` and records each live broadcast start to finish (until it ends, the user stops it, or `MAX_STREAM_HOURS`), split into gapless `SEGMENT_MINUTES` segments. Each segment is cut as soon as it completes into `SEGMENT_CLIP_COUNT` clips with `stream_id` set and `start_s`/`end_s` in broadcast time, so clips arrive while the stream is live.
+
+Imports analyse the whole video by default (`MAX_IMPORT_MINUTES=0`), up to 30 clips per import.
+
 Each import writes its clips as normal `clips` rows (`raw_file_path` = the 9:16 cut, `file_path` = the same file until C2 burns captions, `status='ready'`, `caption_mode='platform_native'`). Captions are optional: a cut clip is postable at once, and a failed caption burn leaves it `ready` with `error` set. A project that already has clips stays `done` if a later batch fails (its `error` says why it stopped early).
+
+### `editor_projects` (Video editor)
+```sql
+CREATE TABLE editor_projects (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    title VARCHAR(200) NOT NULL,
+    timeline JSON NOT NULL,              -- the edit (schema: backend/app/schemas/editor.py Timeline)
+    revision INTEGER DEFAULT 1,          -- bumps on every save; PATCH with a stale revision gets 409
+    chat JSON DEFAULT '[]',              -- AI chat: [{"role", "content", "changes", "at"}]
+    media JSON DEFAULT '[]',             -- every "storage/..." file ever added (saves may only use these)
+    render_status VARCHAR(20) DEFAULT 'idle', -- 'idle' | 'rendering' | 'done' | 'failed'
+    render_progress INTEGER DEFAULT 0,
+    render_error TEXT,
+    render_path VARCHAR(1024),           -- public "storage/..." path of the last export
+    export_clip_id INTEGER REFERENCES clips(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP
+);
+```
+The timeline compiles to a HyperFrames composition (`services/editor/compose.py`), used both for the browser preview (`<hyperframes-player srcdoc>`) and for export (`hyperframes render`). An export becomes a `clips` row with `status='ready'`, so it shows up in the Hub.
 
 ### `posts`
 ```sql
@@ -157,7 +183,14 @@ CREATE TABLE posts (
 | `/api/auth/me` | `GET` | **C3** | Current user (send `Authorization: Bearer <token>`) | — | `UserRead` |
 | `/api/auth/config` | `GET` | **C3** | Sign-in methods on this server: the Google client ID, or `null` when Google sign-in is off | — | `{"google_client_id"}` |
 | `/api/auth/google` | `POST` | **C3** | Sign in or sign up with Google. Body is the ID token from Google Identity Services; matched by Google account, else linked by verified email, else created | `{"credential"}` | `{"access_token", "token_type", "user"}` |
-| `/api/streamers` | `GET/POST`| **C1** | Manage monitored streamers | `{"platform", "channel_name"}` | `StreamerRead` |
+| `/api/streamers` | `GET/POST`| **C1** | List / add monitored streamers (includes live status) | `{"platform", "username"}` | `StreamerRead` (+ `is_live`, `live_title`, `recording`, `last_checked_at`, `check_error`, `channel_url`) |
+| `/api/streamers/{id}` | `PATCH/DELETE` | **C1** | Pause/resume or remove a channel | `{"is_active"}` | `StreamerRead` / 204 |
+| `/api/streamers/{id}/check` | `POST` | **C1** | Check live status now | — | `StreamerRead` |
+| `/api/streamers/{id}/check-now` | `POST` | **C1** | Scout the channel now; clips a VOD it hasn't clipped yet | — | `CheckResultRead` |
+| `/api/streamers/{id}/record` | `POST` | **C1** | Start recording the live broadcast now (409 if offline or already recording) | — | `StreamRead` (202) |
+| `/api/streamers/{id}/stop` | `POST` | **C1** | Stop recording; what was recorded is still clipped (409 if not recording) | — | `StreamerRead` |
+| `/api/streamers/{id}/latest-vod` | `POST` | **C1** | Find the latest past broadcast → import job | `{"clip_count", "clip_seconds"}` | `ImportRead` (202) |
+| `/api/streamers/{id}/streams` | `GET` | **C1** | Recorded broadcasts, newest first | — | `list[StreamRead]` (+ `clip_ids`) |
 | `/api/clips` | `GET` | **C2/C4** | List clips (filter by `?status=ready`) | Query: `?status=ready` | `list[ClipRead]` |
 | `/api/clips/{id}` | `GET` | **C2** | Fetch single clip details | — | `ClipRead` |
 | `/api/clips/{id}/caption` | `POST` | **C2** | Burn captions on clip | `{"style_id", "caption_mode"}` | `ClipRead` |
@@ -170,13 +203,20 @@ CREATE TABLE posts (
 | `/api/hub/clips` | `GET` | **C4** | Grid of ready clips for hub | Query: `?page=1` | `PaginatedClips` |
 | `/api/hub/clips/{id}/post` | `POST` | **C4** | Auto-post clip to platforms | `{"platforms": ["tiktok", "youtube"]}` | `PostStatus` |
 | `/api/hub/clips/{id}/download` | `GET` | **C4** | Direct MP4 stream/download | — | Binary MP4 file |
-| `/api/imports/link` | `POST` | **C1** | Paste a Twitch / Kick / YouTube link → several clips (async) | `{"url", "clip_count": 1-10, "clip_seconds": 10-90, "layout": "fill"\|"blur"}` | `ImportRead` (202) |
+| `/api/imports/link` | `POST` | **C1** | Paste a Twitch / Kick / YouTube link → several clips (async) | `{"url", "clip_count": 1-30, "clip_seconds": 10-90, "layout": "fill"\|"blur"}` | `ImportRead` (202) |
 | `/api/imports/upload` | `POST` | **C1** | Upload a video (camera roll) → several clips (async) | `multipart/form-data (file, clip_count, clip_seconds, layout)` | `ImportRead` (202) |
 | `/api/imports` | `GET` | **C1** | Your import projects, newest first (poll while active) | — | `list[ImportRead]` |
 | `/api/imports/{id}` | `GET` | **C1** | One import's status / progress / detail (step text) / clip_ids | — | `ImportRead` |
 | `/api/imports/{id}/retry` | `POST` | **C1** | Re-run a failed project in place, reusing what it already downloaded | — | `ImportRead` (202) |
 | `/api/imports/{id}/more` | `POST` | **C1** | Cut `count` more clips from moments the project's clips don't cover yet, leaning toward starred clips | `{"count": 1-10, "clip_seconds"?: 10-90}` | `ImportRead` (202) |
 | `/api/imports/{id}` | `DELETE` | **C1** | Cancel (if running) and delete a project; `?clips=true` also deletes its clips | — | 204 |
+| `/api/editor/projects` | `GET/POST` | **Editor** | List / create edits (optionally from a clip or an import) | `{"title", "aspect", "clip_id"?, "import_id"?}` | `ProjectRead` (201) |
+| `/api/editor/projects/{id}` | `GET/PATCH/DELETE` | **Editor** | Load / save the timeline (send `revision`) / delete | `{"timeline"?, "title"?, "revision"?}` | `ProjectRead` |
+| `/api/editor/projects/{id}/assets` | `POST` | **Editor** | Upload a video, image or audio file | `multipart/form-data (file, place)` | `ProjectRead` (201) |
+| `/api/editor/projects/{id}/assets/library` | `POST` | **Editor** | Bring in one of your clips or an import's full video | `{"clip_id"? , "import_id"?, "place"}` | `ProjectRead` (201) |
+| `/api/editor/projects/{id}/composition` | `GET` | **Editor** | Compiled HyperFrames HTML for the preview | — | `{"revision", "html"}` |
+| `/api/editor/projects/{id}/chat` | `POST` | **Editor** | AI edits the timeline (one revision per reply) | `{"message", "playhead", "selected_id"?}` | `{"reply", "changes", "project"}` |
+| `/api/editor/projects/{id}/render` | `POST` | **Editor** | Export to MP4 in the background → Hub clip | — | `ProjectRead` (202) |
 | `/api/downloads/instagram` | `POST` | **C1** | Fetch a public Instagram post/reel as MP4 | `{"url"}` | `DownloadRead` |
 | `/api/downloads/{id}/file` | `GET` | **C1** | The fetched file, as an attachment | — | Binary MP4 file |
 | `/api/studio/imports/{id}` | `GET` | **C1** | Open a project in the Clipping Studio: source video, energy curve, suggested moments, its clips | — | `StudioProject` |

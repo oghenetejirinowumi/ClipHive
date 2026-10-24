@@ -61,6 +61,25 @@ def get_whisper_model(model_size: str | None = None, device: str = "cpu", comput
     return _whisper_instance
 
 
+def _decode_audio(path: str, sample_rate: int = 16000):
+    """Mono float32 audio at 16 kHz, decoded with the app's ffmpeg.
+
+    faster-whisper's own decoder goes through PyAV, and current PyAV releases reject an
+    argument faster-whisper 1.2.x still passes (metadata_errors), so we hand it the samples.
+    """
+    import subprocess
+
+    import numpy as np
+
+    from app.core.media import ffmpeg_bin
+
+    cmd = [ffmpeg_bin(), "-hide_banner", "-loglevel", "error", "-i", path, "-vn", "-ac", "1", "-ar", str(sample_rate), "-f", "s16le", "-"]
+    result = subprocess.run(cmd, capture_output=True, timeout=1800)
+    if result.returncode != 0:
+        raise RuntimeError("Couldn't read the audio track for transcription.")
+    return np.frombuffer(result.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+
+
 def transcribe_with_faster_whisper(
     file_path: str | Path,
     language: str | None = "en",
@@ -76,7 +95,7 @@ def transcribe_with_faster_whisper(
     initial_prompt = " ".join(vocabulary) if vocabulary else None
 
     segments, info = model.transcribe(
-        path_str,
+        _decode_audio(path_str),
         language=language,
         word_timestamps=True,
         vad_filter=True,

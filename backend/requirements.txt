@@ -15,3 +15,5 @@ yt-dlp[default]>=2025.1.1  # [default] adds yt-dlp-ejs, the YouTube challenge so
 deno>=2.0  # JS runtime yt-dlp-ejs runs on (YouTube throttles/blocks without it)
 psutil>=5.9  # cancel: stop a job's own ffmpeg download process
 imageio-ffmpeg>=0.5.1
+numpy>=1.26
+streamlink>=6.8

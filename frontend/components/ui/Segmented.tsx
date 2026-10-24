@@ -16,12 +16,15 @@ export function Segmented<T extends string>({
   onChange,
   label,
   className,
+  compact,
 }: {
   options: SegmentedOption<T>[];
   value: T;
   onChange: (value: T) => void;
   label: string;
   className?: string;
+  /** Dense tool UIs (the editor): 44px tall overall instead of 56px. */
+  compact?: boolean;
 }) {
   const index = Math.max(0, options.findIndex((o) => o.value === value));
 
@@ -59,7 +62,8 @@ export function Segmented<T extends string>({
             data-value={o.value}
             onClick={() => onChange(o.value)}
             className={cn(
-              "relative z-10 inline-flex h-12 items-center justify-center gap-2 rounded-full px-5 text-base font-medium whitespace-nowrap transition-colors duration-(--motion-fast)",
+              "relative z-10 inline-flex items-center justify-center gap-2 rounded-full font-medium whitespace-nowrap transition-colors duration-(--motion-fast)",
+              compact ? "h-9 px-3 text-meta" : "h-12 px-5 text-base",
               active ? "text-on-brand" : "text-ink-muted hover:text-ink",
             )}
           >

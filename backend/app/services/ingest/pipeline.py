@@ -2,9 +2,9 @@
 
 Runs on a small worker pool (settings.import_workers), never inside a request.
 
-Links are bandwidth-first: we never pull the whole VOD. We take the audio of the first
-`max_import_minutes` (tiny), find the moments in it, then fetch only those sections in HD and
-cut them. The studio gets a low-res preview on demand. Uploads are already local, so they're
+Links are bandwidth-first: we never pull the whole VOD. We take the audio of the whole video
+(or its first `max_import_minutes`; it's tiny), find the moments in it, then fetch only those
+sections in HD and cut them. The studio gets a low-res preview on demand. Uploads are already local, so they're
 analysed and cut straight from the file.
 
 Each clip is a normal `clips` row, ready to post as soon as it's cut (clean, for the
@@ -19,6 +19,7 @@ import logging
 import shutil
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,6 +32,7 @@ from app.core.media import MediaError, probe, public_path, storage_root, thumbna
 from app.db import SessionLocal, engine
 from app.models import CaptionMode, Clip, ClipStatus, ImportJob, ImportSource, ImportStatus
 from app.services.clip.cutter import cut_vertical
+from app.services.clip.detector import Highlight
 from app.services.clip.taste import user_taste
 from app.services.agents import events
 from app.services.agents.producer import ProducerJob, run_producer
@@ -41,6 +43,11 @@ logger = logging.getLogger("cliphive.imports")
 _executor = ThreadPoolExecutor(max_workers=settings.import_workers, thread_name_prefix="import")
 _cancels: dict[int, threading.Event] = {}
 INFO_MAX_AGE_S = 3 * 3600  # platform media URLs expire; re-probe older info
+WHOLE_VIDEO_S = 24 * 3600  # max_import_minutes=0 means the whole video; this only bounds a missing duration
+
+
+def max_import_seconds() -> float:
+    return settings.max_import_minutes * 60 or WHOLE_VIDEO_S
 
 
 # ---------------------------------------------------------------- paths & schema
@@ -79,6 +86,7 @@ _ADDED_COLUMNS = {
     "clips": {
         "starred": "BOOLEAN DEFAULT 0 NOT NULL",
         "moment_features": "JSON",
+        "description": "TEXT",
     },
 }
 
@@ -269,7 +277,7 @@ def _run(job_id: int) -> None:
     cancel_event = _cancels.get(job_id)
     work = job_dir(job_id)
     work.mkdir(parents=True, exist_ok=True)
-    max_seconds = settings.max_import_minutes * 60
+    max_seconds = max_import_seconds()
     info: dict | None = None
 
     # 1. Media to analyse
@@ -408,7 +416,7 @@ def start_preview(job_id: int) -> dict:
             with SessionLocal() as db:
                 job = db.get(ImportJob, job_id)
                 info = load_info(job)
-                seconds = job.duration_s or settings.max_import_minutes * 60
+                seconds = job.duration_s or max_import_seconds()
             fetch_preview(info, job_dir(job_id), seconds, on_progress=lambda f: _write_preview_state(job_id, progress=int(f * 100)))
             _write_preview_state(job_id, status="ready", progress=100)
         except Exception as err:  # noqa: BLE001 - surfaced to the studio as text
@@ -425,6 +433,57 @@ def cut_range_for_link(job: ImportJob, start_s: float, end_s: float, out: Path, 
     section = fetch_section(info, job_dir(job.id) / "sections", stem, start_s, end_s)
     cut_vertical(section, 0, end_s - start_s, out, layout)
     return section
+
+
+# ---------------------------------------------------------------- live recordings
+
+
+def cut_and_handoff(
+    src: Path,
+    moments: list[Highlight],
+    *,
+    user_id: int,
+    title: str,
+    name: str,
+    layout: str = "fill",
+    stream_id: int | None = None,
+    offset_s: float = 0.0,
+    first_number: int = 1,
+    on_clip: Callable[[list[int], int], None] | None = None,
+) -> list[int]:
+    """Cut each moment of a local file as a 9:16 clip and write it as a ready `clips` row.
+
+    Live recordings use this: a segment passes offset_s (where it starts in the broadcast) so
+    start_s/end_s are broadcast times, and first_number so clip titles keep counting across
+    segments. (Link and upload imports go through the Producer agent instead.)
+    """
+    clips_dir = storage_root() / "clips"
+    clip_ids: list[int] = []
+    for n, moment in enumerate(moments, start=1):
+        number = first_number + n - 1
+        out = cut_vertical(src, moment.start_s, moment.end_s, clips_dir / f"{name}_{number}.mp4", layout)
+        with SessionLocal() as db:
+            clip = Clip(
+                user_id=user_id,
+                stream_id=stream_id,
+                start_s=round(offset_s + moment.start_s, 2),
+                end_s=round(offset_s + moment.end_s, 2),
+                raw_file_path=str(out),
+                file_path=public_path(out),
+                highlight_score=moment.score,
+                title=f"{title} · Clip {number}"[:255],
+                hashtags=[],
+                status=ClipStatus.READY,
+                caption_mode=CaptionMode.PLATFORM_NATIVE,
+                moment_features=moment.features or None,
+                review_status="pending",
+            )
+            db.add(clip)
+            db.commit()
+            clip_ids.append(clip.id)
+        if on_clip:
+            on_clip(clip_ids, n)
+    return clip_ids
 
 
 # ---------------------------------------------------------------- uploads

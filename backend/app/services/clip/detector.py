@@ -1,8 +1,10 @@
-"""Find the most energetic moments in a video from its audio loudness.
+"""Find the most energetic moments in a video from its audio loudness and scene cuts.
 
 Loud reactions, shouting, hype and laughter are the most reliable single signal for stream
 highlights and need no GPU: decode the audio once, measure loudness per half-second, and rank
-windows by how far they spike above the video's own baseline.
+windows by how far they spike above the video's own baseline. Each chosen clip's start then
+snaps to a scene cut within a couple of seconds (checked only around that point, so a long VOD
+costs the same as a short one), so a clip opens on a clean frame instead of mid-transition.
 
 Each picked moment also carries a small feature vector describing its shape (peak, sustained
 level, build-up, ...). Clips a user stars teach a "taste" direction in that space, and later
@@ -10,6 +12,7 @@ picks are nudged toward it (see app/services/clip/taste.py).
 """
 from __future__ import annotations
 
+import re
 import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -21,6 +24,10 @@ from app.core.media import MediaError, ffmpeg_bin
 
 SAMPLE_RATE = 8000
 HOP_S = 0.5
+SCENE_THRESHOLD = 0.3  # ffmpeg scene score (0-1) between consecutive frames
+SNAP_S = 2.0  # move a clip's start to a scene cut at most this far away
+
+_PTS = re.compile(r"pts_time:(\d+(?:\.\d+)?)")
 FEATURES = ("peak", "level", "focus", "build", "swing")  # see _features
 TASTE_WEIGHT = 0.75  # how far a full-strength taste can move a window's score (z units)
 
@@ -35,19 +42,54 @@ class Highlight:
 
 
 def _loudness_db(path: Path, max_seconds: float) -> np.ndarray:
-    """Loudness (dBFS) for every HOP_S of audio."""
+    """Loudness (dBFS) for every HOP_S of audio.
+
+    Audio is read in one-minute blocks, so a multi-hour VOD needs a few MB, not gigabytes.
+    """
     cmd = [ffmpeg_bin(), "-hide_banner", "-loglevel", "error", "-t", f"{max_seconds:.2f}", "-i", str(path),
            "-vn", "-ac", "1", "-ar", str(SAMPLE_RATE), "-f", "s16le", "-"]
-    result = subprocess.run(cmd, capture_output=True, timeout=1800)
-    if result.returncode != 0:
+    hop_bytes = int(SAMPLE_RATE * HOP_S) * 2
+    block = hop_bytes * int(60 / HOP_S)
+    rms: list[np.ndarray] = []
+    leftover = b""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    assert proc.stdout is not None
+    while chunk := proc.stdout.read(block):
+        data = leftover + chunk
+        usable = len(data) - len(data) % hop_bytes
+        leftover = data[usable:]
+        if usable:
+            samples = np.frombuffer(data[:usable], dtype=np.int16).astype(np.float32) / 32768.0
+            rms.append(np.sqrt(np.mean(samples.reshape(-1, hop_bytes // 2) ** 2, axis=1)))
+    if proc.wait() != 0:
         raise MediaError("Couldn't read the audio track of that video.")
-    samples = np.frombuffer(result.stdout, dtype=np.int16).astype(np.float32) / 32768.0
-    hop = int(SAMPLE_RATE * HOP_S)
-    frames = len(samples) // hop
-    if frames == 0:
+    if not rms:
         return np.zeros(0)
-    rms = np.sqrt(np.mean(samples[: frames * hop].reshape(frames, hop) ** 2, axis=1))
-    return 20 * np.log10(rms + 1e-6)
+    return 20 * np.log10(np.concatenate(rms) + 1e-6)
+
+
+def _scene_cuts(path: Path, start: float, length: float) -> np.ndarray:
+    """Timestamps (s, in the video) of hard scene changes in [start, start + length].
+
+    Seeks straight there and decodes only those few seconds, so it's fast at any video length.
+    Best effort: any failure returns no cuts and the clip keeps its loudness-based start.
+    """
+    start = max(0.0, start)
+    cmd = [ffmpeg_bin(), "-hide_banner", "-loglevel", "info", "-ss", f"{start:.2f}", "-t", f"{length:.2f}",
+           "-i", str(path), "-an", "-vf", f"scale=160:-2,select='gt(scene,{SCENE_THRESHOLD})',showinfo", "-f", "null", "-"]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return np.zeros(0)
+    if result.returncode != 0:
+        return np.zeros(0)
+    return np.array([start + float(t) for t in _PTS.findall(result.stderr)])
+
+
+def _snap_start(start: float, cuts: np.ndarray, lo: float, hi: float) -> float:
+    """Nearest cut within SNAP_S of start, kept inside [lo, hi] (so neighbours never overlap)."""
+    near = cuts[(np.abs(cuts - start) <= SNAP_S) & (cuts >= lo) & (cuts <= hi)] if cuts.size else cuts
+    return float(near[np.argmin(np.abs(near - start))]) if near.size else start
 
 
 def _overlaps(a0: float, a1: float, ranges: Sequence[tuple[float, float]]) -> bool:
@@ -127,16 +169,24 @@ def find_highlights(
 
     lo, hi = float(scores.min()), float(scores.max())
     span = (hi - lo) or 1.0
-    highlights = [
-        Highlight(
-            start_s=round(i * HOP_S, 2),
-            end_s=round(min(duration_s, i * HOP_S + clip_seconds), 2),
+    highlights: list[Highlight] = []
+    prev_end = 0.0
+    order = sorted(picked)
+    for n, i in enumerate(order):
+        # A snapped start may not reach back into the previous clip or push this one into the next.
+        next_start = order[n + 1] * HOP_S if n + 1 < len(order) else duration_s
+        latest = min(next_start, duration_s) - clip_seconds
+        cuts = _scene_cuts(path, i * HOP_S - SNAP_S, 2 * SNAP_S)
+        start = _snap_start(i * HOP_S, cuts, lo=prev_end, hi=max(prev_end, latest))
+        end = min(duration_s, start + clip_seconds)
+        highlights.append(Highlight(
+            start_s=round(start, 2),
+            end_s=round(end, 2),
             score=round(40 + 60 * (float(scores[i]) - lo) / span, 1),
             features=[round(float(v), 3) for v in feats[i]],
-        )
-        for i in picked
-    ]
-    return sorted(highlights, key=lambda h: h.start_s)
+        ))
+        prev_end = end
+    return highlights
 
 
 def energy_curve(path: Path, duration_s: float, buckets: int = 600) -> list[float]:

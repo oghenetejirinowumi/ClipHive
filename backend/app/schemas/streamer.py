@@ -28,6 +28,13 @@ class StreamerRead(ORMModel):
     last_seen_video_title: str | None = None
     last_seen_video_url: str | None = None
     last_check_error: str | None = None
+    # Live status from the stream monitor (in memory; None/False until the first check).
+    is_live: bool = False
+    live_title: str | None = None
+    live_checked_at: datetime | None = None
+    live_error: str | None = None
+    recording: bool = False
+    channel_url: str = ""
 
     @field_validator("created_at", "last_checked_at", mode="after")
     @classmethod
@@ -40,6 +47,12 @@ class CheckResultRead(BaseModel):
     status: str  # new_vod | no_change | first_seen | error
     message: str
     import_job_id: int | None = None
+
+
+# POST /streamers/{id}/latest-vod
+class LatestVodRequest(BaseModel):
+    clip_count: int = Field(default=5, ge=1, le=30)
+    clip_seconds: int = Field(default=30, ge=10, le=90)
 
 
 class StreamCreate(BaseModel):
@@ -64,3 +77,4 @@ class StreamRead(ORMModel):
     started_at: datetime | None
     ended_at: datetime | None
     status: StreamStatus
+    clip_ids: list[int] = Field(default_factory=list)
