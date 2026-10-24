@@ -40,7 +40,10 @@ if [ ! -f /swapfile ] && [ "$(awk '/MemTotal/ {print $2}' /proc/meminfo)" -lt 40
 fi
 
 say "Installing system packages (Python, ffmpeg, Caddy)"
+# Finish any install an earlier attempt left half-done (e.g. after running out of disk).
+sudo DEBIAN_FRONTEND=noninteractive dpkg --configure -a || true
 sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get -f install -y
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   git python3-venv python3-dev build-essential ffmpeg caddy iptables-persistent curl openssl
 
