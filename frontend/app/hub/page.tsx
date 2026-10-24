@@ -25,6 +25,7 @@ type Clip = {
     highlight_reason?: string;
     thumbnail?: Thumbnail;
   } | null;
+  transcript_json?: Array<{ word: string; start: number; end: number }> | null;
   status: string;
   starred?: boolean;
   review_status: "pending" | "approved" | "rejected";
@@ -379,6 +380,23 @@ function HubClipDialog({
         </div>
       )}
 
+      {/* Spoken Transcript */}
+      <div className="space-y-2 rounded-lg border border-line bg-surface-sunken p-4">
+        <div className="flex items-center justify-between">
+          <p className="flex items-center gap-1.5 text-base font-semibold text-ink">
+            <Icon name="captions" className="size-5 text-brand" /> Spoken Dialogue
+          </p>
+          <Link href={`/captions?clip=${clip.id}`} className={buttonClass({ variant: "ghost", size: "xs" })}>
+            <Icon name="sparkles" className="size-5" /> Style & Burn
+          </Link>
+        </div>
+        <p className="text-base text-ink leading-relaxed font-normal">
+          {clip.transcript_json && clip.transcript_json.length > 0
+            ? `“${clip.transcript_json.map((w) => w.word).join(" ")}”`
+            : "No speech saved yet. Open in Caption Studio to auto-transcribe with Whisper."}
+        </p>
+      </div>
+
       <ThumbnailEditor<Clip>
         key={`${clip.id}:${clip.context_json?.thumbnail?.path ?? "none"}`}
         clipId={clip.id}
@@ -387,7 +405,7 @@ function HubClipDialog({
       />
 
       <ClipDialogActions>
-        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2">
           {scheduled ? (
             <span className={buttonClass({ variant: "secondary", size: "sm", className: "pointer-events-none" })}>
               <Icon name="clock" className="size-5" /> Scheduled
@@ -397,6 +415,9 @@ function HubClipDialog({
               <Icon name="send" className="size-5" /> Schedule
             </Button>
           )}
+          <Link href={`/captions?clip=${clip.id}`} className={buttonClass({ variant: "secondary", size: "sm" })}>
+            <Icon name="captions" className="size-5" /> Captions
+          </Link>
           {videoSrc ? (
             <a href={videoSrc} download={`clip_${clip.id}.mp4`} target="_blank" rel="noopener noreferrer" className={buttonClass({ variant: "secondary", size: "sm" })}>
               <Icon name="download" className="size-5" /> Download

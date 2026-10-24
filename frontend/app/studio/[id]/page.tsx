@@ -693,6 +693,21 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
             {openClip.caption_position_y && <Badge tone="neutral">Pos: {openClip.caption_position_y}%</Badge>}
           </div>
           {openClip.error && <p className="text-base text-danger">{friendly(openClip.error)}</p>}
+          {openClip.transcript_json && openClip.transcript_json.length > 0 && (
+            <div className="space-y-1.5 rounded-lg border border-line bg-surface-sunken p-3">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-meta font-semibold text-ink">
+                  <Icon name="captions" className="size-5 text-brand" /> Spoken Dialogue:
+                </span>
+                <Link href={`/captions?clip=${openClip.id}`} className={buttonClass({ variant: "ghost", size: "xs" })}>
+                  <Icon name="sparkles" className="size-5" /> Caption Studio
+                </Link>
+              </div>
+              <p className="text-meta text-ink leading-relaxed">
+                “{openClip.transcript_json.map((w) => w.word).join(" ")}”
+              </p>
+            </div>
+          )}
           <Segmented
             label={`Layout for clip ${openClip.id}`}
             value={openClip.layout}

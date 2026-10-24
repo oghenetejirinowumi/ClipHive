@@ -13,7 +13,16 @@ from app.db import SessionLocal, get_db
 from app.models.caption_style import CaptionStyle
 from app.models.clip import Clip
 from app.models.enums import CaptionMode, ClipStatus, PostPlatform
-from app.schemas.clip import AIPackResponse, CaptionRequest, ClipRead, ClipUpdate, ThumbnailFrame, ThumbnailRequest
+from app.schemas.clip import (
+    AIPackResponse,
+    CaptionRequest,
+    ClipRead,
+    ClipUpdate,
+    ThumbnailFrame,
+    ThumbnailRequest,
+    TranscriptResponse,
+    TranscriptUpdate,
+)
 from app.services.ai.context_engine import (
     GAME_SIGNATURES,
     ClipContext,
@@ -45,6 +54,27 @@ STORAGE_CLIPS_DIR.mkdir(parents=True, exist_ok=True)
 STORAGE_SUBS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def ensure_clip_transcript(clip: Clip, db: Session) -> list[dict]:
+    """Return the clip's transcript words, transcribing the raw media if not yet done."""
+    if clip.transcript_json:
+        return clip.transcript_json
+    src = local_media(clip.raw_file_path) if clip.raw_file_path else None
+    if not src or not src.is_file():
+        src = local_media(clip.file_path) if clip.file_path else None
+    if src and src.is_file():
+        try:
+            logger.info("Auto-transcribing clip %s from %s", clip.id, src)
+            raw_words = transcribe_video(src)
+            words = proofread_transcript(raw_words)
+            clip.transcript_json = [w.model_dump() for w in words]
+            db.commit()
+            db.refresh(clip)
+            return clip.transcript_json
+        except Exception as err:
+            logger.warning("Auto-transcription failed for clip %s: %s", clip.id, err)
+    return []
+
+
 @router.get("", response_model=list[ClipRead])
 def list_clips(user: Owner, status: ClipStatus | None = None, db: Session = Depends(get_db)):
     """Lists clips, optionally filtered by status (e.g. ?status=ready)."""
@@ -60,7 +90,47 @@ def get_clip(clip_id: int, user: Owner, db: Session = Depends(get_db)):
     clip = db.query(Clip).filter(Clip.id == clip_id, Clip.user_id == user.id).first()
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
+    ensure_clip_transcript(clip, db)
     return clip
+
+
+@router.get("/{clip_id}/transcript", response_model=TranscriptResponse)
+def get_clip_transcript(clip_id: int, user: Owner, db: Session = Depends(get_db)):
+    """Returns the full transcript for a clip, generating it via Whisper if missing."""
+    clip = db.query(Clip).filter(Clip.id == clip_id, Clip.user_id == user.id).first()
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    words = ensure_clip_transcript(clip, db)
+    text = " ".join(w["word"] for w in words if isinstance(w, dict) and "word" in w)
+    return TranscriptResponse(
+        clip_id=clip.id,
+        text=text,
+        words=words or [],
+        count=len(words or []),
+    )
+
+
+@router.patch("/{clip_id}/transcript", response_model=TranscriptResponse)
+def update_clip_transcript(clip_id: int, body: TranscriptUpdate, user: Owner, db: Session = Depends(get_db)):
+    """Update words or full text of a clip's transcript (for editing typos before burning)."""
+    clip = db.query(Clip).filter(Clip.id == clip_id, Clip.user_id == user.id).first()
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    if body.words is not None:
+        clip.transcript_json = [w.model_dump() for w in body.words]
+    elif body.text is not None:
+        words_list = body.text.split()
+        dur = clip.duration_s if clip.duration_s > 0 else 30.0
+        step = dur / max(1, len(words_list))
+        clip.transcript_json = [
+            {"word": w, "start": round(i * step, 2), "end": round((i + 1) * step, 2), "confidence": 1.0}
+            for i, w in enumerate(words_list)
+        ]
+    db.commit()
+    db.refresh(clip)
+    words = clip.transcript_json or []
+    text = " ".join(w["word"] for w in words if isinstance(w, dict) and "word" in w)
+    return TranscriptResponse(clip_id=clip.id, text=text, words=words, count=len(words))
 
 
 @router.get("/{clip_id}/thumbnail/frames", response_model=list[ThumbnailFrame])

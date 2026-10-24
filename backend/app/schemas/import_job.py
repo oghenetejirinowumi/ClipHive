@@ -112,6 +112,7 @@ class StudioClip(BaseModel):
     caption_position_y: int | None = None
     highlight_score: float | None
     starred: bool = False
+    transcript_json: list[dict] | None = None
     error: str | None = None  # e.g. why burning captions failed (the clean cut is still ready)
 
 

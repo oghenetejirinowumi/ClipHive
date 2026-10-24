@@ -544,6 +544,13 @@ def cut_and_handoff(
             )
             db.add(clip)
             db.commit()
+            db.refresh(clip)
+            try:
+                from app.api.clips import ensure_clip_transcript
+
+                ensure_clip_transcript(clip, db)
+            except Exception as e:
+                logger.warning("Could not auto-transcribe moment clip %s: %s", clip.id, e)
             clip_ids.append(clip.id)
         if on_clip:
             on_clip(clip_ids, n)

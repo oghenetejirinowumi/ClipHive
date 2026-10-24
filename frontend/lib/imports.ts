@@ -38,6 +38,7 @@ export type StudioClip = {
   caption_position_y?: number | null;
   highlight_score: number | null;
   starred: boolean;
+  transcript_json?: Array<{ word: string; start: number; end: number; confidence?: number }> | null;
   error: string | null; // e.g. why burning captions failed (the clean clip is still ready)
 };
 

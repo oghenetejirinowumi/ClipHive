@@ -154,7 +154,7 @@ export function ClipEditorModal({
             </div>
           </div>
 
-          {/* Layout */}
+          {/* Framing Layout */}
           <div className="space-y-2">
             <span className="block text-meta font-medium text-ink">Framing Layout</span>
             <Segmented
@@ -168,6 +168,16 @@ export function ClipEditorModal({
               ]}
             />
           </div>
+
+          {/* Spoken Dialogue */}
+          {clip.transcript_json && clip.transcript_json.length > 0 && (
+            <div className="space-y-1.5 rounded-xl border border-line bg-surface-sunken p-4">
+              <span className="text-meta font-semibold text-ink">Spoken Dialogue</span>
+              <p className="text-base text-ink leading-relaxed">
+                “{clip.transcript_json.map((w) => w.word).join(" ")}”
+              </p>
+            </div>
+          )}
 
           {/* Caption Position */}
           <div className="space-y-3 rounded-xl border border-line bg-surface-sunken p-4">

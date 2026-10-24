@@ -72,6 +72,7 @@ def _studio_clip(clip: Clip, job: ImportJob) -> StudioClip:
         caption_position_y=ctx.get("caption_position_y"),
         highlight_score=clip.highlight_score,
         starred=bool(clip.starred),
+        transcript_json=clip.transcript_json,
         error=clip.error,
     )
 
@@ -249,6 +250,12 @@ def create_clip(job_id: int, body: StudioClipRequest, user: Owner, db: DbSession
     job.clip_layouts = {**(job.clip_layouts or {}), str(clip.id): body.layout}
     db.commit()
     db.refresh(clip)
+    try:
+        from app.api.clips import ensure_clip_transcript
+
+        ensure_clip_transcript(clip, db)
+    except Exception as err:
+        logger.warning("Auto transcription skipped for studio clip %s: %s", clip.id, err)
     try:
         from app.services.ai.ai_pack import auto_run_ai_pack
 

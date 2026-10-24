@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { CaptionPreview, type PreviewWord } from "@/components/captions/CaptionPreview";
 import { PhoneFrame } from "@/components/captions/PhoneFrame";
 import { StyleEditor } from "@/components/captions/StyleEditor";
@@ -13,9 +14,25 @@ type Clip = {
   id: number;
   title?: string | null;
   file_path?: string | null;
+  raw_file_path?: string | null;
   status: string;
   caption_style_id?: number | null;
+  transcript_json?: Array<{ word: string; start: number; end: number; confidence?: number }> | null;
   context_json?: { suggested_style?: string; style_rationale?: string } | null;
+};
+
+type TranscriptWord = {
+  word: string;
+  start: number;
+  end: number;
+  confidence?: number;
+};
+
+type TranscriptData = {
+  clip_id: number;
+  text: string;
+  words: TranscriptWord[];
+  count: number;
 };
 
 type Msg = { tone: "brand" | "success" | "danger"; text: string };
@@ -27,12 +44,15 @@ const toWords = (text: string): PreviewWord[] =>
   text
     .split(/\s+/)
     .filter(Boolean)
-    .slice(0, 24)
+    .slice(0, 36)
     .map((word) => ({ word, hype: HYPE.has(word.toUpperCase().replace(/[!?,.]/g, "")) }));
 
 const same = (a: StyleDraft | null, b: StyleDraft | null) => JSON.stringify(a && stylePayload(a)) === JSON.stringify(b && stylePayload(b));
 
-export default function CaptionsPage() {
+function CaptionsInner() {
+  const searchParams = useSearchParams();
+  const urlClipId = searchParams.get("clip");
+
   const [styles, setStyles] = useState<CaptionStyle[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [category, setCategory] = useState("All");
@@ -51,6 +71,13 @@ export default function CaptionsPage() {
   const [msg, setMsg] = useState<Msg | null>(null);
   const importInput = useRef<HTMLInputElement>(null);
 
+  // Transcript state for the currently selected clip
+  const [transcriptData, setTranscriptData] = useState<TranscriptData | null>(null);
+  const [loadingTranscript, setLoadingTranscript] = useState(false);
+  const [editingTranscript, setEditingTranscript] = useState(false);
+  const [transcriptDraft, setTranscriptDraft] = useState("");
+  const [savingTranscript, setSavingTranscript] = useState(false);
+
   const loadStyles = useCallback(async (select?: number) => {
     const data = await api<CaptionStyle[]>("/api/styles", { auth: false });
     setStyles(data);
@@ -58,15 +85,41 @@ export default function CaptionsPage() {
     return data;
   }, []);
 
+  const loadClipTranscript = useCallback(async (id: number) => {
+    setLoadingTranscript(true);
+    try {
+      const data = await api<TranscriptData>(`/api/clips/${id}/transcript`);
+      setTranscriptData(data);
+      setTranscriptDraft(data.text);
+      if (data.text.trim()) {
+        setSampleText(data.text);
+        setActive(0);
+      }
+    } catch {
+      setTranscriptData(null);
+    } finally {
+      setLoadingTranscript(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadStyles().catch(() => setMsg({ tone: "danger", text: GENERIC_ERROR }));
-    api<Clip[]>("/api/clips", { auth: false })
+    api<Clip[]>("/api/clips")
       .then((c) => {
         setClips(c);
-        setClipId(c[0]?.id ?? null);
+        const targetId = urlClipId ? Number(urlClipId) : (c[0]?.id ?? null);
+        setClipId(targetId);
       })
       .catch(() => undefined);
-  }, [loadStyles]);
+  }, [loadStyles, urlClipId]);
+
+  useEffect(() => {
+    if (clipId) {
+      loadClipTranscript(clipId);
+    } else {
+      setTranscriptData(null);
+    }
+  }, [clipId, loadClipTranscript]);
 
   // Fonts for presets download in the background on first load; refresh once so previews pick them up.
   const missingFonts = styles.some((s) => !s.font_available);
@@ -236,11 +289,30 @@ export default function CaptionsPage() {
     }
   }
 
+  async function saveTranscriptEdits() {
+    if (!clipId) return;
+    setSavingTranscript(true);
+    try {
+      const updated = await api<TranscriptData>(`/api/clips/${clipId}/transcript`, {
+        method: "PATCH",
+        body: { text: transcriptDraft },
+      });
+      setTranscriptData(updated);
+      setSampleText(updated.text);
+      setEditingTranscript(false);
+      setMsg({ tone: "success", text: "Transcript updated and synced with preview." });
+    } catch (err) {
+      setMsg({ tone: "danger", text: err instanceof ApiError ? err.message : "Couldn't update transcript." });
+    } finally {
+      setSavingTranscript(false);
+    }
+  }
+
   async function burn() {
     const styleId = draft?.id ?? selected?.id;
     if (!clipId || !styleId) return;
     setBurning(true);
-    setMsg({ tone: "brand", text: "Transcribing and burning captions…" });
+    setMsg({ tone: "brand", text: "Transcribing and burning captions into clip…" });
     try {
       const updated = await api<Clip>(`/api/clips/${clipId}/regenerate-captions`, {
         method: "POST",
@@ -249,12 +321,11 @@ export default function CaptionsPage() {
           caption_mode: "burned",
           position_y: previewStyle?.options.position_y,
         },
-        auth: false,
       });
       setClips((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
       setExactUrl(updated.file_path ? `${API_URL}/${updated.file_path}` : null);
       setView("exact");
-      setMsg({ tone: "success", text: `Captions burned into clip #${updated.id}. It's playing on the right.` });
+      setMsg({ tone: "success", text: `Captions burned into clip #${updated.id}! Playing exact output on the right.` });
     } catch (err) {
       setMsg({ tone: "danger", text: err instanceof ApiError ? err.message : "Burning failed." });
     } finally {
@@ -275,7 +346,7 @@ export default function CaptionsPage() {
             Captions with <Em>personality</Em>
           </>
         }
-        description="Start from a proven short-form look, tune every detail, and see exactly what the video will show before you burn it."
+        description="Choose a viral short-form look, preview with the clip's actual spoken dialogue, adjust position, and burn it directly into your video."
       />
 
       {msg && (
@@ -391,7 +462,7 @@ export default function CaptionsPage() {
 
         </div>
 
-        {/* Right: preview. Phones: straight after the styles, before Render. */}
+        {/* Right: preview */}
         <div className="lg:col-span-5 lg:col-start-8 lg:row-span-2 lg:row-start-1">
           <div className="space-y-5 lg:sticky lg:top-10">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -413,14 +484,14 @@ export default function CaptionsPage() {
               ) : (
                 <div
                   className="@container relative size-full cursor-ns-resize"
-                  onPointerDown={(e) => {
+                  onPointerDown={(e: PointerEvent<HTMLDivElement>) => {
                     const rect = e.currentTarget.getBoundingClientRect();
                     const update = (clientY: number) => {
                       const pct = Math.max(12, Math.min(86, Math.round(((clientY - rect.top) / rect.height) * 100)));
                       updatePosition(pct);
                     };
                     update(e.clientY);
-                    const move = (ev: PointerEvent) => update(ev.clientY);
+                    const move = (ev: globalThis.PointerEvent) => update(ev.clientY);
                     const up = () => {
                       window.removeEventListener("pointermove", move);
                       window.removeEventListener("pointerup", up);
@@ -429,6 +500,18 @@ export default function CaptionsPage() {
                     window.addEventListener("pointerup", up);
                   }}
                 >
+                  {/* Clean video in background if a clip is active */}
+                  {(activeClip?.raw_file_path || activeClip?.file_path) && (
+                    <video
+                      key={activeClip.id}
+                      src={`${API_URL}/${activeClip.raw_file_path || activeClip.file_path}`}
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      className="absolute inset-0 size-full object-cover opacity-85"
+                    />
+                  )}
                   <CaptionPreview style={previewStyle ?? undefined} words={words} activeIndex={active} emojis={emojis} frame />
                   <div aria-hidden className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-brand-deep/80 px-2.5 py-0.5 text-meta text-on-brand/60">
                     drag up / down to move
@@ -473,13 +556,13 @@ export default function CaptionsPage() {
 
             <div className="space-y-3">
               <label htmlFor="sample-text" className="block text-base font-medium text-ink">
-                Sample text
+                Preview text {transcriptData?.text && <span className="font-normal text-ink-muted">(from clip transcript)</span>}
               </label>
               <div className="flex gap-2">
                 <input
                   id="sample-text"
                   value={sampleText}
-                  maxLength={200}
+                  maxLength={300}
                   onChange={(e) => {
                     setSampleText(e.target.value);
                     setActive(0);
@@ -492,25 +575,47 @@ export default function CaptionsPage() {
               </div>
               <p className="text-meta text-ink-muted">Words in CAPS like NO, WAY or INSANE count as hype words. “Exact render” burns this text with the real video engine{clipId ? " over your selected clip" : ""}.</p>
               <Button variant="secondary" loading={rendering} onClick={renderExact} className="w-full">
-                <Icon name="film" className="size-5" /> Render exactly
+                <Icon name="film" className="size-5" /> Render preview exactly
               </Button>
             </div>
           </div>
         </div>
 
-        {/* Burn */}
-        <div className="lg:col-span-7">
+        {/* Clip Transcription & Direct Burn Panel */}
+        <div className="lg:col-span-12">
           <Panel padding="lg" className="space-y-6">
-            <div>
-              <SectionLabel>Render</SectionLabel>
-              <h2 className="mt-3 font-display text-3xl font-semibold tracking-tight text-ink">Burn onto a clip</h2>
-              <p className="mt-2 text-lg text-ink-muted">
-                Uses <span className="font-semibold text-ink">{(draft ?? selected)?.name ?? "the selected style"}</span>
-                {dirty ? " as last saved. Save your changes first to use them." : "."}
-              </p>
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-4">
+              <div>
+                <SectionLabel>Clip Transcription & Burn</SectionLabel>
+                <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight text-ink">
+                  {activeClip ? `Dialogue for Clip #${activeClip.id}: ${activeClip.title || "Untitled"}` : "Select a clip"}
+                </h2>
+                <p className="mt-1 text-base text-ink-muted">
+                  View and verify the speech transcription extracted from this clip, test how different caption looks animate with it, and burn it into the video.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {activeClip && transcriptData && (
+                  <Badge tone={transcriptData.words.length ? "brand" : "neutral"} size="md">
+                    {transcriptData.words.length} words
+                  </Badge>
+                )}
+                {activeClip && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    loading={loadingTranscript}
+                    onClick={() => loadClipTranscript(activeClip.id)}
+                  >
+                    <Icon name="refresh" className="size-5" /> Re-transcribe
+                  </Button>
+                )}
+              </div>
             </div>
-            {clips.length > 0 ? (
-              <Field label="Clip">
+
+            {/* Clip Picker Controls */}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <Field label="Target Clip">
                 <Select value={clipId ?? ""} onChange={(e) => setClipId(Number(e.target.value))}>
                   {clips.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -519,30 +624,144 @@ export default function CaptionsPage() {
                   ))}
                 </Select>
               </Field>
-            ) : (
-              <p className="text-lg text-ink-muted">No clips yet. Make some on the Create page.</p>
-            )}
+
+              <div className="flex items-end">
+                <Button
+                  size="md"
+                  variant="secondary"
+                  className="w-full"
+                  disabled={!transcriptData?.text}
+                  onClick={() => {
+                    if (transcriptData?.text) {
+                      setSampleText(transcriptData.text);
+                      setActive(0);
+                      setMsg({ tone: "brand", text: "Clip's real dialogue loaded into the 9:16 phone preview above." });
+                    }
+                  }}
+                >
+                  <Icon name="sparkles" className="size-5" /> Sync with Phone Preview
+                </Button>
+              </div>
+
+              <div className="flex items-end">
+                <Button
+                  size="md"
+                  loading={burning}
+                  disabled={!clipId || dirty}
+                  onClick={burn}
+                  className="w-full"
+                >
+                  <Icon name="captions" className="size-5" /> Burn Captions into Clip
+                </Button>
+              </div>
+            </div>
+
+            {/* Active clip status line */}
             {activeClip && (
               <div className="flex flex-wrap items-center gap-3 text-base text-ink-muted">
-                Status <StatusBadge status={activeClip.status} />
+                Status: <StatusBadge status={activeClip.status} />
                 {suggestedStyle && (
                   <>
-                    <span>· The agent suggests {suggestedStyle.name}</span>
+                    <span>· AI suggested style: <strong className="text-ink">{suggestedStyle.name}</strong></span>
                     {!draft && suggestedStyle.id !== selected?.id && (
-                      <Button variant="ghost" size="sm" onClick={() => setSelectedId(suggestedStyle.id)}>
-                        Use it
+                      <Button variant="ghost" size="xs" onClick={() => setSelectedId(suggestedStyle.id)}>
+                        Use suggested
                       </Button>
                     )}
                   </>
                 )}
               </div>
             )}
-            <Button size="lg" loading={burning} disabled={!clipId || dirty} onClick={burn}>
-              <Icon name="captions" /> Burn captions
-            </Button>
+
+            {/* Transcript detail area */}
+            {loadingTranscript ? (
+              <div className="flex items-center justify-center py-10 text-ink-muted">
+                <Icon name="refresh" className="size-5 animate-spin mr-2" />
+                <span>Transcribing clip speech with Whisper...</span>
+              </div>
+            ) : activeClip && transcriptData ? (
+              <div className="space-y-4 rounded-lg border border-line bg-surface-sunken p-5">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-ink text-base">Full Spoken Dialogue:</span>
+                  <div className="flex items-center gap-2">
+                    {editingTranscript ? (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          onClick={() => {
+                            setTranscriptDraft(transcriptData.text);
+                            setEditingTranscript(false);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="xs"
+                          loading={savingTranscript}
+                          onClick={saveTranscriptEdits}
+                        >
+                          <Icon name="check" className="size-5" /> Save Dialogue
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => setEditingTranscript(true)}
+                      >
+                        <Icon name="sliders" className="size-5" /> Edit words
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {editingTranscript ? (
+                  <textarea
+                    value={transcriptDraft}
+                    onChange={(e) => setTranscriptDraft(e.target.value)}
+                    rows={4}
+                    className="w-full rounded-md border border-line-strong bg-surface p-3 text-base text-ink focus:border-brand focus:shadow-ring focus-visible:outline-none"
+                    placeholder="Edit the spoken dialogue for this clip..."
+                  />
+                ) : (
+                  <p className="text-base text-ink leading-relaxed font-normal">
+                    {transcriptData.text ? `“${transcriptData.text}”` : "No spoken words were detected in this clip's audio."}
+                  </p>
+                )}
+
+                {/* Word timing tags */}
+                {transcriptData.words.length > 0 && (
+                  <div className="space-y-2 border-t border-line pt-3">
+                    <span className="text-meta font-medium text-ink-muted">Word Timestamps Alignment:</span>
+                    <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-1">
+                      {transcriptData.words.map((w, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center gap-1 rounded bg-surface px-2.5 py-1 text-meta border border-line shadow-xs"
+                        >
+                          <span className="text-ink font-medium">{w.word}</span>
+                          <span className="font-mono text-fine text-ink-faint">
+                            {w.start.toFixed(1)}s
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
           </Panel>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function CaptionsPage() {
+  return (
+    <Suspense fallback={<p className="py-20 text-center text-xl text-ink-muted">Loading Caption Studio…</p>}>
+      <CaptionsInner />
+    </Suspense>
   );
 }

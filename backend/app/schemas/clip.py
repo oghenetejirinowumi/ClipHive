@@ -68,7 +68,20 @@ class ClipRead(ORMModel):
     review_status: str = "approved"
     error: str | None
     starred: bool = False
+    transcript_json: list[TranscriptWord] | list[dict] | None = None
     created_at: datetime
+
+
+class TranscriptResponse(BaseModel):
+    clip_id: int
+    text: str
+    words: list[TranscriptWord]
+    count: int
+
+
+class TranscriptUpdate(BaseModel):
+    words: list[TranscriptWord] | None = None
+    text: str | None = None
 
 
 class ClipDetail(ClipRead):
