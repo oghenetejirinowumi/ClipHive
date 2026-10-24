@@ -233,7 +233,7 @@ def check_streamer(streamer_id: int, run_id: int, import_if_first: bool) -> Chec
                 title=newest.title[:200],
                 clip_count=5,
                 clip_seconds=30,
-                layout="fill",
+                layout="blur",
                 agent_brief={"origin": "scout", "streamer": username, "platform_source": platform.value},
             )
             db.add(job)
@@ -268,7 +268,7 @@ def run_scout(user_id: int | None = None, streamer_ids: list[int] | None = None,
 
         results: list[CheckResult] = []
         for uid, ids in by_user.items():
-            run_id = events.start_run(uid, "scout", goal=f"Check {len(ids)} channel{'s' if len(ids) != 1 else ''} for new VODs", model="yt-dlp")
+            run_id = events.start_run(uid, "scout", goal=f"Check {len(ids)} channel{'s' if len(ids) != 1 else ''} for new VODs", model="built-in")
             user_results = [check_streamer(sid, run_id, import_if_first) for sid in ids]
             results += user_results
             found = sum(r.status == "new_vod" for r in user_results)

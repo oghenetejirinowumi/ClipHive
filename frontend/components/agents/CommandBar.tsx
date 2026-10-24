@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { Button, Icon, Notice } from "@/components/ui";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, GENERIC_ERROR } from "@/lib/api";
 import type { CommandPlan } from "@/lib/agents";
 import type { ImportJob } from "@/lib/imports";
 
@@ -25,7 +25,7 @@ export function CommandBar({ onStarted }: { onStarted?: (job: ImportJob) => void
     try {
       setPlan(await api<CommandPlan>("/api/agents/command", { method: "POST", body: { text: text.trim() } }));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't reach the server.");
+      setError(err instanceof ApiError ? err.message : GENERIC_ERROR);
     } finally {
       setBusy(null);
     }

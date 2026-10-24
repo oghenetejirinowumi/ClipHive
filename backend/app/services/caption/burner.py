@@ -47,10 +47,12 @@ def burn_subtitles(
     output_video_path: str | Path,
     fonts_dir: str | Path | None = None,
     ffmpeg_bin: str | None = None,
+    emojis: list | None = None,
 ) -> Path:
     """
     Burns an ASS subtitle file into a vertical MP4 video using FFmpeg libass.
-    Returns the resolved output Path.
+    `emojis` (PlacedEmoji from the ASS generator) are drawn under the captions as animated
+    overlays. Returns the resolved output Path.
     """
     ffmpeg_bin = ffmpeg_bin or bundled_ffmpeg()
     raw_path = Path(raw_video_path).resolve()
@@ -78,11 +80,25 @@ def burn_subtitles(
     else:
         vcodec_args = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"]
 
+    overlays = []
+    if emojis:
+        from app.services.caption import emoji_render
+
+        overlays = emoji_render.render_all(emojis, out_path.parent / f".{out_path.stem}_emoji")
+    if overlays:
+        from app.services.caption import emoji_render
+
+        extra, chain, label = emoji_render.ffmpeg_parts(overlays, 1, "0:v")
+        graph = ";".join([*chain, f"[{label}]{vf_arg}[vout]"])
+        video_args = [*extra, "-filter_complex", graph, "-map", "[vout]", "-map", "0:a?"]
+    else:
+        video_args = ["-vf", vf_arg]
+
     cmd = [
         ffmpeg_bin,
         "-y",
         "-i", str(raw_path),
-        "-vf", vf_arg,
+        *video_args,
         *vcodec_args,
         "-c:a", "aac",
         "-b:a", "128k",
@@ -98,6 +114,11 @@ def burn_subtitles(
         if result.returncode != 0:
             time.sleep(2)
             result = subprocess.run(cmd, capture_output=True, text=True)
+
+    if overlays:
+        import shutil
+
+        shutil.rmtree(out_path.parent / f".{out_path.stem}_emoji", ignore_errors=True)
 
     if result.returncode != 0:
         logger.error(f"FFmpeg burning failed (exit {result.returncode}):\n{result.stderr}")

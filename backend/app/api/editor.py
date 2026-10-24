@@ -1,6 +1,7 @@
 """Video editor: projects, media, AI chat, HyperFrames preview and MP4 export."""
 from __future__ import annotations
 
+import logging
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,10 +15,10 @@ from app.config import settings
 from app.core.media import MediaError, storage_root
 from app.models import CaptionStyle, Clip, EditorProject, EditorVersion, ImportJob, User
 from app.schemas.editor import (
-    AddClipAsset, AutoEffectsRequest, AutoSfxRequest, CaptionsRequest, ChatRequest, ChatResponse, MomentRequest, OpenRequest,
-    Look, ProjectCreate, ProjectRead, ProjectSummary, ProjectUpdate, SfxRead, TextAnimation, Timeline, VersionRead,
+    AddClipAsset, AutoEffectsRequest, AutoEmojiRequest, AutoSfxRequest, CaptionsRequest, ChatRequest, ChatResponse, MomentRequest,
+    OpenRequest, Look, ProjectCreate, ProjectRead, ProjectSummary, ProjectUpdate, SfxRead, TextAnimation, Timeline, VersionRead,
 )
-from app.services.editor import assistant, effects, ops, render, sfx
+from app.services.editor import assistant, effects, emojis, ops, render, sfx
 from app.services.editor.compose import compose
 from app.services.editor.media import UPLOAD_EXTS, probe_asset, project_dir, public_media_path
 from app.services.ingest.pipeline import section_file, source_file
@@ -427,9 +428,11 @@ def chat(project_id: int, body: ChatRequest, user: Owner, db: DbSession) -> Chat
     try:
         result = assistant.run(timeline, body.message, history=history, playhead=body.playhead, selected_id=body.selected_id)
     except assistant.AssistantUnavailable as err:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(err)) from err
+        logging.getLogger("cliphive.editor").warning("AI editor unavailable: %s", err)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The AI editor isn't available right now.") from err
     except Exception as err:  # network / model errors: keep the project as it was
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"The AI assistant couldn't be reached ({type(err).__name__}). Try again.") from err
+        logging.getLogger("cliphive.editor").exception("AI editor failed")
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "The AI editor didn't respond. Please try again.") from err
 
     now = datetime.now(UTC).isoformat()
     version_from = version_to = None
@@ -480,8 +483,25 @@ def auto_sfx(project_id: int, body: AutoSfxRequest, user: Owner, db: DbSession) 
     _snapshot(db, project, f"Auto SFX ({body.intensity})")
     db.commit()
     db.refresh(project)
-    how = "picked by AI" if result.used_ai else "placed by the built-in rules (set OPENAI_API_KEY or GROQ_API_KEY for AI picks)"
+    how = "picked by AI" if result.used_ai else "placed automatically"
     return _read(db, project).model_copy(update={"notice": f"{result.summary}, {how}."})
+
+
+@router.post("/projects/{project_id}/auto-emoji", response_model=ProjectRead)
+def auto_emoji(project_id: int, body: AutoEmojiRequest, user: Owner, db: DbSession) -> ProjectRead:
+    """Emoji next to the captions that call for one, each with its own motion, as one version."""
+    project = _owned(db, project_id, user)
+    try:
+        result = emojis.auto(Timeline.model_validate(project.timeline), body.amount, body.motion, body.placement)
+    except ValueError as err:
+        raise HTTPException(422, str(err)) from err
+    _snapshot(db, project, "Your edits", only_if_changed=True)
+    _save(db, project, result.timeline)
+    _snapshot(db, project, "Removed auto emoji" if body.amount == "none" else f"Auto emoji ({body.amount})")
+    db.commit()
+    db.refresh(project)
+    how = "" if body.amount == "none" or not result.count else (", picked by AI" if result.used_ai else ", picked by the built-in rules")
+    return _read(db, project).model_copy(update={"notice": f"{result.summary}{how}."})
 
 
 @router.get("/projects/{project_id}/versions", response_model=list[VersionRead])

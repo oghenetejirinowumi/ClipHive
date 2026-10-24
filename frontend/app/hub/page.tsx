@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ThumbnailEditor, type Thumbnail } from "@/components/hub/ThumbnailEditor";
+import { ClipDialog, ClipDialogActions, ClipTile } from "@/components/clips";
 import { StarButton } from "@/components/projects/StarButton";
 import { Badge, Button, buttonClass, Em, Icon, Notice, Panel, SectionLabel, SkyHeader, StatusBadge } from "@/components/ui";
 import { api, API_URL, ApiError } from "@/lib/api";
@@ -35,6 +36,7 @@ export default function HubPage() {
   const [clips, setClips] = useState<Clip[]>([]);
   const [posts, setPosts] = useState<ScheduledPost[]>([]);
   const [busy, setBusy] = useState<number | string | null>(null);
+  const [openId, setOpenId] = useState<number | null>(null);
   const [message, setMessage] = useState<{ tone: "success" | "brand" | "danger"; text: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -99,6 +101,9 @@ export default function HubPage() {
   const postsByClip = new Map<number, ScheduledPost[]>();
   posts.forEach((p) => postsByClip.set(p.clip_id, [...(postsByClip.get(p.clip_id) ?? []), p]));
   const dueNow = upcoming.filter((p) => p.status === "ready").length;
+  // Tracked by id, so the 15s refresh never changes which clip is open.
+  const openIndex = clips.findIndex((c) => c.id === openId);
+  const open = openIndex >= 0 ? clips[openIndex] : null;
 
   return (
     <div className="space-y-12">
@@ -176,117 +181,28 @@ export default function HubPage() {
       </section>
 
       {clips.length > 0 && (
-        <div className="flex flex-wrap items-center gap-4">
-          <SectionLabel>Your clips</SectionLabel>
-          <Badge tone="neutral" size="md">
-            {clips.length} total · {clips.filter((c) => c.status === "ready").length} captioned
-          </Badge>
-        </div>
-      )}
-
-      <div className="grid gap-8 sm:grid-cols-2 xl:grid-cols-3">
-        {clips.map((clip) => {
-          const videoSrc = mediaUrl(clip.file_path);
-          const why = clip.context_json?.agent_reason || clip.context_json?.highlight_reason;
-          const clipPosts = (postsByClip.get(clip.id) ?? []).filter((p) => p.status !== "failed");
-          return (
-            <Panel key={clip.id} as="article" padding="none" className="flex flex-col overflow-hidden">
-              <div className="relative aspect-[9/16] w-full bg-brand-deep">
-                {videoSrc && (
-                  <video
-                    src={videoSrc}
-                    poster={mediaUrl(clip.context_json?.thumbnail?.path) ?? undefined}
-                    controls
-                    playsInline
-                    preload="metadata"
-                    className="size-full object-cover"
-                  />
-                )}
-                <StarButton clipId={clip.id} starred={Boolean(clip.starred)} className="absolute top-3 right-3" />
-                {clip.highlight_score ? (
-                  <span className="absolute top-4 left-4 rounded-full bg-brand-deep/80 px-3 py-1 text-meta font-semibold text-on-brand tabular-nums">
-                    Hook {Math.round(clip.highlight_score)}/100
-                  </span>
-                ) : null}
-              </div>
-
-              <div className="flex flex-1 flex-col gap-5 p-7">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-meta tracking-[0.12em] text-ink-muted uppercase">Clip #{clip.id}</span>
-                    {clip.context_json?.game_or_topic && (
-                      <Badge tone="brand" size="sm">
-                        {clip.context_json.game_or_topic}
-                      </Badge>
-                    )}
-                  </div>
-                  <StatusBadge status={clip.review_status === "pending" ? "pending" : clip.status} />
-                </div>
-
-                <div className="flex-1">
-                  <h3 className="font-display text-2xl leading-snug font-semibold tracking-tight text-ink">{clip.title || "Untitled clip"}</h3>
-                  {why && (
-                    <p className="mt-3 flex gap-2 text-base text-ink-muted">
-                      <Icon name="bot" className="mt-0.5 size-5 shrink-0 text-brand" />
-                      {why}
-                    </p>
-                  )}
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {(clip.hashtags ?? []).map((tag) => (
-                      <Badge key={tag} tone="brand">
-                        {tag}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-
-                {clipPosts.length > 0 && (
-                  <ul className="space-y-1 text-base text-ink-muted">
-                    {clipPosts.map((p) => (
-                      <li key={p.id} className="flex items-center gap-2">
-                        <Icon name={p.status === "posted" ? "check" : "clock"} className="size-5 shrink-0" />
-                        {PLATFORM_LABEL[p.platform]} · {p.status === "posted" ? "posted" : formatSlot(p.scheduled_for)}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-
-                <ThumbnailEditor<Clip>
-                  key={clip.context_json?.thumbnail?.path ?? "none"}
-                  clipId={clip.id}
-                  thumbnail={clip.context_json?.thumbnail}
-                  onClip={(updated) => setClips((all) => all.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)))}
+        <section className="space-y-6">
+          <div className="flex flex-wrap items-center gap-4">
+            <SectionLabel>Your clips</SectionLabel>
+            <Badge tone="neutral" size="md">
+              {clips.length} total · {clips.filter((c) => c.status === "ready").length} captioned
+            </Badge>
+          </div>
+          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 2xl:grid-cols-5">
+            {clips.map((clip) => (
+              <li key={clip.id} className="min-w-0">
+                <ClipTile
+                  title={clip.title}
+                  filePath={clip.file_path}
+                  durationS={clip.duration_s}
+                  label={tileLabel(clip, postsByClip.get(clip.id) ?? [])}
+                  onOpen={() => setOpenId(clip.id)}
                 />
-
-                <Link href={`/editor/open?clip=${clip.id}`} className={buttonClass({ variant: "ghost", size: "sm", className: "justify-start px-0" })}>
-                  <Icon name="scissors" className="size-5" /> Edit in the editor
-                </Link>
-
-                <div className="grid grid-cols-2 gap-3 border-t border-line pt-6">
-                  {videoSrc ? (
-                    <a href={videoSrc} download={`clip_${clip.id}.mp4`} target="_blank" rel="noopener noreferrer" className={buttonClass({ variant: "secondary", size: "sm" })}>
-                      <Icon name="download" className="size-5" />
-                      Download
-                    </a>
-                  ) : (
-                    <span />
-                  )}
-                  {clipPosts.some((p) => p.status === "queued" || p.status === "ready") ? (
-                    <span className={buttonClass({ variant: "ghost", size: "sm", className: "pointer-events-none" })}>
-                      <Icon name="clock" className="size-5" /> Scheduled
-                    </span>
-                  ) : (
-                    <Button size="sm" loading={busy === clip.id} onClick={() => schedule(clip)}>
-                      <Icon name="send" className="size-5" />
-                      Schedule
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </Panel>
-          );
-        })}
-      </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {clips.length === 0 && (
         <Panel tone="sunken" padding="lg" className="flex flex-col items-center py-16 text-center">
@@ -300,6 +216,165 @@ export default function HubPage() {
           </Button>
         </Panel>
       )}
+
+      {open && (
+        <HubClipDialog
+          clip={open}
+          posts={(postsByClip.get(open.id) ?? []).filter((p) => p.status !== "failed")}
+          position={openIndex + 1}
+          total={clips.length}
+          busy={busy === open.id}
+          onPrev={openIndex > 0 ? () => setOpenId(clips[openIndex - 1].id) : undefined}
+          onNext={openIndex < clips.length - 1 ? () => setOpenId(clips[openIndex + 1].id) : undefined}
+          onClose={() => setOpenId(null)}
+          onSchedule={() => schedule(open)}
+          onStar={(starred) => setClips((prev) => prev.map((c) => (c.id === open.id ? { ...c, starred } : c)))}
+          onClip={(updated) => setClips((prev) => prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)))}
+        />
+      )}
     </div>
+  );
+}
+
+/** The tile's corner label: where the clip stands. */
+function tileLabel(clip: Clip, posts: ScheduledPost[]): React.ReactNode {
+  const star = clip.starred ? <Icon name="star" aria-hidden className="size-3.5" fill="currentColor" /> : null;
+  let text: string;
+  if (posts.some((p) => p.status === "posted")) text = "Posted";
+  else if (posts.some((p) => p.status === "queued" || p.status === "ready")) text = "Scheduled";
+  else if (clip.review_status === "pending") text = "To review";
+  else text = clip.status === "ready" ? "Ready" : clip.status;
+  return (
+    <>
+      {star}
+      {text}
+    </>
+  );
+}
+
+/** One clip's popup: why it was picked, its tags and posts, and download / schedule / edit. */
+function HubClipDialog({
+  clip,
+  posts,
+  position,
+  total,
+  busy,
+  onPrev,
+  onNext,
+  onClose,
+  onSchedule,
+  onStar,
+  onClip,
+}: {
+  clip: Clip;
+  posts: ScheduledPost[];
+  position: number;
+  total: number;
+  busy: boolean;
+  onPrev?: () => void;
+  onNext?: () => void;
+  onClose: () => void;
+  onSchedule: () => void;
+  onStar: (starred: boolean) => void;
+  /** The clip changed on the server (a new thumbnail). */
+  onClip: (updated: Clip) => void;
+}) {
+  const videoSrc = mediaUrl(clip.file_path);
+  const why = clip.context_json?.agent_reason || clip.context_json?.highlight_reason;
+  const scheduled = posts.some((p) => p.status === "queued" || p.status === "ready");
+
+  return (
+    <ClipDialog title={clip.title} filePath={clip.file_path} position={position} total={total} onPrev={onPrev} onNext={onNext} onClose={onClose}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="line-clamp-3 font-display text-2xl leading-snug font-semibold tracking-tight text-ink [overflow-wrap:anywhere]">{clip.title || "Untitled clip"}</h2>
+          <p className="mt-1 truncate text-base text-ink-muted tabular-nums">
+            Clip #{clip.id} · {Math.round(clip.duration_s)}s
+            {clip.highlight_score ? ` · Hook ${Math.round(clip.highlight_score)}/100` : ""}
+          </p>
+        </div>
+        <StarButton key={clip.id} clipId={clip.id} starred={Boolean(clip.starred)} onChange={(r) => onStar(r.starred)} />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusBadge status={clip.review_status === "pending" ? "pending" : clip.status} />
+        {clip.context_json?.game_or_topic && (
+          <Badge tone="brand" size="sm">
+            {clip.context_json.game_or_topic}
+          </Badge>
+        )}
+      </div>
+
+      {why && (
+        <p className="flex gap-2 rounded-md bg-brand-subtle px-4 py-3 text-base text-brand-strong">
+          <Icon name="bot" className="mt-0.5 size-5 shrink-0" />
+          <span>
+            <span className="font-semibold">Why: </span>
+            {why}
+          </span>
+        </p>
+      )}
+
+      {clip.context_json?.summary && <p className="text-base text-ink-muted">{clip.context_json.summary}</p>}
+
+      {(clip.hashtags ?? []).length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {(clip.hashtags ?? []).map((tag) => (
+            <Badge key={tag} tone="brand" size="sm">
+              {tag}
+            </Badge>
+          ))}
+        </div>
+      )}
+
+      {posts.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-base font-medium text-ink">Posts</p>
+          <ul className="space-y-1 text-base text-ink-muted">
+            {posts.map((p) => (
+              <li key={p.id} className="flex items-center gap-2">
+                <Icon name={p.status === "posted" ? "check" : "clock"} className="size-5 shrink-0" />
+                {PLATFORM_LABEL[p.platform]} · {p.status === "posted" ? "posted" : formatSlot(p.scheduled_for)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <ThumbnailEditor<Clip>
+        key={`${clip.id}:${clip.context_json?.thumbnail?.path ?? "none"}`}
+        clipId={clip.id}
+        thumbnail={clip.context_json?.thumbnail}
+        onClip={onClip}
+      />
+
+      <ClipDialogActions>
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+          {scheduled ? (
+            <span className={buttonClass({ variant: "secondary", size: "sm", className: "pointer-events-none" })}>
+              <Icon name="clock" className="size-5" /> Scheduled
+            </span>
+          ) : (
+            <Button size="sm" loading={busy} onClick={onSchedule}>
+              <Icon name="send" className="size-5" /> Schedule
+            </Button>
+          )}
+          {videoSrc ? (
+            <a href={videoSrc} download={`clip_${clip.id}.mp4`} target="_blank" rel="noopener noreferrer" className={buttonClass({ variant: "secondary", size: "sm" })}>
+              <Icon name="download" className="size-5" /> Download
+            </a>
+          ) : (
+            <span />
+          )}
+          <Link href={`/editor?clip=${clip.id}`} className={buttonClass({ variant: "ghost", size: "sm" })}>
+            <Icon name="film" className="size-5" /> Edit
+          </Link>
+        </div>
+        <p className="mt-3 hidden text-meta text-ink-faint lg:block">
+          <kbd className="font-mono font-semibold text-ink-muted">J</kbd>/<kbd className="font-mono font-semibold text-ink-muted">K</kbd> move ·{" "}
+          <kbd className="font-mono font-semibold text-ink-muted">Esc</kbd> close
+        </p>
+      </ClipDialogActions>
+    </ClipDialog>
   );
 }

@@ -3,26 +3,30 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bee, BeeLoader, BeeSwarm, HoneyDrip, HoneycombLattice } from "@/components/hive";
-import { Badge, Button, buttonClass, Checkbox, Em, Icon, Notice, Panel, SectionLabel, SkyHeader } from "@/components/ui";
-import { api, API_URL, ApiError } from "@/lib/api";
+import { ClipDialog, ClipDialogActions, ClipTile } from "@/components/clips";
+import { Bee, BeeLoader, BeeSwarm, HoneycombLattice } from "@/components/hive";
+import { Badge, Button, buttonClass, Em, Icon, Notice, Panel, Segmented, SkyHeader } from "@/components/ui";
+import { api, ApiError } from "@/lib/api";
 import { formatSlot, PLATFORM_LABEL, tzOffsetMinutes, type InboxClip, type PostPlatform, type ScheduledPost } from "@/lib/agents";
 import { cn } from "@/lib/cn";
-import { formatTime } from "@/lib/imports";
+import { formatTime, type Layout } from "@/lib/imports";
+import { usePersistentState } from "@/lib/usePersistentState";
 
 const QUICK_REASONS = ["Not funny", "Needs context", "Too long", "Boring", "Wrong moment"];
 const PLATFORMS: PostPlatform[] = ["tiktok", "youtube", "instagram"];
+const POLL_MS = 10_000;
 
 type Done = { kind: "approved" | "rejected"; clip: InboxClip; posts?: ScheduledPost[] };
 
+/**
+ * Every clip's video in one grid; tap one to open it in a popup (a bottom sheet on phones)
+ * with its details, the Blur / Fill switch and the approve / reject actions.
+ * The open clip is tracked by id, so clips arriving from the poll never change what's open.
+ */
 export default function InboxPage() {
-  const router = useRouter();
   const [clips, setClips] = useState<InboxClip[] | null>(null);
-  const [selected, setSelected] = useState(0);
-  const [platforms, setPlatforms] = useState<PostPlatform[]>(["tiktok", "youtube"]);
-  const [rejecting, setRejecting] = useState<number | null>(null);
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState<number | null>(null);
+  const [openId, setOpenId] = useState<number | null>(null);
+  const [platforms, setPlatforms] = usePersistentState<PostPlatform[]>("ch_inbox_platforms", ["tiktok", "youtube"]);
   const [last, setLast] = useState<Done | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,102 +35,75 @@ export default function InboxPage() {
       setClips(await api<InboxClip[]>("/api/inbox"));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't load the inbox.");
-      setClips([]);
+      setClips((prev) => prev ?? []);
     }
   }, []);
 
+  // New clips arrive while the agents work. Only poll while the tab is visible.
   useEffect(() => {
     load();
-    const t = setInterval(load, 10000); // new clips arrive while agents work
-    return () => clearInterval(t);
+    const t = setInterval(() => !document.hidden && load(), POLL_MS);
+    const onVisible = () => !document.hidden && load();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [load]);
 
-  const remove = (id: number) => {
-    setClips((prev) => {
-      const next = prev ? prev.filter((c) => c.id !== id) : prev;
-      setSelected((i) => Math.max(0, Math.min(i, (next?.length ?? 1) - 1)));
-      return next;
-    });
-  };
+  const openIndex = clips?.findIndex((c) => c.id === openId) ?? -1;
+  const open = openIndex >= 0 ? clips![openIndex] : null;
 
-  async function approve(clip: InboxClip) {
-    if (!platforms.length) {
-      setError("Pick at least one platform to schedule on.");
-      return;
-    }
-    setBusy(clip.id);
-    setError(null);
-    try {
-      const posts = await api<ScheduledPost[]>(`/api/inbox/${clip.id}/approve`, {
-        method: "POST",
-        body: { platforms, tz_offset_minutes: tzOffsetMinutes() },
-      });
-      setLast({ kind: "approved", clip, posts });
-      remove(clip.id);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't approve that clip.");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function reject(clip: InboxClip, why: string) {
-    setBusy(clip.id);
-    setError(null);
-    try {
-      await api(`/api/inbox/${clip.id}/reject`, { method: "POST", body: { reason: why.trim() || null } });
-      setLast({ kind: "rejected", clip });
-      setRejecting(null);
-      setReason("");
-      remove(clip.id);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't reject that clip.");
-    } finally {
-      setBusy(null);
-    }
+  /** Take a reviewed clip out; the popup moves on to the next clip, or closes after the last. */
+  function done(result: Done) {
+    const list = clips ?? [];
+    const i = list.findIndex((c) => c.id === result.clip.id);
+    const rest = list.filter((c) => c.id !== result.clip.id);
+    setClips(rest);
+    setOpenId(rest[Math.min(i, rest.length - 1)]?.id ?? null);
+    setLast(result);
   }
 
   async function undo() {
     if (!last) return;
-    await api(`/api/inbox/${last.clip.id}/restore`, { method: "POST" }).catch(() => undefined);
+    const id = last.clip.id;
     setLast(null);
-    load();
+    await api(`/api/inbox/${id}/restore`, { method: "POST" }).catch(() => undefined);
+    await load();
   }
 
-  // Keyboard: A approve · R reject · E edit · J/K or arrows to move.
-  const approveRef = useRef(approve);
-  approveRef.current = approve;
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      const target = e.target as HTMLElement;
-      if (target.closest("input, textarea, select, [contenteditable]") || e.metaKey || e.ctrlKey || e.altKey) return;
-      const clip = clips?.[selected];
-      if (!clip) return;
-      const key = e.key.toLowerCase();
-      if (key === "a") approveRef.current(clip);
-      else if (key === "r") setRejecting(clip.id);
-      else if (key === "e") router.push(`/editor/open?clip=${clip.id}`);
-      else if (key === "j" || key === "arrowright" || key === "arrowdown") setSelected((i) => Math.min((clips?.length ?? 1) - 1, i + 1));
-      else if (key === "k" || key === "arrowleft" || key === "arrowup") setSelected((i) => Math.max(0, i - 1));
-      else return;
-      e.preventDefault();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [clips, selected, router]);
+  const replace = (clip: InboxClip) => setClips((prev) => prev?.map((c) => (c.id === clip.id ? clip : c)) ?? prev);
+  const count = clips?.length;
 
-  const togglePlatform = (p: PostPlatform) => setPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
+  const feedback = last && (
+    <div
+      role="status"
+      className={cn(
+        "flex items-center justify-between gap-3 rounded-md px-4 py-2 text-base font-medium",
+        last.kind === "approved" ? "bg-success-subtle text-success" : "bg-brand-subtle text-brand-strong",
+      )}
+    >
+      <span className="min-w-0">
+        {last.kind === "approved"
+          ? `Approved. ${(last.posts ?? []).map((p) => `${PLATFORM_LABEL[p.platform]} ${formatSlot(p.scheduled_for)}`).join(" · ")}`
+          : "Rejected. The bees will learn from it."}
+      </span>
+      <button type="button" onClick={undo} className="inline-flex min-h-11 shrink-0 items-center font-semibold underline underline-offset-4">
+        Undo
+      </button>
+    </div>
+  );
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-8 lg:space-y-10">
       <SkyHeader
         eyebrow="Approval inbox"
         title={
           <>
-            Your bees harvested <Em>{clips?.length ?? "…"}</Em> clip{clips?.length === 1 ? "" : "s"}
+            <Em>{count ?? "…"}</Em> clip{count === 1 ? "" : "s"} to review
           </>
         }
-        description="Approve to schedule. Reject to teach the bees."
+        description="Tap a clip to watch it, then approve or reject."
         decoration={
           <>
             <HoneycombLattice tone="inverse" fade="right" />
@@ -135,49 +112,20 @@ export default function InboxPage() {
         }
       />
 
-      <Panel padding="md" className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-        <div className="space-y-2">
-          <p className="text-lg font-medium text-ink">Schedule approved clips on</p>
-          <div className="flex flex-wrap gap-x-6">
-            {PLATFORMS.map((p) => (
-              <Checkbox key={p} label={PLATFORM_LABEL[p]} checked={platforms.includes(p)} onChange={() => togglePlatform(p)} />
-            ))}
-          </div>
-        </div>
-        <p className="hidden text-base text-ink-muted lg:block">
-          Keys: <kbd className="font-mono font-semibold text-ink">A</kbd> approve · <kbd className="font-mono font-semibold text-ink">R</kbd> reject ·{" "}
-          <kbd className="font-mono font-semibold text-ink">E</kbd> edit · <kbd className="font-mono font-semibold text-ink">J</kbd>/<kbd className="font-mono font-semibold text-ink">K</kbd> move
-        </p>
-      </Panel>
-
-      {last && (
-        <Notice tone={last.kind === "approved" ? "success" : "brand"} onDismiss={() => setLast(null)}>
-          {last.kind === "approved" ? (
-            <>
-              Approved “{last.clip.title}”. Scheduled{" "}
-              {(last.posts ?? []).map((p) => `${PLATFORM_LABEL[p.platform]} ${formatSlot(p.scheduled_for)}`).join(", ") || "nothing"}; captions are burning.{" "}
-            </>
-          ) : (
-            <>Rejected “{last.clip.title}”. The bees will take that into account. </>
-          )}
-          <button type="button" onClick={undo} className="ml-1 inline-flex min-h-11 items-center font-semibold underline underline-offset-4">
-            Undo
-          </button>
-        </Notice>
-      )}
       {error && (
         <Notice tone="danger" onDismiss={() => setError(null)}>
           {error}
         </Notice>
       )}
+      {!open && feedback}
 
       {clips === null ? (
         <BeeLoader label="Loading clips…" />
       ) : clips.length === 0 ? (
-        <Panel tone="sunken" padding="lg" className="flex flex-col items-center py-16 text-center">
+        <Panel tone="sunken" padding="lg" className="flex flex-col items-center py-14 text-center">
           <Bee variant="honey" size={64} className="bee-hover" />
           <p className="mt-6 font-display text-3xl font-semibold tracking-tight text-ink">Inbox zero</p>
-          <p className="mt-2 max-w-xl text-lg text-ink-muted">New clips show up here when the bees finish.</p>
+          <p className="mt-2 text-lg text-ink-muted">New clips show up here when the bees finish.</p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
             <Link href="/create" className={buttonClass()}>
               <Icon name="plus" className="size-5" /> Start a project
@@ -188,117 +136,298 @@ export default function InboxPage() {
           </div>
         </Panel>
       ) : (
-        <section className="space-y-6">
-          <SectionLabel>To review</SectionLabel>
-          <ul className="grid gap-8 sm:grid-cols-2 xl:grid-cols-3">
-            {clips.map((clip, i) => {
-              const active = i === selected;
-              return (
-                <li key={clip.id} className="min-w-0">
-                  <Panel
-                    as="article"
-                    padding="none"
-                    onClick={() => setSelected(i)}
-                    aria-current={active || undefined}
-                    className={cn("relative flex h-full flex-col overflow-hidden transition-shadow duration-(--motion-fast)", active && "shadow-ring")}
-                  >
-                    {/* The clip you're on gets honey running over its top edge. */}
-                    {active && <HoneyDrip className="z-10" />}
-                    <div className="relative aspect-[9/16] max-h-[28rem] w-full bg-brand-deep">
-                      {clip.file_path && <video src={`${API_URL}/${clip.file_path}`} controls playsInline preload="metadata" className="size-full object-contain" />}
-                      <span className="absolute top-3 left-3 rounded-full bg-brand-deep/85 px-3 py-1 text-meta font-semibold text-on-brand tabular-nums">
-                        {formatTime(clip.start_s)} · {Math.round(clip.duration_s)}s
-                      </span>
-                    </div>
+        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 2xl:grid-cols-5">
+          {clips.map((clip) => (
+            <li key={clip.id} className="min-w-0">
+              <ClipTile title={clip.title} filePath={clip.file_path} durationS={clip.duration_s} label={clip.layout} onOpen={() => setOpenId(clip.id)} />
+            </li>
+          ))}
+        </ul>
+      )}
 
-                    <div className="flex flex-1 flex-col gap-4 p-6">
-                      <div>
-                        <h2 className="font-display text-2xl leading-snug font-semibold tracking-tight text-ink [overflow-wrap:anywhere]">{clip.title || "Untitled clip"}</h2>
-                        {clip.source_title && <p className="mt-1 truncate text-base text-ink-muted">From {clip.source_title}</p>}
-                      </div>
-
-                      {clip.reason && (
-                        <p className="flex gap-2 rounded-md bg-brand-subtle px-4 py-3 text-base text-brand-strong">
-                          <Icon name="bee" className="mt-0.5 size-5 shrink-0" />
-                          <span>
-                            <span className="font-semibold">Why: </span>
-                            {clip.reason}
-                          </span>
-                        </p>
-                      )}
-
-                      <div className="flex flex-wrap gap-2">
-                        {clip.context_json?.suggested_style && <Badge size="sm">{clip.context_json.suggested_style} captions</Badge>}
-                        {clip.context_json?.game_or_topic && <Badge size="sm">{clip.context_json.game_or_topic}</Badge>}
-                        {clip.hashtags.slice(0, 4).map((t) => (
-                          <Badge key={t} tone="brand" size="sm">
-                            {t}
-                          </Badge>
-                        ))}
-                      </div>
-
-                      {rejecting === clip.id ? (
-                        <form
-                          className="mt-auto space-y-3 border-t border-line pt-4"
-                          onSubmit={(e) => {
-                            e.preventDefault();
-                            reject(clip, reason);
-                          }}
-                        >
-                          <label htmlFor={`reason-${clip.id}`} className="block text-base font-medium text-ink">
-                            Why not? (optional)
-                          </label>
-                          <div className="flex flex-wrap gap-2">
-                            {QUICK_REASONS.map((r) => (
-                              <button
-                                key={r}
-                                type="button"
-                                onClick={() => reject(clip, r)}
-                                className="inline-flex min-h-11 items-center rounded-full border border-line-strong px-4 text-base text-ink hover:border-brand"
-                              >
-                                {r}
-                              </button>
-                            ))}
-                          </div>
-                          <input
-                            id={`reason-${clip.id}`}
-                            autoFocus
-                            value={reason}
-                            onChange={(e) => setReason(e.target.value)}
-                            onKeyDown={(e) => e.key === "Escape" && setRejecting(null)}
-                            placeholder="Or type a reason and press Enter"
-                            className="block h-12 w-full rounded-md border border-line-strong bg-surface px-4 text-base text-ink focus:border-brand focus:shadow-ring focus-visible:outline-none"
-                          />
-                          <div className="flex gap-2">
-                            <Button type="submit" size="sm" variant="secondary" loading={busy === clip.id}>
-                              Reject
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => setRejecting(null)}>
-                              Cancel
-                            </Button>
-                          </div>
-                        </form>
-                      ) : (
-                        <div className="mt-auto grid grid-cols-3 gap-2 border-t border-line pt-4">
-                          <Button size="sm" loading={busy === clip.id} onClick={() => approve(clip)}>
-                            <Icon name="check" className="size-5" /> Approve
-                          </Button>
-                          <Button size="sm" variant="secondary" onClick={() => setRejecting(clip.id)}>
-                            <Icon name="x" className="size-5" /> Reject
-                          </Button>
-                          <Link href={`/editor/open?clip=${clip.id}`} className={buttonClass({ variant: "ghost", size: "sm" })}>
-                            <Icon name="scissors" className="size-5" /> Edit
-                          </Link>
-                        </div>
-                      )}
-                    </div>
-                  </Panel>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
+      {open && clips && (
+        <InboxClipDialog
+          clip={open}
+          position={openIndex + 1}
+          total={clips.length}
+          platforms={platforms}
+          onTogglePlatform={(p) => setPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))}
+          onPrev={openIndex > 0 ? () => setOpenId(clips[openIndex - 1].id) : undefined}
+          onNext={openIndex < clips.length - 1 ? () => setOpenId(clips[openIndex + 1].id) : undefined}
+          onClose={() => setOpenId(null)}
+          onDone={done}
+          onReplace={replace}
+          feedback={feedback}
+        />
       )}
     </div>
+  );
+}
+
+/** One clip's popup: details, the Blur / Fill switch and the approve / reject actions. */
+function InboxClipDialog({
+  clip,
+  position,
+  total,
+  platforms,
+  onTogglePlatform,
+  onPrev,
+  onNext,
+  onClose,
+  onDone,
+  onReplace,
+  feedback,
+}: {
+  clip: InboxClip;
+  position: number;
+  total: number;
+  platforms: PostPlatform[];
+  onTogglePlatform: (p: PostPlatform) => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+  onClose: () => void;
+  onDone: (result: Done) => void;
+  onReplace: (clip: InboxClip) => void;
+  feedback: React.ReactNode;
+}) {
+  const router = useRouter();
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [recutting, setRecutting] = useState<Layout | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Moving to another clip resets the per-clip state.
+  useEffect(() => {
+    setRejecting(false);
+    setReason("");
+    setError(null);
+  }, [clip.id]);
+
+  async function approve() {
+    if (!platforms.length || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const posts = await api<ScheduledPost[]>(`/api/inbox/${clip.id}/approve`, {
+        method: "POST",
+        body: { platforms, tz_offset_minutes: tzOffsetMinutes() },
+      });
+      onDone({ kind: "approved", clip, posts });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't approve that clip.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reject(why: string) {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api(`/api/inbox/${clip.id}/reject`, { method: "POST", body: { reason: why.trim() || null } });
+      onDone({ kind: "rejected", clip });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't reject that clip.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Re-cut the clip in the other layout (takes a few seconds; the old cut plays until then). */
+  async function switchLayout(layout: Layout) {
+    if (layout === clip.layout || recutting) return;
+    setRecutting(layout);
+    setError(null);
+    try {
+      const updated = await api<{ file_path: string | null; layout: Layout }>(`/api/studio/clips/${clip.id}/layout`, { method: "POST", body: { layout } });
+      onReplace({ ...clip, file_path: updated.file_path, layout: updated.layout });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't change the layout.");
+    } finally {
+      setRecutting(null);
+    }
+  }
+
+  // Keyboard inside the popup: A approve · R reject · E edit. (ClipDialog handles J/K.)
+  const keys = useRef({ approve });
+  keys.current = { approve };
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const target = e.target as HTMLElement;
+      if (target.closest("input, textarea, select, video, [contenteditable]") || e.metaKey || e.ctrlKey || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key === "a") keys.current.approve();
+      else if (key === "r") setRejecting(true);
+      else if (key === "e") router.push(`/editor?clip=${clip.id}`);
+      else return;
+      e.preventDefault();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [router, clip.id]);
+
+  return (
+    <ClipDialog
+      title={clip.title}
+      filePath={clip.file_path}
+      position={position}
+      total={total}
+      onPrev={onPrev}
+      onNext={onNext}
+      onClose={onClose}
+      videoOverlay={
+        recutting && (
+          <div className="absolute inset-0 grid place-items-center bg-brand-deep/70 text-center text-base font-medium text-on-brand">
+            <span className="flex flex-col items-center gap-3">
+              <Bee tone="inverse" size={40} className="bee-hover" />
+              Re-cutting as {recutting}…
+            </span>
+          </div>
+        )
+      }
+    >
+            <div>
+              <h2 className="line-clamp-3 font-display text-2xl leading-snug font-semibold tracking-tight text-ink [overflow-wrap:anywhere]">{clip.title || "Untitled clip"}</h2>
+              <p className="mt-1 truncate text-base text-ink-muted tabular-nums">
+                {Math.round(clip.duration_s)}s at {formatTime(clip.start_s)}
+                {clip.source_title && ` · ${clip.source_title}`}
+              </p>
+            </div>
+
+            {clip.layout && (
+              <div className="space-y-2">
+                <Segmented
+                  label="Layout"
+                  value={recutting ?? clip.layout}
+                  onChange={switchLayout}
+                  options={[
+                    { value: "blur", label: "Blur" },
+                    { value: "fill", label: "Fill" },
+                  ]}
+                />
+                <p className="text-meta text-ink-muted">{(recutting ?? clip.layout) === "blur" ? "Whole frame, blurred backdrop." : "Cropped to fill the screen."}</p>
+              </div>
+            )}
+
+            {clip.reason && (
+              <p className="flex gap-2 rounded-md bg-brand-subtle px-4 py-3 text-base text-brand-strong">
+                <Icon name="bee" className="mt-0.5 size-5 shrink-0" />
+                <span>
+                  <span className="font-semibold">Why: </span>
+                  {clip.reason}
+                </span>
+              </p>
+            )}
+
+            {(clip.context_json?.suggested_style || clip.context_json?.game_or_topic || clip.hashtags.length > 0) && (
+              <div className="flex flex-wrap gap-2">
+                {clip.context_json?.suggested_style && <Badge size="sm">{clip.context_json.suggested_style} captions</Badge>}
+                {clip.context_json?.game_or_topic && <Badge size="sm">{clip.context_json.game_or_topic}</Badge>}
+                {clip.hashtags.slice(0, 4).map((t) => (
+                  <Badge key={t} tone="brand" size="sm">
+                    {t}
+                  </Badge>
+                ))}
+              </div>
+            )}
+
+            <fieldset className="space-y-2">
+              <legend className="text-base font-medium text-ink">Post to</legend>
+              <div className="flex flex-wrap gap-2">
+                {PLATFORMS.map((p) => {
+                  const on = platforms.includes(p);
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => onTogglePlatform(p)}
+                      className={cn(
+                        "inline-flex min-h-11 items-center gap-2 rounded-full border px-4 text-base font-medium transition-colors duration-(--motion-fast)",
+                        on ? "border-brand bg-brand-subtle text-brand-strong" : "border-line-strong text-ink-muted hover:text-ink",
+                      )}
+                    >
+                      {on && <Icon name="check" className="size-5" />}
+                      {PLATFORM_LABEL[p]}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+
+            {error && <p className="rounded-md bg-danger-subtle px-4 py-2 text-base font-medium text-danger">{error}</p>}
+            {feedback}
+
+            {rejecting ? (
+              <form
+                className="mt-auto space-y-3 border-t border-line pt-4 pb-4 sm:pb-0"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  reject(reason);
+                }}
+              >
+                <label htmlFor="reject-reason" className="block text-base font-medium text-ink">
+                  Why not? (optional)
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {QUICK_REASONS.map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => reject(r)}
+                      className="inline-flex min-h-11 items-center rounded-full border border-line-strong px-4 text-base text-ink hover:border-brand disabled:opacity-50"
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  id="reject-reason"
+                  autoFocus
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      e.preventDefault(); // close the reason box, not the popup
+                      setRejecting(false);
+                    }
+                  }}
+                  placeholder="Or type a reason and press Enter"
+                  className="block h-12 w-full rounded-md border border-line-strong bg-surface px-4 text-lg text-ink focus:border-brand focus:shadow-ring focus-visible:outline-none"
+                />
+                <div className="flex gap-2">
+                  <Button type="submit" size="sm" variant="secondary" loading={busy}>
+                    Reject
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setRejecting(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            ) : (
+              <ClipDialogActions>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+                  <Button size="sm" loading={busy} disabled={!platforms.length || !!recutting} onClick={approve}>
+                    <Icon name="check" className="size-5" /> Approve
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => setRejecting(true)}>
+                    <Icon name="x" className="size-5" /> Reject
+                  </Button>
+                  <Link href={`/editor?clip=${clip.id}`} className={buttonClass({ variant: "ghost", size: "sm" })}>
+                    <Icon name="film" className="size-5" /> Edit
+                  </Link>
+                </div>
+                {!platforms.length && <p className="mt-2 text-meta text-ink-muted">Pick a platform to approve.</p>}
+                <p className="mt-3 hidden text-meta text-ink-faint lg:block">
+                  <kbd className="font-mono font-semibold text-ink-muted">A</kbd> approve · <kbd className="font-mono font-semibold text-ink-muted">R</kbd> reject ·{" "}
+                  <kbd className="font-mono font-semibold text-ink-muted">E</kbd> edit · <kbd className="font-mono font-semibold text-ink-muted">J</kbd>/
+                  <kbd className="font-mono font-semibold text-ink-muted">K</kbd> move · <kbd className="font-mono font-semibold text-ink-muted">Esc</kbd> close
+                </p>
+              </ClipDialogActions>
+            )}
+    </ClipDialog>
   );
 }

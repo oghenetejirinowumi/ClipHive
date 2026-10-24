@@ -69,13 +69,11 @@ def _is_bot_wall(text: str) -> bool:
 def _friendly(err: Exception) -> str:
     text = str(err).lower()
     if "malloc" in text or "out of memory" in text or "cannot allocate memory" in text:
-        return "The video download ran out of processing memory. Retry the import; ClipHive will use a lower-memory clip path."
+        return "Something went wrong while downloading this video. Please try again."
     if _is_bot_wall(text) or "too many requests" in text or "429" in text:
-        return ("The platform is blocking downloads from this network (\"confirm you're not a bot\"). Wait 30–60 minutes "
-                "and retry, try another network, upload the video file instead, or set YTDLP_COOKIES_FILE or "
-                "YTDLP_COOKIES_FROM_BROWSER on the server.")
+        return "This video can't be imported right now. Please try again later, or upload the video file instead."
     if "private" in text or "login" in text or "cookies" in text or "empty media response" in text:
-        return "That video is private, or the platform needs a signed-in session to fetch it (set YTDLP_COOKIES_FILE on the server)."
+        return "That video is private or needs a sign-in to watch, so it can't be imported. Try uploading the video file instead."
     if "unsupported url" in text:
         return "We couldn't find a video at that link."
     if "404" in text or "not found" in text or "does not exist" in text:

@@ -56,6 +56,13 @@ const ANIMATIONS: { value: TextAnimation; label: string }[] = [
   { value: "fade", label: "Fade" },
   { value: "slide_up", label: "Slide up" },
   { value: "line", label: "Line" },
+  { value: "bounce", label: "Bounce" },
+  { value: "float", label: "Float" },
+  { value: "spin", label: "Spin" },
+  { value: "wiggle", label: "Wiggle" },
+  { value: "stamp", label: "Stamp" },
+  { value: "burst", label: "Burst" },
+  { value: "slide_in", label: "Slide in" },
   { value: "none", label: "None" },
 ];
 

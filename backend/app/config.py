@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     # Video editor: exports render with the HyperFrames CLI (needs Node.js 22+; npx fetches it once).
     hyperframes_version: str = "0.8.189"
     editor_render_quality: str = "looks"  # draft | looks | delivery
+    # Parallel Chrome workers per export. 0 = pick from the machine's cores and RAM (render.py).
+    # HyperFrames on its own drops to 1 worker on any machine with <= 8 GB RAM, ~3x slower.
+    editor_render_workers: int = 0
 
     # Local demo account (app/core/demo.py). Off by default; never enable on a public server.
     demo_login_enabled: bool = False

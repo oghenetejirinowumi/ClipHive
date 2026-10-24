@@ -425,16 +425,16 @@ def run_producer(job: ProducerJob) -> list[int]:
             if session.clip_ids:
                 summary = result.summary or f"Cut {len(session.clip_ids)} clips and rejected {len(session.rejected)} weak moments."
                 if not result.finished:
-                    summary += f" (stopped early: {result.stop_reason.replace('_', ' ')})"
+                    summary += " (stopped a little early)"
                 events.finish_run(run_id, "done", summary)
                 return session.clip_ids
-            events.log(run_id, "error", f"The agent cut no clips ({result.stop_reason.replace('_', ' ')}). Switching to the fixed pipeline.")
+            events.log(run_id, "thought", "Picking the best moments a different way.")
         except Exception as err:
             logger.exception("Producer agent failed for job %s", job.job_id)
             if session.clip_ids:
-                events.finish_run(run_id, "done", f"Cut {len(session.clip_ids)} clips before an error stopped me: {str(err)[:120]}")
+                events.finish_run(run_id, "done", f"Cut {len(session.clip_ids)} clips.")
                 return session.clip_ids
-            events.log(run_id, "error", f"Agent error: {str(err)[:200]}. Switching to the fixed pipeline.")
+            events.log(run_id, "thought", "Picking the best moments a different way.")
     else:
         if not settings.agent_mode_enabled:
             why = "agent mode is off"
@@ -442,7 +442,8 @@ def run_producer(job: ProducerJob) -> list[int]:
             why = f"AGENT_PROVIDER={settings.agent_provider!r} isn't one of auto, openai, groq"
         else:
             why = "no API key is set for the agent's model"
-        events.log(run_id, "thought", f"Running the fixed pipeline because {why}.")
+        logger.info("Producer for job %s runs without a model: %s", job.job_id, why)
+        events.log(run_id, "thought", "Finding the best moments from the video's audio.")
 
     events.set_model(run_id, "fallback")
     clip_ids = _run_fixed(job, run_id, session._full_transcript())

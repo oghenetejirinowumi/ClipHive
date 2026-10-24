@@ -34,6 +34,14 @@ TextAnimation = Literal[
     "line",
     "single_word",
     "word_pop",
+    # Emoji motions (also fine on any text): see services/editor/emojis.py
+    "bounce",
+    "float",
+    "spin",
+    "wiggle",
+    "stamp",
+    "burst",
+    "slide_in",
 ]
 Font = str
 # Visual effects on the picture (video/image tracks; text stays steady). See services/editor/effects.py.
@@ -102,6 +110,7 @@ class Text(BaseModel):
     uppercase: bool = False
     animation: TextAnimation = "pop"
     is_caption: bool = False  # generated from speech by "add captions"
+    is_emoji: bool = False  # placed by "Auto emoji"; running it again replaces these
 
     @field_validator("color", "stroke_color", "background")
     @classmethod
@@ -301,6 +310,10 @@ class MomentRequest(BaseModel):
 class CaptionsRequest(BaseModel):
     preset: str = "punch"
     words_per_caption: int = Field(default=3, ge=1, le=8)
+class AutoEmojiRequest(BaseModel):
+    amount: Literal["few", "normal", "lots", "none"] = "normal"  # "none" removes the auto emoji
+    motion: Literal["mix", "pop", "bounce", "float", "spin", "wiggle", "slide", "stamp", "burst"] = "mix"
+    placement: Literal["mix", "above", "beside"] = "mix"
 
 
 class AutoSfxRequest(BaseModel):

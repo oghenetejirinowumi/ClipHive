@@ -17,6 +17,7 @@ psutil>=5.9  # cancel: stop a job's own ffmpeg download process
 imageio-ffmpeg>=0.5.1
 fonttools>=4.50  # caption layout: font metrics + renaming downloaded Google Fonts
 numpy>=1.26
+Pillow>=10.4  # draws colour emoji for burned captions (libass can't)
 streamlink>=6.8
 boto3>=1.34  # finished media on S3 / R2 / B2 (S3_BUCKET)
 moto[s3]>=5  # tests only: in-memory S3 for tests/test_object_store.py

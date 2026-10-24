@@ -15,6 +15,7 @@ with the clips it already has excluded, so every new clip is a moment it hasn't 
 from __future__ import annotations
 
 import json
+import re
 import logging
 import shutil
 import threading
@@ -132,8 +133,8 @@ def repair_clip_states() -> None:
             if media_exists(clip.raw_file_path):
                 if clip.status == ClipStatus.PROCESSING:
                     clip.caption_mode = CaptionMode.PLATFORM_NATIVE
-                elif not (clip.error or "").startswith("Captions failed"):
-                    clip.error = "Captions failed: the video encoder ran out of memory, try again"
+                elif clip.error != "Adding captions didn't work. Please try again.":
+                    clip.error = "Adding captions didn't work. Please try again."
                 clip.status = ClipStatus.READY
                 fixed += 1
         if fixed:
@@ -146,6 +147,14 @@ def recover_interrupted() -> None:
     off: downloaded audio, fetched sections and already-cut clips are reused, not redone."""
     ensure_columns()
     repair_clip_states()
+    # Failure messages saved before they were made user-friendly (env var names, "server", ...)
+    with SessionLocal() as db:
+        technical = re.compile(r"[A-Z]{3,}_[A-Z_]{3,}|server|backend|ffmpeg|yt-dlp|Traceback", re.IGNORECASE)
+        old = [j for j in db.query(ImportJob).filter(ImportJob.error.isnot(None)) if technical.search(j.error or "")]
+        for job in old:
+            job.error = "We couldn't import this video. Please try again, or upload the video file instead."
+        if old:
+            db.commit()
     # A preview that was downloading died with the server; let the studio start it again.
     for state_file in (storage_root() / "imports").glob("*/preview.json"):
         try:
@@ -157,7 +166,7 @@ def recover_interrupted() -> None:
     with SessionLocal() as db:
         stuck = db.query(ImportJob).filter(ImportJob.status.notin_([ImportStatus.DONE, ImportStatus.FAILED])).all()
         for job in stuck:
-            job.status, job.error, job.detail = ImportStatus.QUEUED, None, "Resuming after a server restart"
+            job.status, job.error, job.detail = ImportStatus.QUEUED, None, "Picking up where it left off"
         ids = [job.id for job in stuck]
         if stuck:
             db.commit()
@@ -500,7 +509,7 @@ def cut_and_handoff(
     user_id: int,
     title: str,
     name: str,
-    layout: str = "fill",
+    layout: str = "blur",
     stream_id: int | None = None,
     offset_s: float = 0.0,
     first_number: int = 1,

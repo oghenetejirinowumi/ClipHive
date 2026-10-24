@@ -1,7 +1,7 @@
 "use client";
 
 import { Segmented } from "@/components/ui";
-import { ANIMATIONS, type CaptionOptions, type StyleDraft } from "@/lib/captions";
+import { ANIMATIONS, EMOJI_MOTIONS, type CaptionOptions, type StyleDraft } from "@/lib/captions";
 import { cn } from "@/lib/cn";
 import { ColorField, EditorSection, RangeField, Toggle } from "./Controls";
 import { FontPicker } from "./FontPicker";
@@ -131,6 +131,64 @@ export function StyleEditor({ draft, onChange }: { draft: StyleDraft; onChange: 
             <RangeField label="Box padding" value={o.box_padding} min={0} max={60} unit="px" onChange={(v) => opt("box_padding", v)} />
             <RangeField label="Corner radius" value={o.box_radius} min={0} max={60} unit="px" onChange={(v) => opt("box_radius", v)} />
           </div>
+        )}
+      </EditorSection>
+
+      <EditorSection title="Emoji">
+        <Toggle label="Add emoji" checked={o.emojis} onChange={(v) => opt("emojis", v)} hint="Only where a word calls for one: a laugh, a clutch, a fail. Never on filler." />
+        {o.emojis && (
+          <>
+            <div className="space-y-2">
+              <p className="text-base font-medium text-ink">How many</p>
+              <Segmented
+                label="How many emoji"
+                value={o.emoji_amount}
+                onChange={(v) => opt("emoji_amount", v)}
+                options={[
+                  { value: "few", label: "Few" },
+                  { value: "normal", label: "Normal" },
+                  { value: "lots", label: "Lots" },
+                ]}
+              />
+              <p className="text-meta text-ink-muted">
+                {o.emoji_amount === "few" ? "Only the biggest moments." : o.emoji_amount === "lots" ? "Most emotional words get one." : "The clear moments, spaced out."}
+              </p>
+            </div>
+            <fieldset className="space-y-2">
+              <legend className="text-base font-medium text-ink">How they show up</legend>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {[{ value: "mix" as const, label: "Mix", hint: "Each emoji gets a motion that fits it" }, ...EMOJI_MOTIONS].map((m) => (
+                  <button
+                    key={m.value}
+                    type="button"
+                    aria-pressed={o.emoji_motion === m.value}
+                    onClick={() => opt("emoji_motion", m.value)}
+                    className={cn(
+                      "min-h-14 rounded-md border px-3 py-2 text-left transition-colors duration-(--motion-fast)",
+                      o.emoji_motion === m.value ? "border-brand bg-brand-subtle" : "border-line-strong hover:border-brand",
+                    )}
+                  >
+                    <span className="block text-base font-semibold text-ink">{m.label}</span>
+                    <span className="block text-meta text-ink-muted">{m.hint}</span>
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+            <div className="space-y-2">
+              <p className="text-base font-medium text-ink">Where</p>
+              <Segmented
+                label="Where emoji go"
+                value={o.emoji_placement}
+                onChange={(v) => opt("emoji_placement", v)}
+                options={[
+                  { value: "mix", label: "Mix" },
+                  { value: "above", label: "Above" },
+                  { value: "beside", label: "Beside" },
+                ]}
+              />
+            </div>
+            <RangeField label="Emoji size" value={o.emoji_size} min={50} max={260} unit="px" onChange={(v) => opt("emoji_size", v)} />
+          </>
         )}
       </EditorSection>
 

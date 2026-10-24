@@ -1,15 +1,15 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { AgentFeed } from "@/components/agents/AgentFeed";
 import { CommandBar } from "@/components/agents/CommandBar";
 import { ProjectCard } from "@/components/projects/ProjectCard";
 import { Badge, Button, Em, Icon, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
-import { api, ApiError, apiUrl } from "@/lib/api";
+import { api, ApiError, apiUrl, GENERIC_ERROR, userMessage } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { ACTIVE_STATUSES as ACTIVE, SOURCE_LABEL, type ImportJob, type Layout } from "@/lib/imports";
 import { getToken } from "@/lib/session";
+import { shrinkForUpload } from "@/lib/shrinkVideo";
 
 // Mirrors backend services/ingest/sources.py, for instant feedback while typing.
 function detect(url: string): "twitch" | "kick" | "youtube" | "instagram" | null {
@@ -45,9 +45,9 @@ function uploadWithProgress(file: File, clipCount: number, clipSeconds: number, 
         data = JSON.parse(xhr.responseText);
       } catch {}
       if (xhr.status >= 200 && xhr.status < 300) resolve(data as ImportJob);
-      else reject(new ApiError(xhr.status, typeof data.detail === "string" ? data.detail : "Upload failed."));
+      else reject(new ApiError(xhr.status, userMessage(xhr.status, typeof data.detail === "string" ? data.detail : null)));
     };
-    xhr.onerror = () => reject(new ApiError(0, "Couldn't reach the server. Is the backend running?"));
+    xhr.onerror = () => reject(new ApiError(0, GENERIC_ERROR));
     xhr.send(form);
   });
 }
@@ -56,10 +56,12 @@ export default function CreatePage() {
   const [url, setUrl] = useState("");
   const [clipCount, setClipCount] = useState<"3" | "5" | "10" | "20">("5");
   const [clipSeconds, setClipSeconds] = useState<"15" | "30" | "60">("30");
-  const [layout, setLayout] = useState<Layout>("fill");
+  const [layout, setLayout] = useState<Layout>("blur");
   const [jobs, setJobs] = useState<ImportJob[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  // Shrinking a big phone video to 1080p before it goes up (null when not doing it).
+  const [preparing, setPreparing] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -70,7 +72,7 @@ export default function CreatePage() {
     try {
       setJobs(await api<ImportJob[]>("/api/imports"));
     } catch {
-      // Backend offline: keep what we have; the submit path shows the real error.
+      // Offline for a moment: keep what we have; the submit path shows the error.
     }
   }, []);
 
@@ -90,7 +92,7 @@ export default function CreatePage() {
     e.preventDefault();
     if (!url.trim()) return;
     if (platform === "instagram") {
-      setError("Instagram links go in the IG downloader. This box takes Twitch, Kick and YouTube.");
+      setError("Instagram links aren't supported. This box takes Twitch, Kick and YouTube.");
       return;
     }
     setSubmitting(true);
@@ -108,7 +110,7 @@ export default function CreatePage() {
       setJobs((prev) => [job, ...prev]);
       setUrl("");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't reach the server. Is the backend running?");
+      setError(err instanceof ApiError ? err.message : GENERIC_ERROR);
     } finally {
       setSubmitting(false);
     }
@@ -137,15 +139,21 @@ export default function CreatePage() {
     }
   }
 
-  async function submitFile(file: File) {
+  async function submitFile(original: File) {
     setError(null);
+    setPreparing(0);
     setUploadProgress(0);
     try {
+      // 4K phone video is shrunk to 1080p on the device first: a fraction of the upload, and
+      // much faster for the server to cut. Falls back to the original when it can't.
+      const file = await shrinkForUpload(original, setPreparing);
+      setPreparing(null);
       const job = await uploadWithProgress(file, Number(clipCount), Number(clipSeconds), layout, setUploadProgress);
       setJobs((prev) => [job, ...prev]);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Upload failed.");
     } finally {
+      setPreparing(null);
       setUploadProgress(null);
       if (fileInput.current) fileInput.current.value = "";
     }
@@ -174,7 +182,7 @@ export default function CreatePage() {
 
       <Panel padding="lg" className="space-y-8">
         {/* 1. Link */}
-        <form onSubmit={submitLink} className="space-y-3">
+        <form onSubmit={submitLink} className="space-y-3" data-tour="create-link">
           <label htmlFor="source-url" className="block text-lg font-medium text-ink">
             Video link
           </label>
@@ -206,12 +214,7 @@ export default function CreatePage() {
             </Button>
           </div>
           {platform === "instagram" && (
-            <p className="text-base text-ink-muted">
-              Looks like Instagram.{" "}
-              <Link href="/download" className="inline-flex min-h-11 items-center font-medium text-brand hover:text-brand-strong">
-                Open the IG downloader
-              </Link>
-            </p>
+            <p className="text-base text-ink-muted">Looks like Instagram. Only Twitch, Kick and YouTube links can be turned into clips.</p>
           )}
         </form>
 
@@ -245,10 +248,16 @@ export default function CreatePage() {
           />
           {uploading ? (
             <>
-              <p className="font-display text-2xl font-semibold tracking-tight text-ink">Uploading… {Math.round((uploadProgress ?? 0) * 100)}%</p>
+              <p className="font-display text-2xl font-semibold tracking-tight text-ink">
+                {preparing !== null ? `Preparing video… ${Math.round(preparing * 100)}%` : `Uploading… ${Math.round((uploadProgress ?? 0) * 100)}%`}
+              </p>
               <div className="h-3 w-full max-w-md overflow-hidden rounded-full bg-surface">
-                <div className="h-full rounded-full bg-brand transition-[width] duration-(--motion-fast)" style={{ width: `${(uploadProgress ?? 0) * 100}%` }} />
+                <div
+                  className="h-full rounded-full bg-brand transition-[width] duration-(--motion-fast)"
+                  style={{ width: `${(preparing ?? uploadProgress ?? 0) * 100}%` }}
+                />
               </div>
+              {preparing !== null && <p className="text-base text-ink-muted">Shrinking it to 1080p so it uploads faster.</p>}
             </>
           ) : (
             <>
@@ -287,8 +296,8 @@ export default function CreatePage() {
               value={layout}
               onChange={setLayout}
               options={[
-                { value: "fill", label: "Fill" },
                 { value: "blur", label: "Blur" },
+                { value: "fill", label: "Fill" },
               ]}
             />
           </div>
@@ -310,7 +319,9 @@ export default function CreatePage() {
           <h2 className="font-display text-3xl font-semibold tracking-tight text-ink">Or just tell the agents</h2>
           <p className="mt-2 text-lg text-ink-muted">Say what you want in your own words. The agents find your latest stream and plan the clips; you confirm before anything runs.</p>
         </div>
-        <CommandBar onStarted={(job) => setJobs((prev) => [job, ...prev])} />
+        <div data-tour="create-command">
+          <CommandBar onStarted={(job) => setJobs((prev) => [job, ...prev])} />
+        </div>
       </Panel>
 
       {/* Projects */}

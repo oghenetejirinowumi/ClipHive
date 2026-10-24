@@ -657,7 +657,7 @@ def find_social_trends(
             by_id.setdefault(video.id, video)
     if not succeeded:
         raise SocialSearchUnavailable(
-            "Couldn't reach YouTube to look up popular hashtags. Check the backend's internet connection and try again."
+            "We couldn't look up popular hashtags right now. Please try again."
         )
 
     videos = [v for v in by_id.values() if v.duration_s is None or v.duration_s <= SHORT_FORM_MAX_S]

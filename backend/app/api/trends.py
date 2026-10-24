@@ -31,7 +31,9 @@ from app.services.trends.queries import (
     observed_patterns,
     score_item,
 )
+from app.services.trends import radar as clip_radar
 from app.services.trends.scheduler import scheduler_status
+from app.services.trends.suggest import suggestions_for
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -48,6 +50,18 @@ def get_trends(
     query = latest_scores_query(db, platform.value, region.upper())
     rows = query.order_by(TrendScore.score.desc().nullslast()).limit(10).all()
     return [score_item(score, hashtag) for score, hashtag in rows]
+
+
+@router.get("/radar")
+def get_radar(user: CurrentUser, refresh: bool = Query(default=False)):
+    """What clippers are posting right now: hot topics, top clips and clippers (Kick, Twitch)."""
+    return clip_radar.get_radar(refresh=refresh).as_dict()
+
+
+@router.get("/radar/suggestions")
+def get_radar_suggestions(user: CurrentUser, db: Session = Depends(get_db)):
+    """What this creator should clip next, from the radar plus their channels and taste."""
+    return suggestions_for(db, user.id, clip_radar.get_radar()).as_dict()
 
 
 @router.get("/hashtags", response_model=HashtagPage)

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, type CSSProperties } from "react";
-import { captionFamily, DEFAULT_OPTIONS, loadCaptionFont, optionsFromLegacy, withOpacity, type CaptionOptions } from "@/lib/captions";
+import { captionFamily, DEFAULT_OPTIONS, loadCaptionFont, optionsFromLegacy, withOpacity, type CaptionOptions, type PreviewEmoji } from "@/lib/captions";
 import { cn } from "@/lib/cn";
 
 export type PreviewStyle = {
@@ -33,6 +33,7 @@ export function CaptionPreview({
   activeIndex,
   frame = false,
   zoom = 1,
+  emojis,
   className,
 }: {
   style: PreviewStyle | undefined;
@@ -40,6 +41,8 @@ export function CaptionPreview({
   activeIndex: number;
   frame?: boolean;
   zoom?: number;
+  /** Emoji planned for these words (shown when the style has emoji on). */
+  emojis?: PreviewEmoji[];
   className?: string;
 }) {
   /** Video pixels (1080 wide) -> container units, so the caption scales with the frame. */
@@ -61,6 +64,11 @@ export function CaptionPreview({
   const group = words.slice(start, start + perGroup).map((w, i) => ({ ...w, i: start + i }));
   const lines: (typeof group)[] = [];
   for (let i = 0; i < group.length; i += o.words_per_line) lines.push(group.slice(i, i + o.words_per_line));
+
+  // The emoji on screen now: from its word until it leaves, within this phrase.
+  const emoji = o.emojis
+    ? emojis?.find((e) => activeIndex >= e.index && activeIndex < e.until && e.index >= start && e.index < start + perGroup)
+    : undefined;
 
   const animated = mode !== "line" && mode !== "karaoke";
   const isBox = mode === "highlight_box";
@@ -92,6 +100,8 @@ export function CaptionPreview({
         ...(frame ? { top: `${o.position_y}%`, transform: "translateY(-50%)", maxWidth: `${o.max_width}%` } : {}),
       }}
     >
+      <div className="relative mx-auto w-fit max-w-full">
+      {emoji && <CaptionEmoji key={`${emoji.index}-${emoji.emoji}`} emoji={emoji} size={u(o.emoji_size)} />}
       {lines.map((line, li) => (
         <div
           key={li}
@@ -157,6 +167,41 @@ export function CaptionPreview({
           })}
         </div>
       ))}
+      </div>
     </div>
+  );
+}
+
+const SPARKS = [0, 1, 2, 3, 4, 5, 6];
+
+/** One emoji above or beside the caption block, entering with its motion (globals.css). */
+function CaptionEmoji({ emoji, size }: { emoji: PreviewEmoji; size: string }) {
+  const where =
+    emoji.placement === "right"
+      ? { left: "100%", top: "50%", marginLeft: "0.15em" }
+      : emoji.placement === "left"
+        ? { right: "100%", top: "50%", marginRight: "0.15em" }
+        : { left: "50%", bottom: "100%", marginBottom: "0.1em" };
+  const side = emoji.placement === "left" ? -1 : 1;
+  return (
+    <span
+      aria-hidden
+      className="pointer-events-none absolute z-10 block leading-none"
+      style={{ ...where, fontSize: size, translate: emoji.placement === "above" ? "-50% 0" : "0 -50%", fontFamily: "system-ui, sans-serif" }}
+    >
+      {emoji.motion === "burst" &&
+        SPARKS.map((k) => (
+          <span
+            key={k}
+            aria-hidden className="caption-emoji-spark absolute top-1/2 left-1/2 text-[0.35em]" /* design-check-ignore: decorative sparks sized to the caption */
+            style={{ "--angle": `${(k / SPARKS.length) * 360 + 12}deg` } as CSSProperties}
+          >
+            {emoji.emoji}
+          </span>
+        ))}
+      <span className={cn("caption-emoji inline-block", `caption-emoji-${emoji.motion}`)} style={{ "--side": side } as CSSProperties}>
+        {emoji.emoji}
+      </span>
+    </span>
   );
 }

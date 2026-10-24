@@ -38,7 +38,30 @@ export type CaptionOptions = {
   position_y: number;
   max_width: number;
   spacing_mode: "reflow" | "stable";
+  emojis: boolean;
+  emoji_amount: EmojiAmount;
+  emoji_motion: EmojiMotion | "mix";
+  emoji_placement: "mix" | "above" | "beside";
+  emoji_size: number;
 };
+
+export type EmojiAmount = "few" | "normal" | "lots";
+export type EmojiMotion = "pop" | "bounce" | "float" | "spin" | "wiggle" | "slide" | "stamp" | "burst";
+
+/** Ways an emoji can show up (backend services/caption/emoji_render.py draws the same ones). */
+export const EMOJI_MOTIONS: { value: EmojiMotion; label: string; hint: string }[] = [
+  { value: "pop", label: "Pop", hint: "Springs out of nothing" },
+  { value: "bounce", label: "Bounce", hint: "Drops in and bounces" },
+  { value: "float", label: "Float", hint: "Rises gently and sways" },
+  { value: "spin", label: "Spin", hint: "Spins in to size" },
+  { value: "wiggle", label: "Wiggle", hint: "Pops in and keeps wiggling" },
+  { value: "slide", label: "Slide", hint: "Slides in from the side" },
+  { value: "stamp", label: "Stamp", hint: "Slams down from big" },
+  { value: "burst", label: "Burst", hint: "Pops and throws sparks" },
+];
+
+/** One emoji in the live preview, in sample-word indexes (from /api/styles/emoji-plan). */
+export type PreviewEmoji = { index: number; until: number; emoji: string; motion: EmojiMotion; placement: "above" | "left" | "right" };
 
 export type CaptionStyle = {
   id: number;
@@ -96,6 +119,11 @@ export const DEFAULT_OPTIONS: CaptionOptions = {
   position_y: 68,
   max_width: 86,
   spacing_mode: "reflow",
+  emojis: false,
+  emoji_amount: "normal",
+  emoji_motion: "mix",
+  emoji_placement: "mix",
+  emoji_size: 120,
 };
 
 export const ANIMATIONS: { value: AnimationType; label: string; hint: string }[] = [

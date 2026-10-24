@@ -84,6 +84,8 @@ class InboxClip(UTCModel):
     reason: str | None = None
     source_title: str | None = None
     import_job_id: int | None = None
+    # "fill" | "blur" for clips cut from a project (switchable); None for live-recording clips.
+    layout: str | None = None
 
 
 class ApproveRequest(BaseModel):

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 from collections import deque
@@ -58,7 +59,7 @@ def recover_interrupted() -> None:
     with SessionLocal() as db:
         stuck = db.query(EditorProject).filter(EditorProject.render_status == "rendering").all()
         for project in stuck:
-            project.render_status, project.render_error = "failed", "Interrupted by a server restart. Export again."
+            project.render_status, project.render_error = "failed", "The export was interrupted. Please export again."
         if stuck:
             db.commit()
 
@@ -76,7 +77,8 @@ def _render_safely(project_id: int) -> None:
     try:
         _render(project_id)
     except RenderError as err:
-        _update(project_id, render_status="failed", render_error=str(err))
+        logger.warning("Export of project %s failed: %s", project_id, err)
+        _update(project_id, render_status="failed", render_error="Something went wrong while exporting. Please try again.")
     except Exception:
         logger.exception("Export of editor project %s crashed", project_id)
         _update(project_id, render_status="failed", render_error="Something went wrong while exporting.")
@@ -106,6 +108,18 @@ def build_render_folder(timeline: Timeline, work: Path, title: str) -> Path:
     return index
 
 
+def render_workers() -> int:
+    """Chrome workers for an export: one per core up to 4, keeping ~1.5 GB of RAM for the app
+    and ~0.5 GB per worker. 8 cores / 8 GB -> 4; 2 cores / 4 GB -> 2; 2 GB -> 1."""
+    if settings.editor_render_workers > 0:
+        return settings.editor_render_workers
+    try:
+        ram_gb = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024**3
+    except (ValueError, OSError, AttributeError):
+        return 1
+    return max(1, min(4, os.cpu_count() or 1, int((ram_gb - 1.5) / 0.5)))
+
+
 def _npx() -> str:
     npx = shutil.which("npx")
     if not npx:
@@ -130,7 +144,11 @@ def _render(project_id: int) -> None:
 
     cmd = [_npx(), "-y", f"hyperframes@{settings.hyperframes_version}", "render", str(work), "--output", str(out),
            "--quality", settings.editor_render_quality, "--fps", "30"]
-    logger.info("Exporting editor project %s (%.1fs)", project_id, timeline.duration)
+    workers = render_workers()
+    if workers > 1:
+        # Otherwise HyperFrames forces 1 worker on <= 8 GB machines.
+        cmd += ["--workers", str(workers), "--no-low-memory-mode"]
+    logger.info("Exporting editor project %s (%.1fs, %d workers)", project_id, timeline.duration, workers)
     tail: deque[str] = deque(maxlen=12)
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
     assert proc.stdout is not None

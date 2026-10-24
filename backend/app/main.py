@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -38,10 +39,10 @@ from app.services.trends.scheduler import trend_scheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
-from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core import object_store
+from app.core.static_cache import CachedStaticFiles
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("cliphive")
@@ -142,8 +143,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class MediaFiles(StaticFiles):
-    """/storage: the local file when this instance has it, else a redirect to its S3 copy."""
+class MediaFiles(CachedStaticFiles):
+    """/storage: the local file (with cache headers) when this instance has it, else a redirect
+    to its S3 copy."""
 
     async def get_response(self, path, scope):
         try:
@@ -162,7 +164,7 @@ storage_dir = Path(settings.storage_dir)  # same folder the import pipeline writ
 storage_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/storage", MediaFiles(directory=str(storage_dir)), name="storage")
 # Caption fonts for the video editor preview (the composition loads them by URL).
-app.mount("/editor-fonts", StaticFiles(directory=str(EDITOR_FONTS_DIR)), name="editor-fonts")
+app.mount("/editor-fonts", CachedStaticFiles(directory=str(EDITOR_FONTS_DIR), max_age=86400), name="editor-fonts")
 
 # Include routers (paths per docs/CONTRACT.md: everything under /api).
 app.include_router(auth.router, prefix="/api")
@@ -185,6 +187,19 @@ def root():
     return RedirectResponse(url="/docs")
 
 
+def _code_version() -> str:
+    """The deployed commit (short hash), so you can tell which code is live."""
+    try:
+        out = subprocess.run(["git", "-C", str(Path(__file__).resolve().parents[2]), "rev-parse", "--short=7", "HEAD"],
+                             capture_output=True, text=True, timeout=5)
+        return out.stdout.strip() or "unknown"
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+
+
+CODE_VERSION = _code_version()
+
+
 @app.api_route("/health", methods=["GET", "HEAD"])
 def health():
-    return {"status": "ok", "app": "ClipHive"}
+    return {"status": "ok", "app": "ClipHive", "version": CODE_VERSION}

@@ -5,8 +5,8 @@ import { CaptionPreview, type PreviewWord } from "@/components/captions/CaptionP
 import { PhoneFrame } from "@/components/captions/PhoneFrame";
 import { StyleEditor } from "@/components/captions/StyleEditor";
 import { Badge, Button, Em, Field, Icon, Notice, Panel, SectionLabel, Segmented, Select, SkyHeader, StatusBadge } from "@/components/ui";
-import { api, API_URL, ApiError, apiUrl } from "@/lib/api";
-import { ANIMATION_LABEL, draftOf, stylePayload, type CaptionStyle, type StyleDraft } from "@/lib/captions";
+import { api, API_URL, ApiError, GENERIC_ERROR } from "@/lib/api";
+import { ANIMATION_LABEL, draftOf, stylePayload, type CaptionStyle, type PreviewEmoji, type StyleDraft } from "@/lib/captions";
 import { cn } from "@/lib/cn";
 
 type Clip = {
@@ -59,7 +59,7 @@ export default function CaptionsPage() {
   }, []);
 
   useEffect(() => {
-    loadStyles().catch(() => setMsg({ tone: "danger", text: "Couldn't load caption styles. Is the backend running?" }));
+    loadStyles().catch(() => setMsg({ tone: "danger", text: GENERIC_ERROR }));
     api<Clip[]>("/api/clips", { auth: false })
       .then((c) => {
         setClips(c);
@@ -86,6 +86,26 @@ export default function CaptionsPage() {
   const selected = styles.find((s) => s.id === selectedId) ?? styles[0];
   const previewStyle: StyleDraft | null = draft ?? (selected ? draftOf(selected) : null);
   const dirty = draft !== null && !same(draft, saved);
+
+  // Which sample words get an emoji (the backend's rules, so the preview matches the burn).
+  const [emojis, setEmojis] = useState<PreviewEmoji[]>([]);
+  const po = previewStyle?.options;
+  const emojiOn = !!po?.emojis;
+  const perGroup = previewStyle?.animation_type === "single_word" ? 1 : (po?.words_per_line ?? 3) * (po?.max_lines ?? 2);
+  const emojiKey = emojiOn ? JSON.stringify([sampleText, perGroup, po?.emoji_amount, po?.emoji_motion, po?.emoji_placement]) : "";
+  useEffect(() => {
+    if (!emojiKey) {
+      setEmojis([]);
+      return;
+    }
+    const [text, words_per_group, amount, motion, placement] = JSON.parse(emojiKey);
+    const t = setTimeout(() => {
+      api<PreviewEmoji[]>("/api/styles/emoji-plan", { method: "POST", body: { text, words_per_group, word_s: 0.42, amount, motion, placement } })
+        .then(setEmojis)
+        .catch(() => setEmojis([]));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [emojiKey]);
 
   // Any edit makes the exact render stale.
   const previewKey = JSON.stringify(previewStyle && stylePayload(previewStyle)) + sampleText;
@@ -161,10 +181,7 @@ export default function CaptionsPage() {
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch(apiUrl("/api/styles/import-ass"), { method: "POST", body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Import failed");
-      const created = data as CaptionStyle[];
+      const created = await api<CaptionStyle[]>("/api/styles/import-ass", { method: "POST", body: form });
       await loadStyles(created[0]?.id);
       setCategory("Yours");
       const missing = created.filter((s) => !s.font_available).map((s) => s.font_name);
@@ -175,7 +192,7 @@ export default function CaptionsPage() {
           (missing.length ? ` Font not found: ${Array.from(new Set(missing)).join(", ")}; upload it in the editor.` : ""),
       });
     } catch (err) {
-      setMsg({ tone: "danger", text: err instanceof Error ? err.message : "Import failed." });
+      setMsg({ tone: "danger", text: err instanceof ApiError ? err.message : GENERIC_ERROR });
     } finally {
       setBusy(null);
       if (importInput.current) importInput.current.value = "";
@@ -454,7 +471,7 @@ export default function CaptionsPage() {
                     window.addEventListener("pointerup", up);
                   }}
                 >
-                  <CaptionPreview style={previewStyle ?? undefined} words={words} activeIndex={active} frame />
+                  <CaptionPreview style={previewStyle ?? undefined} words={words} activeIndex={active} emojis={emojis} frame />
                   <div aria-hidden className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-brand-deep/80 px-2.5 py-0.5 text-meta text-on-brand/60">
                     drag up / down to move
                   </div>

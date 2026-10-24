@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { Button, buttonClass, Icon, Panel } from "@/components/ui";
-import { API_URL } from "@/lib/api";
+import { API_URL, friendly } from "@/lib/api";
 import { ACTIVE_STATUSES, formatTime, projectTitle, SOURCE_LABEL, STEP_LABEL, type ImportJob } from "@/lib/imports";
 
 /**
@@ -71,8 +71,8 @@ export function ProjectCard({
           </div>
         )}
 
-        {job.status === "failed" && <p className="text-base text-danger">{job.error || "This project failed."}</p>}
-        {job.status === "done" && job.error && <p className="text-base text-ink-muted">{job.error}</p>}
+        {job.status === "failed" && <p className="text-base text-danger">{friendly(job.error)}</p>}
+        {job.status === "done" && job.error && <p className="text-base text-ink-muted">{friendly(job.error)}</p>}
 
         {children}
 

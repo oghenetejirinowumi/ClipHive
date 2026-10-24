@@ -4,10 +4,12 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, type ReactNode } from "react";
 import { NotificationBell } from "@/components/agents/NotificationBell";
+import { OnboardingTour } from "@/components/shell/OnboardingTour";
 import { Button, Icon, Logo, ResizeHandle, ThemeSwitch } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { NAV_GROUPS, activeGroup, isActive, type NavItem } from "@/lib/routes";
+import { startTour } from "@/lib/tour";
 import { usePersistentState } from "@/lib/usePersistentState";
 
 const SIDEBAR_MIN = 200;
@@ -60,6 +62,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   const sidebarWidth = collapsed ? SIDEBAR_COLLAPSED : Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, width));
+  const tourButton = (
+    <Button variant="ghost" size="xs" onClick={startTour} data-tour="tour-replay" aria-label="Take the tour" title="Take the tour">
+      <Icon name="sparkles" className="size-5" />
+    </Button>
+  );
   const signOutButton = (
     <Button variant="ghost" size="xs" onClick={signOut} aria-label="Sign out" title="Sign out">
       <Icon name="logout" className="size-5" />
@@ -91,6 +98,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <div key={g.id}>
                   <Link
                     href={g.items[0].href}
+                    data-tour={`nav-${g.id}`}
                     aria-current={open && !showItems ? "page" : undefined}
                     aria-label={collapsed ? g.label : undefined}
                     title={collapsed ? g.label : undefined}
@@ -131,7 +139,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           {collapsed ? (
             <div className="flex flex-col items-center gap-2">
-              <NotificationBell side="top" />
+              <span data-tour="bell" className="inline-flex">
+                <NotificationBell side="top" />
+              </span>
+              {tourButton}
               <ThemeSwitch />
               {signOutButton}
             </div>
@@ -141,7 +152,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                 {user?.email ?? " "}
               </p>
               <div className="flex items-center justify-between">
-                <NotificationBell side="top" />
+                <span data-tour="bell" className="inline-flex">
+                  <NotificationBell side="top" />
+                </span>
+                {tourButton}
                 <ThemeSwitch />
                 {signOutButton}
               </div>
@@ -163,7 +177,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-line bg-surface/95 px-4 lg:hidden">
           <Logo href="/dashboard" />
           <div className="flex items-center gap-2">
-            <NotificationBell align="right" />
+            <span data-tour="bell" className="inline-flex">
+              <NotificationBell align="right" />
+            </span>
+            {tourButton}
             <ThemeSwitch />
             {signOutButton}
           </div>
@@ -189,6 +206,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Link
               key={g.id}
               href={g.items[0].href}
+              data-tour={`nav-${g.id}`}
               aria-current={active ? "page" : undefined}
               className={cn("flex min-h-16 flex-col items-center justify-center gap-1 rounded-md py-2 text-meta font-medium", active ? "text-brand" : "text-ink-muted")}
             >
@@ -198,6 +216,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           );
         })}
       </nav>
+
+      <OnboardingTour />
     </div>
   );
 }
@@ -213,6 +233,7 @@ function SectionTabs({ pathname, items, label }: { pathname: string; items: NavI
             <li key={item.href}>
               <Link
                 href={item.href}
+                data-tour={`tab-${item.href}`}
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "flex h-10 items-center gap-2 rounded-full px-4 text-meta font-medium whitespace-nowrap transition-colors duration-(--motion-fast)",

@@ -96,15 +96,9 @@ export const NAV_GROUPS: NavGroup[] = [
     id: "tools",
     label: "Tools",
     icon: "sparkles",
-    description: "Trending hashtags and the Instagram downloader.",
+    description: "What's trending among clippers.",
     items: [
-      { href: "/trends", label: "Trends", icon: "trending", description: "This week's hashtags for TikTok and YouTube." },
-      {
-        href: "/download",
-        label: "IG downloader",
-        icon: "download",
-        description: "Paste an Instagram post or reel link and save the full video.",
-      },
+      { href: "/trends", label: "Trends", icon: "trending", description: "What clippers are posting right now, and what you should make next." },
     ],
   },
 ];
