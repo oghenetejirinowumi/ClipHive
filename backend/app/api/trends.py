@@ -141,9 +141,9 @@ def import_trends(
 
 
 @router.post("/apply", response_model=ClipRead)
-def apply_trends(payload: ApplyTrendsRequest, db: Session = Depends(get_db)):
+def apply_trends(payload: ApplyTrendsRequest, user: CurrentUser, db: Session = Depends(get_db)):
     """Applies trending hashtags to a clip's metadata."""
-    clip = db.query(Clip).filter(Clip.id == payload.clip_id).first()
+    clip = db.query(Clip).filter(Clip.id == payload.clip_id, Clip.user_id == user.id).first()
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
 
