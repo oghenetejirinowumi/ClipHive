@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { AgentFeed } from "@/components/agents/AgentFeed";
-import { Badge, Button, buttonClass, Em, Field, Icon, Input, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
+import { Bee, BeeSwarm, Flower, HoneycombLattice } from "@/components/hive";
+import { Badge, Button, buttonClass, ChannelAvatar, Em, Field, Icon, Input, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import { timeAgo, type AgentRun } from "@/lib/agents";
 import { cn } from "@/lib/cn";
@@ -72,6 +73,21 @@ export default function StreamersPage() {
   const [liveChecking, setLiveChecking] = useState(false);
   const [lastChecked, setLastChecked] = useState<string | null>(null);
   const [, tick] = useState(0); // re-render so "checked 20s ago" stays current
+  // Profile pictures from each platform, by streamer id (missing = show the initial).
+  const [avatars, setAvatars] = useState<Record<number, string | null>>({});
+
+  const loadAvatars = useCallback(async () => {
+    try {
+      const list = await api<{ streamer_id: number; avatar_url: string | null }[]>("/api/streamers/avatars");
+      setAvatars(Object.fromEntries(list.map((a) => [a.streamer_id, a.avatar_url])));
+    } catch (err) {
+      console.warn("Could not load channel pictures:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAvatars();
+  }, [loadAvatars]);
 
   const loadStatus = useCallback(async (refresh = false) => {
     setLiveChecking(true);
@@ -130,6 +146,7 @@ export default function StreamersPage() {
         setUsername("");
         setMessage({ tone: "success", text: `Watching ${created.username} on ${PLATFORM_LABEL[created.platform]}. Press “Check now” to clip their latest VOD.` });
         loadStatus();
+        loadAvatars();
       } catch {
         setMessage({ tone: "danger", text: "Failed to add that channel." });
       }
@@ -221,7 +238,13 @@ export default function StreamersPage() {
             Channels we&apos;re <Em>watching</Em>
           </>
         }
-        description="See who's live right now, checked against each platform. Live channels are recorded start to finish and clipped as they go. The Scout also watches for finished streams: when a new VOD appears it starts clipping it on its own, and the clips land in your inbox."
+        description="Live streams can be recorded and clipped as they go. New VODs are clipped automatically and land in your inbox."
+        decoration={
+          <>
+            <HoneycombLattice tone="inverse" fade="right" />
+            <BeeSwarm count={4} tone="inverse" interactive pollen className="-z-10" />
+          </>
+        }
       />
 
       {message && (
@@ -264,9 +287,15 @@ export default function StreamersPage() {
                 return (
                   <li key={s.id} className="flex flex-col gap-4 py-6 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex min-w-0 items-center gap-5">
-                      <span className={cn("grid size-14 shrink-0 place-items-center rounded-full font-display text-2xl font-semibold uppercase", s.is_active ? "bg-brand-subtle text-brand-strong" : "bg-surface-sunken text-ink-faint")}>
-                        {s.username.charAt(0)}
-                      </span>
+                      <ChannelAvatar
+                        src={avatars[s.id]}
+                        name={s.username}
+                        size={56}
+                        live={isLive}
+                        paused={!s.is_active}
+                        recording={s.recording}
+                        busy={checking === s.id || (checking === "all" && s.is_active)}
+                      />
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-3">
                           <span className="truncate font-display text-2xl font-semibold tracking-tight text-ink">{s.username}</span>
@@ -341,11 +370,9 @@ export default function StreamersPage() {
             </ul>
           ) : (
             <Panel tone="sunken" padding="lg" className="flex flex-col items-center py-14 text-center">
-              <span className="grid size-16 place-items-center rounded-full bg-brand-subtle text-brand-strong">
-                <Icon name="radio" />
-              </span>
+              <Flower state="bud" size={72} scout="hover" />
               <p className="mt-6 font-display text-3xl font-semibold tracking-tight text-ink">No channels yet</p>
-              <p className="mt-2 text-lg text-ink-muted">Add a channel on the right and the Scout starts watching.</p>
+              <p className="mt-2 text-lg text-ink-muted">Add one and the Scout starts watching it.</p>
             </Panel>
           )}
         </section>
@@ -353,7 +380,7 @@ export default function StreamersPage() {
         <aside className="space-y-8 lg:col-span-5">
           <Panel padding="lg">
             <h2 className="font-display text-3xl font-semibold tracking-tight text-ink">Add a channel</h2>
-            <p className="mt-2 text-lg text-ink-muted">Your own channel is best. The first check clips its newest VOD; after that, every new one.</p>
+            <p className="mt-2 text-lg text-ink-muted">The first check clips its newest VOD, then every new one.</p>
 
             <form onSubmit={handleAddStreamer} className="mt-8 space-y-6">
               <div className="space-y-2">
@@ -383,7 +410,9 @@ export default function StreamersPage() {
           </Panel>
 
           <Panel padding="md" className="space-y-4">
-            <h2 className="font-display text-2xl font-semibold tracking-tight text-ink">Scout&apos;s last check</h2>
+            <h2 className="flex items-center gap-3 font-display text-2xl font-semibold tracking-tight text-ink">
+              <Bee variant="scout" size={40} className="bee-hover" /> Scout&apos;s last check
+            </h2>
             {scoutRunId ? <AgentFeed runId={scoutRunId} compact /> : <p className="text-base text-ink-muted">No checks yet. Press “Check now” on a channel.</p>}
           </Panel>
         </aside>

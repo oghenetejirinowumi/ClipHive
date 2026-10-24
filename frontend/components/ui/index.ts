@@ -2,6 +2,7 @@ export { AuthFrame } from "./AuthFrame";
 export { AuthShowcase } from "./AuthShowcase";
 export { Badge } from "./Badge";
 export { Button, buttonClass, type ButtonProps } from "./Button";
+export { ChannelAvatar } from "./ChannelAvatar";
 export {
   EditorialSection,
   Em,
