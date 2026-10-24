@@ -32,10 +32,24 @@ export type StudioClip = {
   captioned: boolean;
   caption_style_id: number | null;
   layout: Layout;
+  speed?: number;
+  volume?: number;
+  color_filter?: string;
+  caption_position_y?: number | null;
   highlight_score: number | null;
   starred: boolean;
   error: string | null; // e.g. why burning captions failed (the clean clip is still ready)
 };
+
+export const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+
+export const FILTER_OPTIONS = [
+  { value: "none", label: "Natural" },
+  { value: "vibrant", label: "Vibrant" },
+  { value: "warm", label: "Warm" },
+  { value: "cool", label: "Cool" },
+  { value: "dramatic", label: "Dramatic B&W" },
+] as const;
 
 export type Moment = { start_s: number; end_s: number; score: number };
 

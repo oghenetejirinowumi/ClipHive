@@ -27,6 +27,25 @@ npm run dev
 
 Open http://localhost:3000/trends. The app shell requires a signed-in session; the existing demo/auth configuration applies.
 
+## Agents
+
+ClipHive runs a small team of agents; every step they take is logged and shown live in the app.
+
+| Agent | What it does | Where you see it |
+| --- | --- | --- |
+| Scout | Checks the channels on `/streamers` for new VODs (yt-dlp listing, no download) and starts an import for each new one | `/streamers` (Check now), `/agents` |
+| Producer | Takes ~3x more loud candidate moments than needed, reads their transcripts, rejects weak ones with a reason, picks its own cut points and cuts and packages the keepers | Live feed on `/create`, "Why" on each clip |
+| Publisher | When you approve a clip in `/inbox`: burns captions in the chosen style and schedules one post per platform per day (rule-of-thumb slots), then reminds you when it's time to post | `/hub` schedule, notifications |
+| Planner | Turns "Make 3 funny clips from my last stream for Shorts" into a plan you confirm | Command bar on `/create` |
+
+The agents also learn from you: rejections (with a reason), caption-style changes and title or hashtag edits are summarised into a short profile that the Producer reads before each run (`/agents`, dashboard; resettable).
+
+- Code: `backend/app/services/agents/` (shared tool-calling loop in `runtime.py`), routes in `app/api/agents.py` and `app/api/inbox.py`.
+- Models: OpenAI (`AGENT_OPENAI_MODEL`, default `gpt-4.1-mini`) when `OPENAI_API_KEY` is set, else Groq. With no key, imports fall back to the fixed loudness pipeline and the feed says so.
+- Background Scout: set `SCOUT_ENABLED=true`. Its first background check of a channel only remembers the newest video; "Check now" clips the newest VOD immediately.
+- Posting is a schedule plus one-click export (download + copy caption). Direct posting needs approved TikTok/YouTube apps and is not built.
+- Tests: `backend/tests/test_agents.py` drives the agents with a scripted fake model (no network).
+
 ## Trends collection
 
 Do not enable YouTube collection unless the team has explicit written approval for the specific derived-metrics use case. The current YouTube Developer Policies restrict aggregating API data across unrelated content owners and deriving velocity/engagement/trend scores. The guard `TRENDS_YOUTUBE_DERIVED_METRICS_APPROVED` defaults to `false`; adding a key alone does not cause requests. Until approval exists, use the authenticated manual TikTok CSV import, which records `source=manual_import` with null scores and metrics.

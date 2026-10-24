@@ -5,9 +5,11 @@ from __future__ import annotations
 import app.models  # noqa: F401  (registers all tables)
 import pytest
 from app.api import clips as clips_api
+from app.api.deps import get_owner
 from app.config import settings
 from app.db import Base, get_db
 from app.models.clip import Clip
+from app.models.user import User
 from app.services.trends import social_search
 from app.services.trends.social_search import (
     ScrapedVideo,
@@ -186,6 +188,7 @@ def test_endpoint_returns_and_caches_trends_without_changing_clip(monkeypatch):
             yield db
 
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_owner] = lambda: User(id=1, email="test@cliphive.ai", password_hash="x")
     client = TestClient(app)
 
     res = client.get(f"/api/clips/{clip_id}/social-trends")

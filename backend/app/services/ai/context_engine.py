@@ -505,7 +505,11 @@ def _relevant_trends(
     db: Session, platform: str, region: str, clip_text: str
 ) -> list[dict]:
     platform_name = "youtube" if platform.lower() == "youtube" else "tiktok"
-    rows = latest_scores_query(db, platform_name, region).all()
+    try:
+        rows = latest_scores_query(db, platform_name, region).all()
+    except Exception as err:
+        logger.warning(f"Could not query latest trend scores: {err}")
+        return []
     matches = []
     corpus = clip_text.casefold()
     for score, hashtag in rows:
@@ -583,7 +587,11 @@ def extract_clip_context(
     trend_sources = {
         normalize_hashtag(row["hashtag"]): row["source"] for row in trend_rows
     }
-    pattern_data = observed_patterns(db, region)
+    try:
+        pattern_data = observed_patterns(db, region)
+    except Exception as err:
+        logger.warning(f"Could not query observed patterns: {err}")
+        pattern_data = {}
     pattern_summary = None
     if pattern_data.get("sample_size"):
         all_caps = next(

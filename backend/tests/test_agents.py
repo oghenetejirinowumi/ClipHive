@@ -108,7 +108,7 @@ def test_runtime_stops_at_step_limit(Session):
 def media(monkeypatch, tmp_path):
     """Fake detector, transcript, cutter and packaging so the Producer runs without ffmpeg or models."""
     candidates = [Highlight(10, 40, 90), Highlight(100, 130, 80), Highlight(200, 230, 70), Highlight(300, 330, 60)]
-    monkeypatch.setattr(producer, "find_highlights", lambda path, duration, count, secs: candidates)
+    monkeypatch.setattr(producer, "find_highlights", lambda path, duration, count, secs, **kw: candidates)
     monkeypatch.setattr(producer.ProducerSession, "_full_transcript", lambda self: [
         producer.TranscriptWord(word=w, start=t, end=t + 0.4) for t, w in [(12, "no"), (13, "way"), (105, "reading"), (106, "chat")]
     ])
@@ -204,7 +204,7 @@ def test_producer_brief_and_profile_reach_the_prompt_and_style(Session, media, m
 
 def test_producer_falls_back_to_fixed_pipeline(Session, media, monkeypatch):
     monkeypatch.setattr(producer, "agent_client", lambda: (None, None, None))
-    monkeypatch.setattr(producer, "pick_highlights", lambda *a, **k: [Highlight(10, 40, 90, "big reaction"), Highlight(200, 230, 70)])
+    monkeypatch.setattr(producer, "pick_highlights", lambda *a, **k: [Highlight(10, 40, 90, reason="big reaction"), Highlight(200, 230, 70)])
     job, _ = make_job(Session, count=2)
 
     ids = producer.run_producer(job)

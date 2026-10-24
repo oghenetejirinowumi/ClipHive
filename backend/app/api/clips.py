@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 from app.config import settings
@@ -24,6 +25,7 @@ from app.services.ai.proofreader import proofread_transcript
 from app.services.ai.viral_studio import generate_viral_metadata
 from app.services.caption.ass_generator import ASSGenerator
 from app.services.caption.burner import burn_subtitles
+from app.services.caption.fonts import FONTS_DIR
 from app.services.transcribe.whisper_service import transcribe_video
 from app.services.trends.queries import match_clip_to_trends
 from app.services.trends.social_search import SocialSearchUnavailable, find_social_trends
@@ -243,7 +245,12 @@ def generate_ai_metadata(
         )
 
 
-def process_clip_captioning(clip_id: int, style_id: int, caption_mode: CaptionMode) -> bool:
+def process_clip_captioning(
+    clip_id: int,
+    style_id: int,
+    caption_mode: CaptionMode,
+    position_y: int | None = None,
+) -> bool:
     """Worker routine to transcribe, AI package, and burn video for a clip. Returns False if it failed."""
     with SessionLocal() as db:
         clip = db.query(Clip).filter(Clip.id == clip_id).first()
@@ -288,6 +295,11 @@ def process_clip_captioning(clip_id: int, style_id: int, caption_mode: CaptionMo
                 else ["CLUTCH", "OMG", "NO WAY"]
             )
 
+            # 2. Track desired vertical position for captions
+            target_pos = position_y
+            if target_pos is None and clip.context_json:
+                target_pos = clip.context_json.get("caption_position_y")
+
             # 3. Clean platform-native vs Burned
             if caption_mode == CaptionMode.PLATFORM_NATIVE:
                 clip.file_path = public_path(Path(clip.raw_file_path))
@@ -295,6 +307,10 @@ def process_clip_captioning(clip_id: int, style_id: int, caption_mode: CaptionMo
                 clip.caption_style_id = style.id
                 clip.status = ClipStatus.READY
                 clip.error = None
+                if target_pos is not None:
+                    ctx = dict(clip.context_json or {})
+                    ctx["caption_position_y"] = target_pos
+                    clip.context_json = ctx
                 db.commit()
                 from app.services.ai.ai_pack import auto_run_ai_pack
                 auto_run_ai_pack(clip, db)
@@ -304,24 +320,38 @@ def process_clip_captioning(clip_id: int, style_id: int, caption_mode: CaptionMo
             clip.status = ClipStatus.CAPTIONING
             db.commit()
 
+            from app.services.caption.ass_generator import StyleSpec
+            spec = StyleSpec.of(style)
+            if target_pos is not None:
+                spec.options = spec.options.model_copy(update={"position_y": target_pos})
+                ctx = dict(clip.context_json or {})
+                ctx["caption_position_y"] = target_pos
+                clip.context_json = ctx
+
             generator = ASSGenerator()
-            ass_path = STORAGE_SUBS_DIR / f"clip_{clip.id}_{style.name.lower()}.ass"
+            # Style id + time in the name: safe for any style name, and a re-burn after editing
+            # a style gets a new URL instead of a stale browser cache.
+            stamp = f"clip_{clip.id}_s{style.id}_{int(time.time())}"
+            ass_path = STORAGE_SUBS_DIR / f"{stamp}.ass"
             generator.generate(
                 words=clip.transcript_json,
-                style=style,
+                style=spec,
                 clip_start_s=0.0,
                 clip_end_s=clip.duration_s if clip.duration_s > 0 else None,
                 output_file=ass_path,
                 hype_words=hype_words,
             )
 
-            final_mp4 = STORAGE_CLIPS_DIR / f"clip_{clip.id}_{style.name.lower()}.mp4"
+            final_mp4 = STORAGE_CLIPS_DIR / f"{stamp}.mp4"
             burn_subtitles(
                 raw_video_path=clip.raw_file_path,
                 ass_subtitle_path=ass_path,
                 output_video_path=final_mp4,
-                fonts_dir="backend/assets/fonts",
+                fonts_dir=FONTS_DIR,
             )
+            previous = Path(clip.file_path) if clip.file_path else None
+            if previous and previous.name.startswith(f"clip_{clip.id}_") and previous.parent.resolve() == STORAGE_CLIPS_DIR.resolve() and previous.resolve() != final_mp4.resolve():
+                previous.unlink(missing_ok=True)
 
             clip.file_path = public_path(final_mp4)
             clip.caption_style_id = style.id
@@ -384,12 +414,12 @@ def caption_clip(
         db.commit()
         db.refresh(clip)
         background_tasks.add_task(
-            process_clip_captioning, clip_id, payload.style_id, payload.caption_mode
+            process_clip_captioning, clip_id, payload.style_id, payload.caption_mode, payload.position_y
         )
         return clip
 
     # Synchronous execution
-    ok = process_clip_captioning(clip_id, payload.style_id, payload.caption_mode)
+    ok = process_clip_captioning(clip_id, payload.style_id, payload.caption_mode, payload.position_y)
     db.refresh(clip)
     if not ok:
         raise HTTPException(

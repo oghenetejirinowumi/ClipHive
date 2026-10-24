@@ -49,7 +49,7 @@ def _enable(monkeypatch, candidates=CANDIDATES):
 def test_without_key_uses_loudness_detector(monkeypatch):
     monkeypatch.setattr(settings, "groq_api_key", "")
     calls = []
-    monkeypatch.setattr(ai_rank, "find_highlights", lambda p, d, c, s: calls.append(c) or CANDIDATES[:c])
+    monkeypatch.setattr(ai_rank, "find_highlights", lambda p, d, c, s, **kw: calls.append(c) or CANDIDATES[:c])
     result = ai_rank.pick_highlights(Path("x.mp4"), 200, 2, 30)
     assert calls == [2]  # asked for exactly `count`, no extra candidates
     assert len(result) == 2

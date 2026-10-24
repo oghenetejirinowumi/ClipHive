@@ -23,6 +23,10 @@ class CaptionStyle(Base):
         Enum(AnimationType, native_enum=False), default=AnimationType.WORD_POP
     )
     uppercase: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Full look & motion (schemas.caption_style.CaptionOptions). Empty = derive from colors_json.
+    options_json: Mapped[dict | None] = mapped_column(JSON, default=dict)
+    category: Mapped[str | None] = mapped_column(String(40))  # library grouping, e.g. "Podcast"
+    description: Mapped[str | None] = mapped_column(String(200))
     is_preset: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

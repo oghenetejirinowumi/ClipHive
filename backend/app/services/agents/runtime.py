@@ -50,7 +50,7 @@ def agent_client(provider: str | None = None):
     provider = (provider or settings.agent_provider or "auto").lower()
     if provider in ("auto", "openai") and settings.openai_api_key:
         client = openai.OpenAI(api_key=settings.openai_api_key, max_retries=2, timeout=60)
-        model = settings.openai_model or "gpt-4o-mini"
+        model = settings.agent_openai_model or settings.openai_model or "gpt-4o-mini"
         return client, model, f"openai:{model}"
     if provider in ("auto", "groq") and settings.groq_api_key:
         from app.services.ai.groq_client import groq_client

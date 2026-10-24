@@ -424,3 +424,15 @@
 @media (prefers-reduced-motion: reduce) {
   .fx-flow-pulse { display: none; }
 }
+
+/* Caption preview: the active word springs in, like the burned captions' \t pop. */
+@keyframes caption-pop {
+  from { transform: scale(0.78); }
+  to { transform: scale(1); }
+}
+.caption-pop {
+  animation: caption-pop 110ms var(--motion-ease-out) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .caption-pop { animation: none; }
+}

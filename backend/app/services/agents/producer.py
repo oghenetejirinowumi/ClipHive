@@ -389,7 +389,12 @@ def run_producer(job: ProducerJob) -> list[int]:
                 return session.clip_ids
             events.log(run_id, "error", f"Agent error: {str(err)[:200]}. Switching to the fixed pipeline.")
     else:
-        why = "agent mode is off" if not settings.agent_mode_enabled else "no OPENAI_API_KEY or GROQ_API_KEY is set"
+        if not settings.agent_mode_enabled:
+            why = "agent mode is off"
+        elif (settings.agent_provider or "auto").lower() not in ("auto", "openai", "groq"):
+            why = f"AGENT_PROVIDER={settings.agent_provider!r} isn't one of auto, openai, groq"
+        else:
+            why = "no API key is set for the agent's model"
         events.log(run_id, "thought", f"Running the fixed pipeline because {why}.")
 
     events.set_model(run_id, "fallback")

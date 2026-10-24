@@ -18,7 +18,7 @@ from app.api.deps import DbSession, Owner
 from app.core.media import public_path, storage_root
 from app.models import CaptionMode, Clip, ClipStatus, ImportJob, ImportSource, ImportStatus
 from app.schemas.import_job import (
-    ImportRead, LayoutRequest, Moment, PreviewState, StarRequest, StarResult, StudioClip, StudioClipRequest, StudioProject,
+    ClipEditRequest, ImportRead, LayoutRequest, Moment, PreviewState, StarRequest, StarResult, StudioClip, StudioClipRequest, StudioProject,
 )
 from app.services.clip.cutter import cut_vertical
 from app.services.clip.ai_rank import pick_highlights
@@ -54,6 +54,7 @@ def _public_or_none(path: str | None) -> str | None:
 def _studio_clip(clip: Clip, job: ImportJob) -> StudioClip:
     clean = _public_or_none(clip.raw_file_path)
     current = _public_or_none(clip.file_path) or clean
+    ctx = clip.context_json or {}
     return StudioClip(
         id=clip.id,
         title=clip.title,
@@ -65,6 +66,10 @@ def _studio_clip(clip: Clip, job: ImportJob) -> StudioClip:
         captioned=bool(current and clean and current != clean),
         caption_style_id=clip.caption_style_id,
         layout=(job.clip_layouts or {}).get(str(clip.id), job.layout or "fill"),
+        speed=float(ctx.get("speed", 1.0)),
+        volume=float(ctx.get("volume", 1.0)),
+        color_filter=str(ctx.get("color_filter", "none")),
+        caption_position_y=ctx.get("caption_position_y"),
         highlight_score=clip.highlight_score,
         starred=bool(clip.starred),
         error=clip.error,
@@ -110,16 +115,44 @@ def _scrub_video(job: ImportJob) -> tuple[str | None, PreviewState]:
     return None, PreviewState(**state)
 
 
-def _cut_from_local(job: ImportJob, clip: Clip | None, start_s: float, end_s: float, out: Path, layout: str) -> bool:
+def _cut_from_local(
+    job: ImportJob,
+    clip: Clip | None,
+    start_s: float,
+    end_s: float,
+    out: Path,
+    layout: str,
+    speed: float = 1.0,
+    volume: float = 1.0,
+    color_filter: str = "none",
+) -> bool:
     """Cut from material already on disk: a saved HD section for this clip, or the full source."""
     if clip is not None:
         section = pipeline.section_file(job.id, clip.id)
         if section.exists():
-            cut_vertical(section, 0, end_s - start_s, out, layout)
+            cut_vertical(
+                section,
+                0,
+                end_s - start_s,
+                out,
+                layout,
+                speed=speed,
+                volume=volume,
+                color_filter=color_filter,
+            )
             return True
     full = pipeline.source_file(job.id)
     if full is not None:
-        cut_vertical(full, start_s, end_s, out, layout)
+        cut_vertical(
+            full,
+            start_s,
+            end_s,
+            out,
+            layout,
+            speed=speed,
+            volume=volume,
+            color_filter=color_filter,
+        )
         return True
     return False
 
@@ -160,17 +193,52 @@ def create_clip(job_id: int, body: StudioClipRequest, user: Owner, db: DbSession
     stamp = int(time.time() * 1000)
     out = storage_root() / "clips" / f"studio_{job.id}_{stamp}.mp4"
     section: Path | None = None
-    if not _cut_from_local(job, None, body.start_s, end, out, body.layout):
+    if not _cut_from_local(
+        job,
+        None,
+        body.start_s,
+        end,
+        out,
+        body.layout,
+        speed=body.speed,
+        volume=body.volume,
+        color_filter=body.color_filter,
+    ):
         try:
-            section = pipeline.cut_range_for_link(job, body.start_s, end, out, body.layout, f"studio_{stamp}")
+            section = pipeline.cut_range_for_link(
+                job,
+                body.start_s,
+                end,
+                out,
+                body.layout,
+                f"studio_{stamp}",
+                speed=body.speed,
+                volume=body.volume,
+                color_filter=body.color_filter,
+            )
         except IngestError as err:
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(err)) from err
 
     n = len(job.clip_ids or []) + 1
+    ctx = {
+        "speed": body.speed,
+        "volume": body.volume,
+        "color_filter": body.color_filter,
+    }
+    if body.caption_position_y is not None:
+        ctx["caption_position_y"] = body.caption_position_y
+
     clip = Clip(
-        user_id=user.id, start_s=body.start_s, end_s=end, raw_file_path=str(out), file_path=public_path(out),
-        title=f"{job.title or 'Clip'} · Clip {n}", hashtags=[], status=ClipStatus.READY,
+        user_id=user.id,
+        start_s=body.start_s,
+        end_s=end,
+        raw_file_path=str(out),
+        file_path=public_path(out),
+        title=f"{job.title or 'Clip'} · Clip {n}",
+        hashtags=[],
+        status=ClipStatus.READY,
         caption_mode=CaptionMode.PLATFORM_NATIVE,
+        context_json=ctx,
     )
     db.add(clip)
     db.flush()
@@ -187,6 +255,87 @@ def create_clip(job_id: int, body: StudioClipRequest, user: Owner, db: DbSession
         auto_run_ai_pack(clip, db)
     except Exception as err:
         logger.warning("Auto AI packaging skipped for studio clip %s: %s", clip.id, err)
+    return _studio_clip(clip, job)
+
+
+@router.post("/clips/{clip_id}/edit", response_model=StudioClip)
+def edit_clip(clip_id: int, body: ClipEditRequest, user: Owner, db: DbSession) -> StudioClip:
+    """Recut a clip with custom speed, volume, color filter, layout, trim range, and caption position."""
+    clip = db.get(Clip, clip_id)
+    job = _owning_job(db, clip_id, user.id) if clip else None
+    if clip is None or job is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "This clip wasn't cut from one of your projects.")
+
+    ctx = dict(clip.context_json or {})
+    layout = body.layout or (job.clip_layouts or {}).get(str(clip.id), job.layout or "fill")
+    speed = body.speed if body.speed is not None else float(ctx.get("speed", 1.0))
+    volume = body.volume if body.volume is not None else float(ctx.get("volume", 1.0))
+    color_filter = body.color_filter if body.color_filter is not None else str(ctx.get("color_filter", "none"))
+    start_s = body.start_s if body.start_s is not None else clip.start_s
+    end_s = body.end_s if body.end_s is not None else clip.end_s
+    caption_pos = body.caption_position_y if body.caption_position_y is not None else ctx.get("caption_position_y")
+
+    end = min(end_s, job.duration_s or end_s)
+    if end - start_s < 3:
+        raise HTTPException(422, "Pick at least 3 seconds inside the video.")
+
+    stamp = int(time.time() * 1000)
+    out = storage_root() / "clips" / f"studio_{job.id}_{clip.id}_{layout}_{stamp}.mp4"
+
+    range_changed = abs(start_s - clip.start_s) > 0.05 or abs(end - clip.end_s) > 0.05
+    re_cut_local = not range_changed and _cut_from_local(
+        job, clip, start_s, end, out, layout, speed=speed, volume=volume, color_filter=color_filter
+    )
+    if not re_cut_local:
+        if pipeline.source_file(job.id) is not None:
+            _cut_from_local(
+                job, None, start_s, end, out, layout, speed=speed, volume=volume, color_filter=color_filter
+            )
+        else:
+            try:
+                section = pipeline.cut_range_for_link(
+                    job, start_s, end, out, layout, f"studio_{stamp}", speed=speed, volume=volume, color_filter=color_filter
+                )
+                section.replace(pipeline.section_file(job.id, clip.id))
+            except IngestError as err:
+                raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(err)) from err
+
+    old_raw = Path(clip.raw_file_path) if clip.raw_file_path else None
+    old_file = Path(clip.file_path) if clip.file_path else None
+    clip.raw_file_path, clip.file_path = str(out), public_path(out)
+    clip.start_s, clip.end_s = start_s, end
+
+    ctx["speed"] = speed
+    ctx["volume"] = volume
+    ctx["color_filter"] = color_filter
+    if caption_pos is not None:
+        ctx["caption_position_y"] = caption_pos
+    clip.context_json = ctx
+
+    # Reset transcription if timing changed so subtitles re-align to new speed/range
+    if range_changed or abs(speed - float(clip.context_json.get("speed", 1.0))) > 0.01:
+        clip.transcript_json = None
+
+    job.clip_layouts = {**(job.clip_layouts or {}), str(clip.id): layout}
+    db.commit()
+
+    # Re-burn captions if active or requested
+    target_style = body.style_id or clip.caption_style_id
+    if (clip.caption_mode == CaptionMode.BURNED or body.style_id) and target_style:
+        from app.api.clips import process_clip_captioning
+        process_clip_captioning(clip.id, target_style, CaptionMode.BURNED, position_y=caption_pos)
+        db.refresh(clip)
+    else:
+        clip.caption_mode = CaptionMode.PLATFORM_NATIVE
+        clip.status = ClipStatus.READY
+        db.commit()
+
+    if old_raw and old_raw.exists() and old_raw.resolve() != out.resolve() and old_raw.resolve().is_relative_to(storage_root() / "clips"):
+        old_raw.unlink(missing_ok=True)
+    if old_file and old_file.exists() and old_file.resolve() != out.resolve() and old_file.resolve().is_relative_to(storage_root() / "clips"):
+        old_file.unlink(missing_ok=True)
+
+    db.refresh(clip)
     return _studio_clip(clip, job)
 
 
