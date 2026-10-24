@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Icon, Notice, Segmented } from "@/components/ui";
 import { timeAgo } from "@/lib/agents";
 import { api, ApiError } from "@/lib/api";
@@ -43,6 +43,7 @@ export function VideoPicker({ streamer, onClipped, onClose }: Props) {
   const [seconds, setSeconds] = useState<string>("30");
   const [submitting, setSubmitting] = useState(false);
   const youtube = streamer.platform === "youtube";
+  const triedVideos = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +52,16 @@ export function VideoPicker({ streamer, onClipped, onClose }: Props) {
     setPicked(null);
     const query = youtube ? `?tab=${tab}` : "";
     api<ChannelVideo[]>(`/api/streamers/${streamer.id}/videos${query}`)
-      .then((rows) => !cancelled && setVideos(rows))
+      .then((rows) => {
+        if (cancelled) return;
+        // Most channels never stream: open on their uploads instead of an empty Past streams tab.
+        if (youtube && tab === "streams" && rows.length === 0 && !triedVideos.current) {
+          triedVideos.current = true;
+          setTab("videos");
+          return;
+        }
+        setVideos(rows);
+      })
       .catch((err) => !cancelled && setError(err instanceof ApiError ? err.message : "Couldn't load this channel's videos."));
     return () => {
       cancelled = true;

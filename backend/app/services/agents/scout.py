@@ -130,7 +130,8 @@ def list_latest(platform: SourcePlatform | str, username: str, limit: int = 3, t
     """Newest videos on a channel, newest first. Raises RuntimeError with a readable message.
 
     `tab` picks one YouTube tab ("streams" or "videos"); without it, past streams are tried
-    first and uploads after, for channels that never stream."""
+    first and uploads after, for channels that never stream. With a tab, a tab that's empty or
+    doesn't exist on the channel is an empty list, not an error (the picker just shows none)."""
     platform = SourcePlatform(platform)
     if platform == SourcePlatform.KICK:
         return _kick_videos(username, limit)
@@ -156,8 +157,15 @@ def list_latest(platform: SourcePlatform | str, username: str, limit: int = 3, t
             raise RuntimeError(str(err)) from err
         except Exception as err:
             youtube_guard.report(err)
+            logger.info("Channel listing %s failed: %s", url, err)
             text = str(err).lower()
-            if "unsupported url" in text:
+            if tab and "does not have a" in text and "tab" in text:
+                return []  # e.g. a channel that has never streamed has no Past streams tab
+            if youtube_guard.is_rate_limit(text) or "sign in to confirm" in text:
+                name = {"youtube": "YouTube"}.get(platform.value, platform.value.title())
+                last_error = (f"{name} is blocking ClipHive's requests right now (it asks us to confirm "
+                              "we're not a bot). Try again in an hour, or download the video and upload it on the Create page.")
+            elif "unsupported url" in text:
                 last_error = f"{platform.value.title()} channel listing isn't supported yet."
             elif "does not exist" in text or "404" in text or "not found" in text:
                 last_error = "Channel not found."
@@ -174,7 +182,7 @@ def list_latest(platform: SourcePlatform | str, username: str, limit: int = 3, t
                     id=str(entry["id"]), url=link, title=(entry.get("title") or "Untitled")[:300],
                     thumbnail=_thumbnail(entry), duration_s=entry.get("duration"), published_at=_published(entry),
                 ))
-        if videos:
+        if videos or tab:
             return videos[:limit]
     raise RuntimeError(last_error)
 
