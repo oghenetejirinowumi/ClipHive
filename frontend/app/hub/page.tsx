@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ThumbnailEditor, type Thumbnail } from "@/components/hub/ThumbnailEditor";
 import { ClipDialog, ClipDialogActions, ClipShelves, ClipTile, ClipToolbar, matchesQuery, shelvesBy } from "@/components/clips";
 import { StarButton } from "@/components/projects/StarButton";
 import { Badge, Button, buttonClass, Em, Icon, Notice, Panel, SectionLabel, SkyHeader, StatusBadge } from "@/components/ui";
@@ -22,6 +23,7 @@ type Clip = {
     event_type?: string;
     agent_reason?: string;
     highlight_reason?: string;
+    thumbnail?: Thumbnail;
   } | null;
   status: string;
   starred?: boolean;
@@ -265,6 +267,7 @@ export default function HubPage() {
           onClose={() => setOpenId(null)}
           onSchedule={() => schedule(open)}
           onStar={(starred) => setClips((prev) => prev.map((c) => (c.id === open.id ? { ...c, starred } : c)))}
+          onClip={(updated) => setClips((prev) => prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)))}
         />
       )}
     </div>
@@ -299,6 +302,7 @@ function HubClipDialog({
   onClose,
   onSchedule,
   onStar,
+  onClip,
 }: {
   clip: Clip;
   posts: ScheduledPost[];
@@ -310,6 +314,8 @@ function HubClipDialog({
   onClose: () => void;
   onSchedule: () => void;
   onStar: (starred: boolean) => void;
+  /** The clip changed on the server (a new thumbnail). */
+  onClip: (updated: Clip) => void;
 }) {
   const videoSrc = mediaUrl(clip.file_path);
   const why = clip.context_json?.agent_reason || clip.context_json?.highlight_reason;
@@ -372,6 +378,13 @@ function HubClipDialog({
           </ul>
         </div>
       )}
+
+      <ThumbnailEditor<Clip>
+        key={`${clip.id}:${clip.context_json?.thumbnail?.path ?? "none"}`}
+        clipId={clip.id}
+        thumbnail={clip.context_json?.thumbnail}
+        onClip={onClip}
+      />
 
       <ClipDialogActions>
         <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">

@@ -1,9 +1,11 @@
-"""Monitored streamers: add a channel, see if it's live, record it now, or clip its latest VOD."""
+"""Monitored streamers: add a channel, see if it's live, record it now, clip its latest VOD, or pick one of its videos."""
 from __future__ import annotations
 
 import asyncio
+from typing import Literal
+from urllib.parse import urlparse
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -11,9 +13,19 @@ from app.api.deps import DbSession, Owner
 from app.models import Clip, ImportJob, ImportSource, Stream, Streamer, User
 from app.models.enums import SourcePlatform
 from app.schemas.import_job import ImportRead
-from app.schemas.streamer import CheckResultRead, LatestVodRequest, StreamerCreate, StreamerRead, StreamerUpdate, StreamRead
+from app.schemas.streamer import (
+    ChannelHitRead,
+    ChannelVideoRead,
+    CheckResultRead,
+    ClipVideoRequest,
+    LatestVodRequest,
+    StreamerCreate,
+    StreamerRead,
+    StreamerUpdate,
+    StreamRead,
+)
 from app.services.agents import scout
-from app.services.ingest import monitor, pipeline
+from app.services.ingest import channel_search, monitor, pipeline
 from app.workers import ingest_worker
 
 router = APIRouter(prefix="/streamers", tags=["streamers"])
@@ -57,6 +69,15 @@ def _owned(db: Session, streamer_id: int, user: User) -> Streamer:
 def list_streamers(user: Owner, db: DbSession) -> list[StreamerRead]:
     rows = db.scalars(select(Streamer).where(Streamer.user_id == user.id).order_by(Streamer.id))
     return [_read(s) for s in rows]
+
+
+@router.get("/search", response_model=list[ChannelHitRead])
+def search_channels(user: Owner, platform: SourcePlatform, q: str = Query(min_length=1, max_length=60)) -> list[dict]:
+    """Channel suggestions as you type a name (no API keys needed)."""
+    try:
+        return channel_search.search(platform, q)
+    except channel_search.SearchError as err:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(err)) from err
 
 
 @router.post("", response_model=StreamerRead, status_code=status.HTTP_201_CREATED)
@@ -145,6 +166,51 @@ def clip_latest_vod(streamer_id: int, user: Owner, db: DbSession, payload: Lates
     job = ImportJob(
         user_id=user.id, source=ImportSource(streamer.platform.value), url=url,
         title=f"{streamer.username} · latest VOD", clip_count=payload.clip_count, clip_seconds=payload.clip_seconds,
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    pipeline.submit(job.id)
+    return job
+
+
+# Hosts a picked video may come from, per platform (the picker only offers the channel's own).
+_VIDEO_HOSTS = {
+    SourcePlatform.TWITCH: ("twitch.tv",),
+    SourcePlatform.KICK: ("kick.com",),
+    SourcePlatform.YOUTUBE: ("youtube.com", "youtu.be"),
+}
+
+
+@router.get("/{streamer_id}/videos", response_model=list[ChannelVideoRead])
+def list_channel_videos(
+    streamer_id: int, user: Owner, db: DbSession,
+    tab: Literal["streams", "videos"] | None = None, limit: int = Query(default=24, ge=1, le=50),
+) -> list[ChannelVideoRead]:
+    """The channel's recent videos, newest first, so the user can choose which one to clip.
+    `tab` is YouTube only: past streams or uploads."""
+    streamer = _owned(db, streamer_id, user)
+    platform, username = streamer.platform, streamer.username
+    db.close()  # don't hold the session during the network call
+    try:
+        videos = scout.list_latest(platform, username, limit=limit, tab=tab if platform == SourcePlatform.YOUTUBE else None)
+    except RuntimeError as err:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(err)) from err
+    return [ChannelVideoRead(**v.__dict__) for v in videos]
+
+
+@router.post("/{streamer_id}/clip-video", response_model=ImportRead, status_code=status.HTTP_202_ACCEPTED)
+def clip_video(streamer_id: int, payload: ClipVideoRequest, user: Owner, db: DbSession) -> ImportJob:
+    """Clip one video the user picked from the channel's list (instead of only the newest)."""
+    streamer = _owned(db, streamer_id, user)
+    host = (urlparse(payload.url).hostname or "").lower()
+    if urlparse(payload.url).scheme not in ("http", "https") or not any(host == h or host.endswith(f".{h}") for h in _VIDEO_HOSTS[streamer.platform]):
+        raise HTTPException(422, f"That isn't a {streamer.platform.value.title()} video link.")
+    job = ImportJob(
+        user_id=user.id, source=ImportSource(streamer.platform.value), url=payload.url,
+        title=(payload.title or f"{streamer.username} · video")[:200],
+        clip_count=payload.clip_count, clip_seconds=payload.clip_seconds, layout="fill",
+        agent_brief={"origin": "picked", "streamer": streamer.username, "platform_source": streamer.platform.value},
     )
     db.add(job)
     db.commit()

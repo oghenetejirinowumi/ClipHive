@@ -16,6 +16,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from app.core import object_store
 from app.core.media import storage_root
 from app.schemas.editor import ASPECTS, Asset, AudioTrack, Clip, Effect, Timeline
 
@@ -48,7 +49,7 @@ def asset_path(asset: Asset) -> Path:
     path = (storage_root() / asset.src.removeprefix("storage/")).resolve()
     if storage_root() not in path.parents:
         raise EditError("That media file is outside storage.")
-    return path
+    return object_store.ensure_local(path)
 
 
 def _validated(data: dict) -> Timeline:
@@ -286,14 +287,16 @@ def set_project(timeline: Timeline, aspect: str | None = None, background: str |
 # --- captions from speech -----------------------------------------------------------------
 
 def caption_words(timeline: Timeline, transcribe) -> list[dict]:
-    """Words spoken in the edit, in timeline time. transcribe(path) -> [{word, start, end}] in source time."""
+    """Words spoken in the edit, in timeline time.
+
+    transcribe(path, start, end) -> [{word, start, end}] said in that part of the file, in file time."""
     words: list[dict] = []
     for clip in sorted(timeline.clips, key=lambda c: c.start):
         asset = timeline.asset(clip.asset_id)
         if not asset or asset.kind != "video" or not asset.has_audio or clip.muted or clip.volume == 0:
             continue
         lo, hi = clip.source_in, clip.source_in + clip.duration * clip.speed
-        for w in transcribe(asset_path(asset)):
+        for w in transcribe(asset_path(asset), lo, hi):
             if w["end"] <= lo or w["start"] >= hi:
                 continue
             start = clip.start + (max(w["start"], lo) - lo) / clip.speed

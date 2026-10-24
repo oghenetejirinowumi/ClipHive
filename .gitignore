@@ -11,3 +11,8 @@ storage/
 node_modules/
 tests/fixtures/*_output.mp4
 tests/fixtures/*_test.ass
+# ad-hoc dev builds (NEXT_DIST_DIR=.next-something)
+.next-*/
+
+# yt-dlp sign-in cookies (secret)
+*cookies*.txt

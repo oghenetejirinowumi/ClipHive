@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from app.core import object_store
 from app.core.media import MediaError, ffmpeg_bin, public_path, storage_root
 from app.schemas.editor import Asset
 
@@ -58,7 +59,7 @@ def public_media_path(stored: str | None) -> str | None:
         if not path.is_absolute():
             path = Path.cwd() / path
     try:
-        return public_path(path) if path.is_file() else None
+        return public_path(path) if object_store.exists(path) else None
     except ValueError:  # outside storage (e.g. a test fixture)
         return None
 

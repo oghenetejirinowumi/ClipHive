@@ -1,9 +1,11 @@
 # Render Blueprint for the ClipHive API (FastAPI). Render > New > Blueprint > pick this repo.
 # The frontend deploys separately on Vercel (Root Directory: frontend).
 #
-# Why a paid plan with a disk: videos, the SQLite database and model caches must survive
-# deploys and restarts (a free instance's filesystem is wiped), and cutting 1080x1920 video with
-# ffmpeg needs more than the free tier's 512 MB of memory.
+# Finished videos, thumbnails and exports live on S3 (S3_BUCKET below), so they survive any
+# deploy and the disk stays small. The disk still holds the SQLite database, model caches and
+# working files (downloads, cuts in progress); local copies already on S3 are cleared after
+# S3_KEEP_LOCAL_HOURS unused and fetched back on demand. A paid plan: cutting 1080x1920 video
+# with ffmpeg needs more than the free tier's 512 MB of memory, and free instances have no disk.
 services:
   - type: web
     name: cliphive-api
@@ -18,7 +20,7 @@ services:
     disk:
       name: cliphive-data
       mountPath: /var/data
-      sizeGB: 20
+      sizeGB: 10              # database + working files; videos are on S3
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
@@ -51,3 +53,19 @@ services:
         sync: false
       - key: IMPORT_WORKERS
         value: "1"            # one import at a time on a single-CPU instance
+      # Media on S3 (or R2 / B2: also set S3_ENDPOINT_URL). The keys need s3:GetObject,
+      # PutObject, DeleteObject and ListBucket on this bucket only.
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false           # e.g. eu-central-1 (Frankfurt, next to this service)
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_KEEP_LOCAL_HOURS
+        value: "24"
+      # YouTube cookies: add youtube_cookies.txt as a Secret File in the dashboard
+      # (Environment > Secret Files); Render mounts it here.
+      - key: YTDLP_COOKIES_FILE
+        value: /etc/secrets/youtube_cookies.txt

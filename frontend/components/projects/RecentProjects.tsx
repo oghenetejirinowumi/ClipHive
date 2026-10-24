@@ -6,7 +6,7 @@ import { Button, buttonClass, Icon, Panel, StatusBadge } from "@/components/ui";
 import { api, API_URL, friendly } from "@/lib/api";
 import { ACTIVE_STATUSES, formatTime, projectTitle, SOURCE_LABEL, STEP_LABEL, type ImportJob } from "@/lib/imports";
 
-/** The latest few imports as compact rows; each opens in the studio, shows its progress, or
+/** The latest few imports as compact rows; each opens in the editor, shows its progress, or
  * explains why it failed with Retry / Delete. */
 export function RecentProjects({ limit = 4 }: { limit?: number }) {
   const [jobs, setJobs] = useState<ImportJob[] | null>(null);
@@ -93,14 +93,14 @@ export function RecentProjects({ limit = 4 }: { limit?: number }) {
               </div>
               {job.status === "done" ? (
                 <Link
-                  href={`/studio/${job.id}`}
+                  href={`/editor/open?import=${job.id}`}
                   className={buttonClass({
                     variant: "secondary",
                     size: "sm",
                     className: "shrink-0",
                   })}
                 >
-                  <Icon name="film" className="size-5" /> Open in studio
+                  <Icon name="scissors" className="size-5" /> <span className="hidden sm:inline">Open in editor</span>
                 </Link>
               ) : failed ? (
                 <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">

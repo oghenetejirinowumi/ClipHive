@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import DbSession, Owner
-from app.core.media import public_path, storage_root
+from app.core.media import media_path, public_path, remove_media, storage_root
 from app.models import CaptionMode, Clip, ClipStatus, ImportJob, ImportSource, ImportStatus
 from app.schemas.import_job import (
     ClipEditRequest, ImportRead, LayoutRequest, Moment, PreviewState, StarRequest, StarResult, StudioClip, StudioClipRequest, StudioProject,
@@ -300,8 +300,8 @@ def edit_clip(clip_id: int, body: ClipEditRequest, user: Owner, db: DbSession) -
             except IngestError as err:
                 raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(err)) from err
 
-    old_raw = Path(clip.raw_file_path) if clip.raw_file_path else None
-    old_file = Path(clip.file_path) if clip.file_path else None
+    old_raw = media_path(clip.raw_file_path) if clip.raw_file_path else None
+    old_file = media_path(clip.file_path) if clip.file_path else None
     clip.raw_file_path, clip.file_path = str(out), public_path(out)
     clip.start_s, clip.end_s = start_s, end
 
@@ -330,10 +330,9 @@ def edit_clip(clip_id: int, body: ClipEditRequest, user: Owner, db: DbSession) -
         clip.status = ClipStatus.READY
         db.commit()
 
-    if old_raw and old_raw.exists() and old_raw.resolve() != out.resolve() and old_raw.resolve().is_relative_to(storage_root() / "clips"):
-        old_raw.unlink(missing_ok=True)
-    if old_file and old_file.exists() and old_file.resolve() != out.resolve() and old_file.resolve().is_relative_to(storage_root() / "clips"):
-        old_file.unlink(missing_ok=True)
+    for old in (old_raw, old_file):  # also from S3; a local copy may already have been evicted
+        if old and old.resolve() != out.resolve() and old.resolve().is_relative_to(storage_root() / "clips"):
+            remove_media(old)
 
     db.refresh(clip)
     return _studio_clip(clip, job)
@@ -355,14 +354,14 @@ def change_layout(clip_id: int, body: LayoutRequest, user: Owner, db: DbSession)
         except IngestError as err:
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(err)) from err
 
-    old = Path(clip.raw_file_path) if clip.raw_file_path else None
+    old = media_path(clip.raw_file_path) if clip.raw_file_path else None
     clip.raw_file_path, clip.file_path = str(out), public_path(out)
     # The new cut is clean and ready to post; burn captions again to add them.
     clip.caption_mode, clip.status, clip.error = CaptionMode.PLATFORM_NATIVE, ClipStatus.READY, None
     job.clip_layouts = {**(job.clip_layouts or {}), str(clip.id): body.layout}
     db.commit()
-    if old and old.exists() and old.resolve().is_relative_to(storage_root() / "clips"):
-        old.unlink(missing_ok=True)
+    if old and old.resolve().is_relative_to(storage_root() / "clips"):
+        remove_media(old)
     return _studio_clip(clip, job)
 
 

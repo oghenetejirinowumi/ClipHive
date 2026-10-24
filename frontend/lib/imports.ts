@@ -51,7 +51,7 @@ export const FILTER_OPTIONS = [
   { value: "dramatic", label: "Dramatic B&W" },
 ] as const;
 
-export type Moment = { start_s: number; end_s: number; score: number };
+export type Moment = { start_s: number; end_s: number; score: number; reason?: string | null };
 
 export type PreviewState = { status: "none" | "fetching" | "ready" | "failed"; progress: number; error: string | null };
 

@@ -39,6 +39,17 @@ class Settings(BaseSettings):
         ""  # empty = system ffmpeg on PATH, else the bundled imageio-ffmpeg binary
     )
     storage_dir: str = "storage"  # served at /storage by app.main
+    # Finished media (clips, thumbnails, exports) on S3 or any S3-compatible store (Cloudflare R2,
+    # Backblaze B2, MinIO). Empty bucket = local disk only. See app/core/object_store.py.
+    s3_bucket: str = ""
+    s3_region: str = ""
+    s3_endpoint_url: str = ""  # only for non-AWS stores, e.g. https://<account>.r2.cloudflarestorage.com
+    s3_access_key_id: str = ""  # empty = boto3's usual lookup (AWS_ACCESS_KEY_ID, instance role)
+    s3_secret_access_key: str = ""
+    s3_prefix: str = "storage"  # folder inside the bucket
+    s3_public_base_url: str = ""  # public bucket / CDN URL; empty = short-lived presigned links
+    s3_url_expiry_s: int = 6 * 3600
+    s3_keep_local_hours: float = 24  # local copies already on S3 are deleted after this long unused; 0 = keep
     max_import_minutes: int = 0  # 0 = analyse the whole video; N = only the first N minutes
     max_upload_mb: int = 8192
     import_workers: int = 2  # concurrent download/cut jobs
@@ -82,6 +93,9 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     openai_transcribe_model: str = "whisper-1"
+    # Transcribe a whole source (Groq, else OpenAI) to find moments by what's said, up to this
+    # long. OpenAI Whisper costs about $0.36 per hour of audio. 0 = only transcribe the clips.
+    full_transcript_max_minutes: int = 240
     assemblyai_api_key: str | None = None
     whisper_model_size: str = "base"
 

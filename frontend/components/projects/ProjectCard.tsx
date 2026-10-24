@@ -34,7 +34,7 @@ export function ProjectTile({ job, onOpen }: { job: ImportJob; onOpen: () => voi
 
 /**
  * A project's details in a popup (a bottom sheet on phones): live progress with the current step,
- * and actions: review in the inbox and open in studio (done), retry (failed link), cancel
+ * and actions: review in the inbox, open in editor and open in studio (done), retry (failed link), cancel
  * (running) and delete (with or without its clips). `children` sits under the progress, e.g. the
  * agent's live feed. Without onDelete / onRetry those actions are hidden.
  */
@@ -132,7 +132,10 @@ export function ProjectDialog({
                   <Link href={`/studio/${job.id}`} className={buttonClass({ size: "sm" })}>
                     <Icon name="film" className="size-5" /> Open in studio
                   </Link>
-                  <Link href="/inbox" className={buttonClass({ variant: "secondary", size: "sm" })}>
+                  <Link href={`/editor/open?import=${job.id}`} className={buttonClass({ variant: "secondary", size: "sm" })} aria-label="Open in the editor" title="Open in the editor">
+                    <Icon name="scissors" className="size-5" /> Open in editor
+                  </Link>
+                  <Link href="/inbox" className={buttonClass({ variant: "ghost", size: "sm" })}>
                     <Icon name="inbox" className="size-5" /> Review clips
                   </Link>
                 </>

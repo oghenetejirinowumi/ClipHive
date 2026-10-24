@@ -13,12 +13,12 @@ from __future__ import annotations
 import json
 import logging
 import re
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.core.media import local_media
 from app.models.clip import Clip
 from app.schemas.clip import AIPackResponse
 
@@ -62,7 +62,7 @@ def get_clip_transcript(clip: Clip, db: Session) -> str:
         if text:
             return text
 
-    if clip.raw_file_path and Path(clip.raw_file_path).exists():
+    if clip.raw_file_path and local_media(clip.raw_file_path).is_file():
         try:
             from app.services.ai.proofreader import proofread_transcript
             from app.services.transcribe.whisper_service import transcribe_video
@@ -125,10 +125,12 @@ def call_llm_for_pack(client: Any, model: str, prompt_text: str) -> dict:
         "{\n"
         '  "titles": ["title 1", "title 2", "title 3"],\n'
         '  "descriptions": ["description 1", "description 2"],\n'
-        '  "hashtags": ["#tag1", "#tag2", ...]\n'
+        '  "hashtags": ["#tag1", "#tag2", ...],\n'
+        '  "thumbnail_text": "2-4 words"\n'
         "}\n\n"
         "Requirements:\n"
-        "- titles: exactly 3 punchy, high-CTR viral titles. Every title must be 100 characters or less.\n"
+        "- titles: exactly 3 titles that follow the title plan and title rules in the request.\n"
+        "- thumbnail_text: 2-4 punchy words for the thumbnail (the hook, not the title again), no emoji, no hashtags.\n"
         "- descriptions: exactly 2 engaging social media descriptions (1-3 sentences with hook and call to action).\n"
         "- hashtags: 15 to 20 relevant tags blending niche topics, moment type, and viral discovery. Every hashtag must start with '#'."
     )
@@ -275,30 +277,37 @@ def sanitize_and_validate_pack(data: dict, clip: Clip) -> AIPackResponse:
 
 def generate_ai_pack_data(clip: Clip, db: Session, platform: str = "tiktok") -> AIPackResponse:
     """Extracts transcript, calls LLM, sanitizes, and returns validated AIPackResponse."""
+    from app.services.ai import title_writer
+
     transcript = get_clip_transcript(clip, db)
     display_transcript = transcript if transcript else "[No spoken dialogue detected in audio]"
-
-    creator = None
-    if clip.stream and clip.stream.streamer:
-        creator = clip.stream.streamer.username
-    elif clip.context_json and clip.context_json.get("creator"):
-        creator = clip.context_json.get("creator")
-
-    game = (clip.context_json or {}).get("game_or_topic") or "Gaming"
+    brief = title_writer.brief_for(clip, db)
 
     prompt_text = (
         f"Target Platform: {platform}\n"
-        f"Clip Title: {clip.title or 'Stream Highlight'}\n"
-        f"Creator: {creator or 'Streamer'}\n"
-        f"Game/Topic: {game}\n"
         f"Duration: {round(clip.duration_s, 1)}s\n"
+        f"{brief.facts()}\n"
         f"Spoken Transcript:\n\"{display_transcript}\"\n\n"
-        "Generate 3 viral titles (<=100 chars each), 2 descriptions, and 15-20 hashtags (starting with '#') in the required JSON format."
+        f"{brief.instructions()}\n{title_writer.RULES}\n\n"
+        "Generate 3 titles, 2 descriptions, 15-20 hashtags (starting with '#') and the thumbnail_text in the required JSON format."
     )
 
     client, model = get_ai_client()
     raw_data = call_llm_for_pack(client, model, prompt_text)
-    return sanitize_and_validate_pack(raw_data, clip)
+    titles = [t for t in (raw_data.get("titles") or []) if isinstance(t, str)]
+    raw_data["titles"] = (title_writer.check(titles, brief) + title_writer.fallback_titles(brief))[:3]
+    pack = sanitize_and_validate_pack(raw_data, clip)
+    _remember_plan(clip, brief, str(raw_data.get("thumbnail_text") or "").strip()[:40] or None)
+    return pack
+
+
+def _remember_plan(clip: Clip, brief, thumbnail_text: str | None = None) -> None:
+    """Keep why the title does (or doesn't) name the streamer, for the next clip's rotation."""
+    ctx = dict(clip.context_json or {})
+    ctx["title_plan"] = {"name_streamer": brief.name_streamer, "streamer": brief.streamer, "confidence": brief.confidence, "why": brief.why}
+    if thumbnail_text:
+        ctx["thumbnail_text"] = thumbnail_text
+    clip.context_json = ctx
 
 
 def apply_ai_pack_to_clip(clip: Clip, db: Session, pack: AIPackResponse) -> None:
@@ -337,3 +346,20 @@ def auto_run_ai_pack(clip: Clip, db: Session) -> None:
             db.rollback()
         except Exception:
             pass
+        _fallback_title(clip, db)
+
+
+def _fallback_title(clip: Clip, db: Session) -> None:
+    """No model (or it failed): a title from the facts, still following the naming plan."""
+    from app.services.ai import title_writer
+
+    try:
+        brief = title_writer.brief_for(clip, db)
+        options = title_writer.fallback_titles(brief)
+        if options and (not clip.title or " · Clip " in clip.title):  # don't replace a real title
+            clip.title = options[0]
+        _remember_plan(clip, brief)
+        db.commit()
+    except Exception as exc:  # never block the pipeline over a title
+        logger.warning("Fallback title failed for clip %d: %s", clip.id, exc)
+        db.rollback()

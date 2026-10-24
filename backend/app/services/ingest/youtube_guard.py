@@ -11,6 +11,8 @@ touch YouTube goes through here:
            a server restart doesn't forget it and go knocking straight away.
 * opts()   yt-dlp options every caller should merge in: polite retries/sleeps, the optional
            YTDLP_PROXY (route only downloads through a proxy/VPN), and YTDLP_COOKIES_FILE.
+* cookies_file()  YTDLP_COOKIES_FILE if it's a usable cookies.txt. A missing, empty or
+           wrong-format file made yt-dlp refuse every request, so it's skipped with a warning.
 """
 from __future__ import annotations
 
@@ -19,6 +21,7 @@ import logging
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 
 from app.config import settings
 from app.core.media import storage_root
@@ -29,6 +32,7 @@ MIN_GAP_S = 1.0
 FIRST_COOLDOWN_S = 30 * 60
 MAX_COOLDOWN_S = 4 * 3600
 REPEAT_WINDOW_S = 24 * 3600
+BACKEND_DIR = Path(__file__).resolve().parents[3]
 
 _lock = threading.Lock()
 _last_request = 0.0
@@ -109,6 +113,54 @@ def report(err: BaseException | str) -> None:
     logger.warning("YouTube flagged this server; pausing YouTube requests for %d min", seconds // 60)
 
 
+_cookie_check: tuple[tuple, str | None] | None = None
+
+
+def _looks_like_cookies_txt(path: Path) -> bool:
+    """Netscape cookies.txt: a "# ... HTTP Cookie File" header, or lines of 7 tab-separated fields."""
+    try:
+        with path.open(encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if "HTTP Cookie File" in line:
+                    return True
+                if line and not line.startswith("#"):
+                    return len(line.split("	")) == 7
+    except OSError:
+        return False
+    return False
+
+
+def cookies_file() -> str | None:
+    """YTDLP_COOKIES_FILE as an absolute path, or None when it's unset or unusable."""
+    global _cookie_check
+    configured = settings.ytdlp_cookies_file.strip()
+    if not configured:
+        return None
+    path = Path(configured)
+    if not path.is_absolute() and not path.exists():
+        path = BACKEND_DIR / path  # relative to backend/, wherever the server was started from
+    try:
+        stat = path.stat()
+        key = (str(path), stat.st_size, stat.st_mtime)
+    except OSError:
+        key = (str(path), None, None)
+    if _cookie_check and _cookie_check[0] == key:
+        return _cookie_check[1]
+    if key[1] is None:
+        usable, problem = None, "doesn't exist"
+    elif not key[1]:
+        usable, problem = None, "is empty"
+    elif not _looks_like_cookies_txt(path):
+        usable, problem = None, "isn't in cookies.txt (Netscape) format"
+    else:
+        usable, problem = str(path), None
+    if problem:  # logged once per file change, not on every request
+        logger.warning("YTDLP_COOKIES_FILE %s %s; downloading without it. Export youtube.com cookies with a cookies.txt extension.", path, problem)
+    _cookie_check = (key, usable)
+    return usable
+
+
 def opts() -> dict:
     """yt-dlp options that keep request volume and retries polite."""
     o: dict = {
@@ -118,6 +170,6 @@ def opts() -> dict:
     }
     if settings.ytdlp_proxy:
         o["proxy"] = settings.ytdlp_proxy
-    if settings.ytdlp_cookies_file:
-        o["cookiefile"] = settings.ytdlp_cookies_file
+    if cookies := cookies_file():
+        o["cookiefile"] = cookies
     return o

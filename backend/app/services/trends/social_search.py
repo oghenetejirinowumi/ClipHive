@@ -29,7 +29,6 @@ import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime, timezone
-from pathlib import Path
 from threading import Lock
 from typing import Callable, Iterable
 
@@ -242,8 +241,9 @@ def _ytdlp_opts(**extra) -> dict:
         "socket_timeout": 10,
         "logger": _QuietLogger(),
     }
-    cookies = settings.ytdlp_cookies_file
-    if cookies and Path(cookies).is_file():
+    from app.services.ingest import youtube_guard
+
+    if cookies := youtube_guard.cookies_file():
         opts["cookiefile"] = cookies
     opts.update(extra)
     return opts

@@ -14,7 +14,7 @@ type Taste = { starred: number; learning: boolean };
  * Ask a finished project for another batch. The backend skips every moment the project's clips
  * already cover, so each new clip is different, and leans toward the kind of moments starred.
  */
-export function MoreClips({ job, onFinished }: { job: ImportJob; onFinished: (added: number, job: ImportJob) => void }) {
+export function MoreClips({ job, onFinished, compact = false }: { job: ImportJob; onFinished: (added: number, job: ImportJob) => void; compact?: boolean }) {
   const [count, setCount] = useState<(typeof COUNTS)[number]>("5");
   const [length, setLength] = useState<(typeof LENGTHS)[number]>(
     (LENGTHS.find((l) => Number(l) === job.clip_seconds) ?? "30") as (typeof LENGTHS)[number],
@@ -55,18 +55,35 @@ export function MoreClips({ job, onFinished }: { job: ImportJob; onFinished: (ad
     }
   }
 
+  const status = running
+    ? `${running.detail || "Working"}…`
+    : error
+      ? error
+      : taste?.learning
+        ? `New moments only, leaning toward the ${taste.starred} clip${taste.starred === 1 ? "" : "s"} you starred.`
+        : "New moments only, never one you already have. Star clips you love and the next picks lean that way.";
+
+  if (compact) {
+    return (
+      <div className="space-y-3">
+        <p className="text-meta text-ink-muted" aria-live="polite">{status}</p>
+        <div className="flex items-center gap-2">
+          <Segmented compact label="How many" value={count} onChange={setCount} options={COUNTS.map((c) => ({ value: c, label: c }))} />
+          <Segmented compact label="Clip length" value={length} onChange={setLength} options={LENGTHS.map((l) => ({ value: l, label: `${l}s` }))} />
+        </div>
+        <Button size="xs" className="w-full" loading={Boolean(running)} disabled={Boolean(running)} onClick={start}>
+          <Icon name="sparkles" className="size-5" /> Find {count} more
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <Panel tone="sunken" padding="md" className="space-y-5">
       <div className="min-w-0 space-y-1">
         <p className="font-display text-2xl font-semibold tracking-tight text-ink">Generate more clips</p>
         <p className="text-lg text-ink-muted" aria-live="polite">
-          {running
-            ? `${running.detail || "Working"}…`
-            : error
-              ? error
-              : taste?.learning
-                ? `New moments only, leaning toward the ${taste.starred} clip${taste.starred === 1 ? "" : "s"} you starred.`
-                : "New moments only, never one you already have. Star clips you love and the next picks lean that way."}
+          {status}
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-3">

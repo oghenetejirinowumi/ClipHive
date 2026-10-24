@@ -8,12 +8,12 @@ from pathlib import Path
 
 from app.config import settings
 from app.api.deps import Owner
-from app.core.media import public_path, storage_root
+from app.core.media import local_media, media_exists, media_path, public_path, remove_media, storage_root
 from app.db import SessionLocal, get_db
 from app.models.caption_style import CaptionStyle
 from app.models.clip import Clip
 from app.models.enums import CaptionMode, ClipStatus, PostPlatform
-from app.schemas.clip import AIPackResponse, CaptionRequest, ClipRead, ClipUpdate
+from app.schemas.clip import AIPackResponse, CaptionRequest, ClipRead, ClipUpdate, ThumbnailFrame, ThumbnailRequest
 from app.services.ai.context_engine import (
     GAME_SIGNATURES,
     ClipContext,
@@ -60,6 +60,47 @@ def get_clip(clip_id: int, user: Owner, db: Session = Depends(get_db)):
     clip = db.query(Clip).filter(Clip.id == clip_id, Clip.user_id == user.id).first()
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
+    return clip
+
+
+@router.get("/{clip_id}/thumbnail/frames", response_model=list[ThumbnailFrame])
+def thumbnail_frames(clip_id: int, user: Owner, db: Session = Depends(get_db)) -> list[dict]:
+    """The clip's three best distinct frames for a thumbnail, best first."""
+    import base64
+
+    from app.core.media import MediaError
+    from app.services.clip.thumbnail import candidate_frames
+
+    clip = db.query(Clip).filter(Clip.id == clip_id, Clip.user_id == user.id).first()
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    src = local_media(clip.raw_file_path)
+    if not clip.raw_file_path or not src.is_file():
+        raise HTTPException(status_code=410, detail="The clip's video is no longer on disk.")
+    try:
+        frames = candidate_frames(src, duration=clip.duration_s or None)
+    except MediaError as err:
+        raise HTTPException(status_code=422, detail=str(err)) from err
+    return [{"t": f.t, "score": f.score, "preview": "data:image/jpeg;base64," + base64.b64encode(f.preview).decode()} for f in frames]
+
+
+@router.post("/{clip_id}/thumbnail", response_model=ClipRead)
+def make_thumbnail(clip_id: int, body: ThumbnailRequest, user: Owner, db: Session = Depends(get_db)):
+    """Make (or remake) the clip's thumbnail: a frame plus a 2-4 word hook. Saved on
+    context_json["thumbnail"] ({path, text, frame_s})."""
+    from app.core.media import MediaError
+    from app.services.clip.thumbnail import make_for_clip
+
+    clip = db.query(Clip).filter(Clip.id == clip_id, Clip.user_id == user.id).first()
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    try:
+        thumb = make_for_clip(clip, t=body.frame_s, text=(body.text or "").strip() or None)
+    except MediaError as err:
+        raise HTTPException(status_code=422, detail=str(err)) from err
+    clip.context_json = {**(clip.context_json or {}), "thumbnail": thumb}
+    db.commit()
+    db.refresh(clip)
     return clip
 
 
@@ -258,6 +299,7 @@ def process_clip_captioning(
         style = db.query(CaptionStyle).filter(CaptionStyle.id == style_id).first()
         if not clip or not clip.raw_file_path:
             return False
+        local_media(clip.raw_file_path)  # fetched from S3 if this instance doesn't have it
         if not style and clip.caption_style_id:
             style = (
                 db.query(CaptionStyle)
@@ -352,9 +394,9 @@ def process_clip_captioning(
                 fonts_dir=FONTS_DIR,
                 emojis=generator.emojis,
             )
-            previous = Path(clip.file_path) if clip.file_path else None
+            previous = media_path(clip.file_path) if clip.file_path else None
             if previous and previous.name.startswith(f"clip_{clip.id}_") and previous.parent.resolve() == STORAGE_CLIPS_DIR.resolve() and previous.resolve() != final_mp4.resolve():
-                previous.unlink(missing_ok=True)
+                remove_media(previous)
 
             clip.file_path = public_path(final_mp4)
             clip.caption_style_id = style.id
@@ -370,7 +412,7 @@ def process_clip_captioning(
             logger.exception(f"Captioning worker failed for clip {clip_id}: {e}")
             db.rollback()
             # The clean cut is still a finished clip: keep it postable and record why captions failed.
-            usable = bool(clip.file_path or clip.raw_file_path) and Path(clip.raw_file_path).exists()
+            usable = bool(clip.file_path or clip.raw_file_path) and media_exists(clip.raw_file_path)
             clip.status = ClipStatus.READY if usable else ClipStatus.FAILED
             clip.error = "Adding captions didn't work. Please try again."
             db.commit()
@@ -405,7 +447,7 @@ def caption_clip(
     if not style:
         raise HTTPException(status_code=404, detail="Caption style not found")
 
-    if not clip.raw_file_path or not Path(clip.raw_file_path).exists():
+    if not media_exists(clip.raw_file_path):
         raise HTTPException(status_code=400, detail="This clip's video is missing. Please cut it again.")
 
     if clip.caption_style_id and clip.caption_style_id != style.id:

@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { AgentFeed } from "@/components/agents/AgentFeed";
+import { ChannelSearch } from "@/components/streamers/ChannelSearch";
+import { VideoPicker } from "@/components/streamers/VideoPicker";
 import { Bee, BeeSwarm, Flower, HoneycombLattice } from "@/components/hive";
-import { Badge, Button, buttonClass, ChannelAvatar, Em, Field, Icon, Input, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
+import { Badge, Button, buttonClass, ChannelAvatar, Em, Field, Icon, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
 import { api, ApiError, friendly } from "@/lib/api";
 import { timeAgo, type AgentRun } from "@/lib/agents";
 import { cn } from "@/lib/cn";
@@ -52,10 +54,18 @@ function ago(iso: string | null): string {
   return s < 10 ? "just now" : s < 60 ? `${s}s ago` : `${Math.round(s / 60)} min ago`;
 }
 
-function statusLine(s: Streamer): { text: string; tone: "ok" | "idle" | "error" | "paused" } {
+/** A row-sized version of a backend error; the full text goes in the tooltip. */
+function shortError(msg: string): string {
+  const until = msg.match(/pausing YouTube requests until (\d{1,2}:\d{2})/);
+  if (until) return `YouTube paused until ${until[1]}`;
+  if (/slow down|not a bot|too many requests/i.test(msg)) return "YouTube is rate-limiting this network";
+  return msg;
+}
+
+function statusLine(s: Streamer): { text: string; tone: "ok" | "idle" | "error" | "paused"; full?: string } {
   if (!s.is_active) return { text: "Paused", tone: "paused" };
   if (s.recording) return { text: "Recording the stream · clips arrive as it goes", tone: "ok" };
-  if (s.last_check_error) return { text: `Last check failed: ${friendly(s.last_check_error)}`, tone: "error" };
+  if (s.last_check_error) return { text: `Last check failed · ${friendly(shortError(s.last_check_error))}`, tone: "error", full: friendly(s.last_check_error) };
   if (!s.last_checked_at) return { text: "Not checked yet", tone: "idle" };
   return { text: `Checked ${timeAgo(s.last_checked_at)}`, tone: "ok" };
 }
@@ -66,6 +76,8 @@ export default function StreamersPage() {
   const [username, setUsername] = useState("");
   const [message, setMessage] = useState<{ tone: "success" | "danger" | "brand"; text: string; jobId?: number | null } | null>(null);
   const [checking, setChecking] = useState<number | "all" | null>(null);
+  /** Channel whose video picker is open. */
+  const [pickerFor, setPickerFor] = useState<number | null>(null);
   const [recordingBusy, setRecordingBusy] = useState<number | null>(null);
   const [scoutRunId, setScoutRunId] = useState<number | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -228,30 +240,9 @@ export default function StreamersPage() {
   }
 
   const active = streamers.filter((s) => s.is_active).length;
-  const liveCount = streamers.filter((s) => statuses[s.id]?.live === true).length;
-  const recordingCount = streamers.filter((s) => s.recording).length;
-  const liveNow = streamers.filter((s) => statuses[s.id]?.live === true || s.recording);
-  const others = streamers.filter((s) => !liveNow.includes(s));
-
-  const card = (s: Streamer) => (
-    <ChannelCard
-      streamer={s}
-      live={statuses[s.id]}
-      avatar={avatars[s.id]}
-      checking={checking === s.id || (checking === "all" && s.is_active)}
-      checkDisabled={!s.is_active || (checking !== null && checking !== s.id)}
-      recordingBusy={recordingBusy === s.id}
-      recordDisabled={recordingBusy !== null}
-      pending={isPending}
-      onCheck={() => checkNow(s)}
-      onRecord={(on) => setRecording(s, on)}
-      onTogglePaused={() => togglePaused(s)}
-      onRemove={() => handleDeleteStreamer(s.id)}
-    />
-  );
 
   return (
-    <div className="space-y-10 sm:space-y-12">
+    <div className="space-y-12">
       <SkyHeader
         eyebrow="Scout agent"
         title={
@@ -266,43 +257,7 @@ export default function StreamersPage() {
             <BeeSwarm count={4} tone="inverse" interactive pollen className="-z-10" />
           </>
         }
-        actions={
-          <>
-            <HeaderStat value={liveCount} label="live now" dot={liveCount > 0 ? "live" : undefined} />
-            <HeaderStat value={active} label={`watched${streamers.length > active ? ` · ${streamers.length - active} paused` : ""}`} />
-            {recordingCount > 0 && <HeaderStat value={recordingCount} label="recording" dot="recording" />}
-          </>
-        }
       />
-
-      {/* Add a channel: one bar, so the channels get the page. */}
-      <Panel padding="sm" data-tour="add-channel">
-        <form onSubmit={handleAddStreamer} className="flex flex-col gap-4 lg:flex-row lg:items-start">
-          <div className="space-y-2">
-            <p className="text-lg font-medium text-ink">Platform</p>
-            <Segmented
-              label="Platform"
-              value={platform}
-              onChange={setPlatform}
-              className="w-full lg:w-auto"
-              options={[
-                { value: "twitch", label: "Twitch" },
-                { value: "kick", label: "Kick" },
-                { value: "youtube", label: "YouTube" },
-              ]}
-            />
-          </div>
-          <div className="min-w-0 flex-1">
-            <Field label="Channel" hint={platform === "youtube" ? "The @handle, e.g. mkbhd" : "e.g. tarik, kaicenat, shroud"}>
-              <Input type="text" placeholder="Channel username" value={username} onChange={(e) => setUsername(e.target.value)} required autoCapitalize="none" autoCorrect="off" />
-            </Field>
-          </div>
-          <Button type="submit" size="md" loading={isPending} className="lg:mt-[2.25rem]">
-            <Icon name="plus" className="size-5" />
-            Add channel
-          </Button>
-        </form>
-      </Panel>
 
       {message && (
         <Notice tone={message.tone} onDismiss={() => setMessage(null)}>
@@ -315,220 +270,194 @@ export default function StreamersPage() {
         </Notice>
       )}
 
-      {liveNow.length > 0 && (
-        <section className="space-y-5">
-          <div className="flex items-center gap-3">
-            <span aria-hidden className="relative flex size-3">
-              <span className="absolute inset-0 animate-ping rounded-full bg-success opacity-60 motion-reduce:hidden" />
-              <span aria-hidden className="relative size-3 rounded-full bg-success" />
-            </span>
-            <SectionLabel>Live now</SectionLabel>
-          </div>
-          <ul className="rail grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-            {liveNow.map((s) => (
-              <li key={s.id} className="min-w-0">
-                {card(s)}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <section className="space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <SectionLabel>{liveNow.length ? "Offline" : "Channels"}</SectionLabel>
-            <Badge tone="neutral">{others.length}</Badge>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {lastChecked && <span className="text-meta text-ink-muted">Live status {ago(lastChecked)}</span>}
-            <Button variant="ghost" size="xs" loading={liveChecking} disabled={liveChecking || streamers.length === 0} onClick={() => loadStatus(true)} aria-label="Refresh live status" title="Refresh live status">
-              <Icon name="refresh" className="size-5" />
-            </Button>
-            <Button variant="secondary" size="xs" loading={checking === "all"} disabled={!active || checking !== null} onClick={checkAll}>
-              <Icon name="search" className="size-5" /> Check all for VODs
-            </Button>
-          </div>
-        </div>
-
-        {streamers.length === 0 ? (
-          <Panel tone="sunken" padding="lg" className="flex flex-col items-center py-14 text-center">
-            <Flower state="bud" size={72} scout="hover" />
-            <p className="mt-6 font-display text-3xl font-semibold tracking-tight text-ink">No channels yet</p>
-            <p className="mt-2 text-lg text-ink-muted">Add one above and the Scout starts watching it.</p>
-          </Panel>
-        ) : others.length === 0 ? (
-          <p className="text-base text-ink-muted">Every channel you watch is live right now.</p>
-        ) : (
-          <ul className="rail grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-            {others.map((s) => (
-              <li key={s.id} className="min-w-0">
-                {card(s)}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <details className="group rounded-lg border border-line bg-surface">
-        <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-5 py-3">
-          <span className="flex items-center gap-3 font-display text-xl font-semibold tracking-tight text-ink">
-            <Bee variant="scout" size={32} className="bee-hover" /> Scout&apos;s last check
-          </span>
-          <Icon name="chevronDown" className="size-5 text-ink-faint transition-transform group-open:rotate-180" />
-        </summary>
-        <div className="border-t border-line px-5 py-5">
-          {scoutRunId ? <AgentFeed runId={scoutRunId} compact /> : <p className="text-base text-ink-muted">No checks yet. Press “Check now” on a channel.</p>}
-        </div>
-      </details>
-    </div>
-  );
-}
-
-/** A number on the sky header: "2 live now". */
-function HeaderStat({ value, label, dot }: { value: number; label: string; dot?: "live" | "recording" }) {
-  return (
-    <span className="inline-flex min-h-11 items-center gap-2 rounded-full border border-on-brand/30 bg-on-brand/10 px-4 text-base text-on-brand">
-      {dot && <span aria-hidden className={cn("size-2.5 rounded-full", dot === "live" ? "bg-success" : "bg-danger")} />}
-      <span className="font-display text-lg font-semibold tabular-nums">{value}</span>
-      <span className="text-on-brand/80">{label}</span>
-    </span>
-  );
-}
-
-/** One watched channel: who, whether they're live, what the Scout last did, and the actions. */
-function ChannelCard({
-  streamer: s,
-  live,
-  avatar,
-  checking,
-  checkDisabled,
-  recordingBusy,
-  recordDisabled,
-  pending,
-  onCheck,
-  onRecord,
-  onTogglePaused,
-  onRemove,
-}: {
-  streamer: Streamer;
-  live: LiveStatus | undefined;
-  avatar: string | null | undefined;
-  checking: boolean;
-  checkDisabled: boolean;
-  recordingBusy: boolean;
-  recordDisabled: boolean;
-  pending: boolean;
-  onCheck: () => void;
-  onRecord: (on: boolean) => void;
-  onTogglePaused: () => void;
-  onRemove: () => void;
-}) {
-  const [confirming, setConfirming] = useState(false);
-  const isLive = live?.live === true;
-  const st = statusLine(s);
-
-  return (
-    <article
-      className={cn(
-        "relative flex h-full flex-col overflow-hidden rounded-lg border bg-surface shadow-glow",
-        s.recording ? "border-danger/50" : isLive ? "border-success/50" : "border-line",
-        !s.is_active && "opacity-80",
-      )}
-    >
-      {/* Top band: the live broadcast, or a quiet strip. */}
-      <div className={cn("relative h-14", isLive ? "bg-success-subtle" : "bg-surface-sunken")}>
-        <div className="absolute top-2 right-2 z-10 flex gap-1">
-          <Button variant="ghost" size="xs" disabled={pending} onClick={onTogglePaused} aria-label={s.is_active ? `Pause ${s.username}` : `Resume ${s.username}`} title={s.is_active ? "Pause watching" : "Resume watching"}>
-            <Icon name={s.is_active ? "pause" : "play"} className="size-5" />
-          </Button>
-          <Button variant="ghost" size="xs" disabled={pending || s.recording} onClick={() => setConfirming(true)} aria-label={`Remove ${s.username}`} title="Stop watching this channel">
-            <Icon name="trash" className="size-5" />
-          </Button>
-        </div>
-      </div>
-
-      <div className="relative -mt-9 flex flex-1 flex-col gap-4 px-5 pb-5">
-        <div className="flex items-end gap-4">
-          <ChannelAvatar src={avatar} name={s.username} size={64} live={isLive} paused={!s.is_active} recording={s.recording} busy={checking} />
-          <div className="min-w-0 pb-1 pr-24">
-            <p className="truncate font-display text-xl font-semibold tracking-tight text-ink">{s.username}</p>
-            <p className="text-meta text-ink-muted">{PLATFORM_LABEL[s.platform] ?? s.platform}</p>
-          </div>
-        </div>
-
-        <div className="space-y-1.5" aria-live="polite">
-          <p className="flex items-start gap-2 text-base">
-            <span aria-hidden className={cn("mt-2 size-2.5 shrink-0 rounded-full", !live ? "animate-pulse bg-ink-faint" : isLive ? "bg-success" : live.live === null ? "bg-warning" : "bg-ink-faint")} />
-            {!live ? (
-              <span className="text-ink-muted">Checking…</span>
-            ) : isLive ? (
-              <span className="font-medium text-success">
-                Live{live.viewers != null && ` · ${compact(live.viewers)} watching`}
-                {live.category && ` · ${live.category}`}
-              </span>
-            ) : live.live === null ? (
-              <span className="text-warning">Couldn&apos;t check{live.error ? ` · ${friendly(live.error)}` : ""}</span>
-            ) : (
-              <span className="text-ink-muted">Offline</span>
-            )}
-          </p>
-          {isLive && live.title && <p className="line-clamp-2 text-base text-ink">{live.title}</p>}
-          <p className={cn("text-meta", st.tone === "error" ? "text-danger" : s.recording ? "font-medium text-danger" : "text-ink-muted")}>
-            {s.recording ? st.text : `Scout: ${st.text}`}
-          </p>
-          {s.last_seen_video_title && (
-            <p className="truncate text-meta text-ink-muted">
-              Latest VOD:{" "}
-              {s.last_seen_video_url ? (
-                <a href={s.last_seen_video_url} target="_blank" rel="noopener noreferrer" className="text-brand hover:text-brand-strong">
-                  {s.last_seen_video_title}
-                </a>
-              ) : (
-                s.last_seen_video_title
-              )}
-            </p>
-          )}
-        </div>
-
-        <div className="mt-auto flex flex-wrap gap-2 border-t border-line pt-4">
-          {s.recording ? (
-            <Button variant="danger" size="xs" loading={recordingBusy} onClick={() => onRecord(false)}>
-              <Icon name="x" className="size-5" /> Stop recording
-            </Button>
-          ) : (
-            isLive &&
-            s.is_active && (
-              <Button size="xs" loading={recordingBusy} disabled={recordDisabled} onClick={() => onRecord(true)}>
-                <Icon name="radio" className="size-5" /> Record now
+      <div className="grid gap-10 lg:grid-cols-12">
+        <section className="space-y-6 lg:col-span-7">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <SectionLabel>Channels</SectionLabel>
+              <Badge tone="brand" size="md">
+                {Object.values(statuses).filter((st) => st.live).length} live · {active} watched
+              </Badge>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              {lastChecked && <span className="text-base text-ink-muted">Live status {ago(lastChecked)}</span>}
+              <Button variant="ghost" size="sm" loading={liveChecking} disabled={liveChecking || streamers.length === 0} onClick={() => loadStatus(true)}>
+                Refresh
               </Button>
-            )
-          )}
-          {isLive && (
-            <a href={live.url} target="_blank" rel="noopener noreferrer" className={buttonClass({ variant: "secondary", size: "xs" })}>
-              <Icon name="play" className="size-5" /> Watch
-            </a>
-          )}
-          <Button variant={isLive ? "ghost" : "secondary"} size="xs" loading={checking} disabled={checkDisabled} onClick={onCheck}>
-            <Icon name="search" className="size-5" /> Check for VODs
-          </Button>
-        </div>
-      </div>
-
-      {confirming && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-surface/95 p-5 text-center">
-          <p className="font-semibold text-ink">Stop watching {s.username}?</p>
-          <p className="text-meta text-ink-muted">Clips already made stay in your Hub.</p>
-          <div className="flex gap-2">
-            <Button variant="danger" size="sm" onClick={onRemove}>
-              Remove
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setConfirming(false)}>
-              Keep
-            </Button>
+              <Button variant="secondary" size="sm" loading={checking === "all"} disabled={!active || checking !== null} onClick={checkAll}>
+                <Icon name="refresh" className="size-5" /> Check all now
+              </Button>
+            </div>
           </div>
-        </div>
-      )}
-    </article>
+
+          {streamers.length > 0 ? (
+            <ul className="divide-y divide-line border-y border-line">
+              {streamers.map((s) => {
+                const live = statuses[s.id];
+                const isLive = live?.live === true;
+                const st = statusLine(s);
+                return (
+                  <li key={s.id} className="py-6">
+                  {/* Actions sit under the details (lined up with the text), so the status line keeps the row's full width. */}
+                  <div className="flex flex-col gap-4">
+                    <div className="flex min-w-0 flex-1 items-center gap-5">
+                      <ChannelAvatar
+                        src={avatars[s.id]}
+                        name={s.username}
+                        size={56}
+                        live={isLive}
+                        paused={!s.is_active}
+                        recording={s.recording}
+                        busy={checking === s.id || (checking === "all" && s.is_active)}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span className="truncate font-display text-2xl font-semibold tracking-tight text-ink">{s.username}</span>
+                          <Badge tone="neutral">{PLATFORM_LABEL[s.platform] ?? s.platform}</Badge>
+                        </div>
+                        <div className="mt-1 flex min-w-0 items-center gap-x-2 text-base" aria-live="polite">
+                          {/* status dot (decorative: the text next to it carries the state) */}
+                          <span aria-hidden className={cn("size-3 shrink-0 rounded-full", !live ? "animate-pulse bg-ink-faint" : isLive ? "bg-success" : live.live === null ? "bg-warning" : "bg-ink-faint")} />
+                          {!live ? (
+                            <span className="text-ink-muted">Checking…</span>
+                          ) : isLive ? (
+                            <span className="font-medium text-success">
+                              Live now{live.viewers != null && ` · ${compact(live.viewers)} watching`}
+                              {live.category && ` · ${live.category}`}
+                            </span>
+                          ) : live.live === null ? (
+                            <span className="min-w-0 truncate text-warning" title={live.error ? friendly(live.error) : undefined}>
+                              Couldn&apos;t check{live.error ? ` · ${friendly(shortError(live.error))}` : ""}
+                            </span>
+                          ) : (
+                            <span className="text-ink-muted">Offline</span>
+                          )}
+                        </div>
+                        {isLive && live.title && <p className="mt-1 line-clamp-1 text-base text-ink-muted">{live.title}</p>}
+                        <p title={st.full} className={cn("mt-1 truncate text-base", st.tone === "error" ? "text-danger" : s.recording ? "font-medium text-warning" : "text-ink-muted")}>
+                          {s.recording ? st.text : `Scout: ${st.text}`}
+                        </p>
+                        {s.last_seen_video_title && (
+                          <p className="truncate text-base text-ink-muted">
+                            Latest:{" "}
+                            {s.last_seen_video_url ? (
+                              <a href={s.last_seen_video_url} target="_blank" rel="noopener noreferrer" className="text-brand hover:text-brand-strong">
+                                {s.last_seen_video_title}
+                              </a>
+                            ) : (
+                              s.last_seen_video_title
+                            )}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 sm:pl-[76px]">
+                      {s.recording ? (
+                        <Button variant="secondary" size="sm" loading={recordingBusy === s.id} onClick={() => setRecording(s, false)}>
+                          <Icon name="x" className="size-5" /> Stop recording
+                        </Button>
+                      ) : (
+                        isLive &&
+                        s.is_active && (
+                          <Button size="sm" loading={recordingBusy === s.id} disabled={recordingBusy !== null} onClick={() => setRecording(s, true)}>
+                            <Icon name="radio" className="size-5" /> Record now
+                          </Button>
+                        )
+                      )}
+                      {isLive && (
+                        <a href={live.url} target="_blank" rel="noopener noreferrer" className={buttonClass({ variant: "secondary", size: "sm" })}>
+                          <Icon name="play" className="size-5" /> Watch
+                        </a>
+                      )}
+                      <Button size="sm" loading={checking === s.id} disabled={!s.is_active || (checking !== null && checking !== s.id)} onClick={() => checkNow(s)}>
+                        <Icon name="search" className="size-5" /> Check now
+                      </Button>
+                      <Button
+                        variant={pickerFor === s.id ? "primary" : "secondary"}
+                        size="sm"
+                        aria-expanded={pickerFor === s.id}
+                        onClick={() => setPickerFor(pickerFor === s.id ? null : s.id)}
+                      >
+                        <Icon name="film" className="size-5" /> Pick video
+                      </Button>
+                      <Button variant="ghost" size="sm" disabled={isPending} onClick={() => togglePaused(s)} aria-label={s.is_active ? `Pause ${s.username}` : `Resume ${s.username}`}>
+                        <Icon name={s.is_active ? "pause" : "play"} className="size-5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" disabled={isPending || s.recording} onClick={() => handleDeleteStreamer(s.id)}>
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                  {pickerFor === s.id && (
+                    <VideoPicker
+                      streamer={s}
+                      onClose={() => setPickerFor(null)}
+                      onClipped={(jobId, title) => {
+                        setPickerFor(null);
+                        setMessage({ tone: "success", text: `Clipping "${title}" now.`, jobId });
+                      }}
+                    />
+                  )}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <Panel tone="sunken" padding="lg" className="flex flex-col items-center py-14 text-center">
+              <Flower state="bud" size={72} scout="hover" />
+              <p className="mt-6 font-display text-3xl font-semibold tracking-tight text-ink">No channels yet</p>
+              <p className="mt-2 text-lg text-ink-muted">Add one and the Scout starts watching it.</p>
+            </Panel>
+          )}
+        </section>
+
+        <aside className="space-y-8 lg:col-span-5">
+          <Panel padding="lg" data-tour="add-channel">
+            <h2 className="font-display text-3xl font-semibold tracking-tight text-ink">Add a channel</h2>
+            <p className="mt-2 text-lg text-ink-muted">The first check clips its newest VOD, then every new one. Use “Pick video” to clip any other.</p>
+
+            <form onSubmit={handleAddStreamer} className="mt-8 space-y-6">
+              <div className="space-y-2">
+                <p className="text-lg font-medium text-ink">Platform</p>
+                <Segmented
+                  label="Platform"
+                  value={platform}
+                  onChange={setPlatform}
+                  className="w-full"
+                  options={[
+                    { value: "twitch", label: "Twitch" },
+                    { value: "kick", label: "Kick" },
+                    { value: "youtube", label: "YouTube" },
+                  ]}
+                />
+              </div>
+
+              <Field label="Channel" hint="Start typing a name and pick the channel from the list, or type the exact username.">
+                <ChannelSearch
+                  platform={platform}
+                  value={username}
+                  onChange={setUsername}
+                  watched={new Set(streamers.filter((s) => s.platform === platform).map((s) => s.username.toLowerCase()))}
+                  placeholder={platform === "youtube" ? "Search YouTube, e.g. mkbhd" : platform === "kick" ? "Search Kick, e.g. adinross" : "Search Twitch, e.g. kaicenat"}
+                />
+              </Field>
+
+              <Button type="submit" size="lg" className="w-full" loading={isPending}>
+                <Icon name="radio" />
+                Add channel
+              </Button>
+            </form>
+          </Panel>
+
+          <Panel padding="md" className="space-y-4">
+            <h2 className="flex items-center gap-3 font-display text-2xl font-semibold tracking-tight text-ink">
+              <Bee variant="scout" size={40} className="bee-hover" /> Scout&apos;s last check
+            </h2>
+            {scoutRunId ? <AgentFeed runId={scoutRunId} compact /> : <p className="text-base text-ink-muted">No checks yet. Press “Check now” on a channel.</p>}
+          </Panel>
+        </aside>
+      </div>
+    </div>
   );
 }

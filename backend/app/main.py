@@ -39,6 +39,9 @@ from app.services.trends.scheduler import trend_scheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from app.core import object_store
 from app.core.static_cache import CachedStaticFiles
 
 logging.basicConfig(level=logging.INFO)
@@ -102,6 +105,10 @@ async def lifespan(app: FastAPI):
     if settings.scout_enabled:
         logger.info("Scout agent: checking channels every %d min", settings.scout_interval_minutes)
         background.append(asyncio.create_task(scout_loop()))
+    if object_store.enabled():
+        logger.info("Media storage: s3://%s/%s", settings.s3_bucket, settings.s3_prefix.strip("/"))
+        object_store.resume_pending()  # uploads a crash or redeploy interrupted
+        background.append(asyncio.create_task(object_store.evict_loop()))
     try:
         yield
     finally:
@@ -136,10 +143,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class MediaFiles(CachedStaticFiles):
+    """/storage: the local file (with cache headers) when this instance has it, else a redirect
+    to its S3 copy."""
+
+    async def get_response(self, path, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as err:
+            if err.status_code != 404 or not object_store.enabled():
+                raise
+            key = object_store.key_for(Path(self.directory) / path)
+            if key is None or not await asyncio.to_thread(object_store.remote_has, key):
+                raise
+            return RedirectResponse(await asyncio.to_thread(object_store.url_for, key), status_code=307)
+
+
 # Mount local storage directory for preview and download
 storage_dir = Path(settings.storage_dir)  # same folder the import pipeline writes to
 storage_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/storage", CachedStaticFiles(directory=str(storage_dir)), name="storage")
+app.mount("/storage", MediaFiles(directory=str(storage_dir)), name="storage")
 # Caption fonts for the video editor preview (the composition loads them by URL).
 app.mount("/editor-fonts", CachedStaticFiles(directory=str(EDITOR_FONTS_DIR), max_age=86400), name="editor-fonts")
 

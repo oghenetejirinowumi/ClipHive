@@ -24,8 +24,8 @@ from pathlib import Path
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
-from app.config import settings
 from app.core.media import MediaError, ffmpeg_bin, probe
+from app.services.ingest import youtube_guard
 from app.services.ingest.downloader import IngestError
 from app.services.ingest.monitor import SilentLogger
 
@@ -82,8 +82,8 @@ def _start_streamlink(url: str, out_dir: Path, tail: list[str]) -> list[subproce
 def _start_ytdlp(url: str, out_dir: Path, tail: list[str]) -> list[subprocess.Popen] | None:
     # YouTube without a JS runtime only offers separate video and audio streams, so accept a pair.
     opts = {"quiet": True, "no_warnings": True, "logger": SilentLogger(), "format": "b[height<=1080]/bv*[height<=1080]+ba/b"}
-    if settings.ytdlp_cookies_file:
-        opts["cookiefile"] = settings.ytdlp_cookies_file
+    if cookies := youtube_guard.cookies_file():
+        opts["cookiefile"] = cookies
     try:
         with YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)

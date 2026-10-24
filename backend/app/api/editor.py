@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import logging
-
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import get_args
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy import select
@@ -12,14 +13,15 @@ from sqlalchemy import select
 from app.api.deps import DbSession, Owner
 from app.config import settings
 from app.core.media import MediaError, storage_root
-from app.models import Clip, EditorProject, EditorVersion, ImportJob, User
+from app.models import CaptionStyle, Clip, EditorProject, EditorVersion, ImportJob, User
 from app.schemas.editor import (
-    AddClipAsset, AutoEffectsRequest, AutoEmojiRequest, AutoSfxRequest, SfxRead, ChatRequest, ChatResponse, ProjectCreate, ProjectRead, ProjectSummary, ProjectUpdate, Timeline, VersionRead,
+    AddClipAsset, AutoEffectsRequest, AutoEmojiRequest, AutoSfxRequest, CaptionsRequest, ChatRequest, ChatResponse, MomentRequest,
+    OpenRequest, Look, ProjectCreate, ProjectRead, ProjectSummary, ProjectUpdate, SfxRead, TextAnimation, Timeline, VersionRead,
 )
 from app.services.editor import assistant, effects, emojis, ops, render, sfx
 from app.services.editor.compose import compose
 from app.services.editor.media import UPLOAD_EXTS, probe_asset, project_dir, public_media_path
-from app.services.ingest.pipeline import source_file
+from app.services.ingest.pipeline import section_file, source_file
 
 router = APIRouter(prefix="/editor", tags=["editor"])
 
@@ -85,7 +87,8 @@ def _library_source(db: DbSession, user: User, clip_id: int | None, import_id: i
         clip = db.get(Clip, clip_id)
         if clip is None or clip.user_id != user.id:
             raise HTTPException(404, "Clip not found.")
-        public = public_media_path(clip.file_path) or public_media_path(clip.raw_file_path)
+        # The clean cut: in the editor captions are editable text on top, never burned in.
+        public = public_media_path(clip.raw_file_path) or public_media_path(clip.file_path)
         name = clip.title or f"Clip {clip.id}"
     elif import_id is not None:
         job = db.get(ImportJob, import_id)
@@ -160,6 +163,198 @@ def create_project(body: ProjectCreate, user: Owner, db: DbSession) -> ProjectRe
     return _read(db, project)
 
 
+def _job_of(db: DbSession, user: User, clip: Clip) -> ImportJob | None:
+    return next((j for j in db.scalars(select(ImportJob).where(ImportJob.user_id == user.id).order_by(ImportJob.id.desc()))
+                 if clip.id in (j.clip_ids or [])), None)
+
+
+def _wide_source(job: ImportJob, clip: Clip) -> tuple[str, float] | None:
+    """The clip's moment in its original (wide) framing: its saved HD section (t=0 is the clip's
+    start) or the uploaded video. (public path, where the moment starts in it)"""
+    section = section_file(job.id, clip.id)
+    if section.is_file() and (public := public_media_path(str(section))):
+        return public, 0.0
+    src = source_file(job.id)
+    if src is not None and (public := public_media_path(str(src))):
+        return public, float(clip.start_s)
+    return None
+
+
+def _place_clip(db: DbSession, user: User, timeline: Timeline, clip: Clip, *, job: ImportJob | None = None,
+                at: float | None = None) -> Timeline:
+    """Put one of the user's clips on the main track.
+
+    From its wide source when there is one, so Fill / Blur / Fit is a live setting (Properties >
+    Layout) instead of baked into the file; it starts in the layout it was cut with, at the speed,
+    volume and colour the Studio gave it. Otherwise its 9:16 cut, as it is."""
+    job = job or _job_of(db, user, clip)
+    wide = _wide_source(job, clip) if job else None
+    if wide is None:
+        public, name = _library_source(db, user, clip.id, None)
+        timeline, asset_id = _asset_from_storage(timeline, public, name)
+        return ops.add_clip(timeline, asset_id, start=at)[0]
+    public, source_in = wide
+    ctx = clip.context_json or {}
+    speed = min(4.0, max(0.25, float(ctx.get("speed") or 1.0)))
+    name = (job.title or job.original_filename or "Video") if source_in else (clip.title or f"Clip {clip.id}")
+    timeline, asset_id = _asset_from_storage(timeline, public, name)
+    timeline, _ = ops.add_clip(timeline, asset_id, start=at, source_in=source_in, duration=max(0.1, (clip.end_s - clip.start_s) / speed))
+    layout = (job.clip_layouts or {}).get(str(clip.id), job.layout or "fill")
+    volume = min(2.0, max(0.0, float(ctx["volume"]) if ctx.get("volume") is not None else 1.0))
+    changes = {"fit": "blur" if layout == "blur" else "cover", "speed": speed, "volume": volume,
+               "look": look if (look := str(ctx.get("color_filter", "none"))) in get_args(Look) else "none"}
+    return ops.update_clip(timeline, timeline.clips[-1].id, **changes)[0]
+
+
+def _caption_style(db: DbSession, clip: Clip) -> dict:
+    """Editor text style matching the caption style the clip was burned with (or punch)."""
+    style = db.get(CaptionStyle, clip.caption_style_id) if clip.caption_style_id else None
+    if style is None:
+        return {"preset": "punch"}
+    from app.services.caption.ass_generator import StyleSpec
+
+    o = StyleSpec.of(style).options
+    animation = getattr(style.animation_type, "value", style.animation_type) or "pop"
+    position_y = (clip.context_json or {}).get("caption_position_y") or o.position_y  # the burn used this
+    return {
+        "font": style.font_name, "size": max(16, min(400, int(style.font_size or 84))), "color": o.text_color.upper(),
+        "stroke_color": o.outline_color.upper(), "stroke_width": int(min(30, o.outline_width)), "background": None,
+        "uppercase": bool(style.uppercase), "y": round(min(92, max(8, float(position_y))) / 100, 3), "x": 0.5,
+        "animation": animation if animation in get_args(TextAnimation) else "pop",
+    }
+
+
+def _clip_captions(db: DbSession, timeline: Timeline, clip: Clip) -> Timeline:
+    """Editable captions for a clip just placed at 0 on an empty timeline, from its transcript.
+
+    The clip's words are in clip time and the clip starts at 0, so they line up as they are."""
+    words = [w for w in (clip.transcript_json or []) if str(w.get("word", "")).strip()]
+    if not words:
+        return timeline
+    style = _caption_style(db, clip)
+    try:
+        timed = [{"word": str(w["word"]).strip(), "start": float(w["start"]), "end": float(w["end"])} for w in words]
+        timeline, _ = ops.add_captions(timeline, timed, preset=style.pop("preset", "punch"))
+        if style:
+            timeline, _ = ops.restyle_captions(timeline, **style)
+    except (ops.EditError, KeyError, TypeError, ValueError):
+        pass  # captions are a bonus here; the clip itself is what matters
+    return timeline
+
+
+_open_lock = threading.Lock()  # two "Edit" clicks at once must not start two edits
+
+
+@router.post("/open", response_model=ProjectRead)
+def open_in_editor(body: OpenRequest, user: Owner, db: DbSession) -> ProjectRead:
+    with _open_lock:
+        return _open_in_editor(body, user, db)
+
+
+def _open_in_editor(body: OpenRequest, user: User, db: DbSession) -> ProjectRead:
+    """Edit a clip or an imported video: reopen the edit made from it before, or start one.
+
+    A clip opens on its clean cut with its captions as editable text (from its transcript, in
+    the style it was burned with). A video opens with its best clip on the timeline, and the
+    Moments tab picks more from it."""
+    if body.clip_id is None and body.import_id is None:
+        raise HTTPException(422, "Pick a clip or a video.")
+    clip: Clip | None = None
+    job: ImportJob | None = None
+    if body.clip_id is not None:
+        clip = db.get(Clip, body.clip_id)
+        if clip is None or clip.user_id != user.id:
+            raise HTTPException(404, "Clip not found.")
+        job = _job_of(db, user, clip)
+        existing = db.scalar(select(EditorProject).where(EditorProject.user_id == user.id, EditorProject.source_clip_id == clip.id)
+                             .order_by(EditorProject.id.desc()).limit(1))
+    else:
+        job = db.get(ImportJob, body.import_id)
+        if job is None or job.user_id != user.id:
+            raise HTTPException(404, "Video not found.")
+        existing = db.scalar(select(EditorProject).where(
+            EditorProject.user_id == user.id, EditorProject.import_id == job.id, EditorProject.source_clip_id.is_(None),
+        ).order_by(EditorProject.id.desc()).limit(1))
+    if existing is not None:
+        return _read(db, existing)
+
+    timeline = Timeline(aspect=body.aspect or "9:16")
+    start_clip = clip
+    if start_clip is None and job is not None:  # start from the video's best clip, if it has one
+        clips = [c for cid in (job.clip_ids or []) if (c := db.get(Clip, cid)) is not None and c.raw_file_path]
+        start_clip = max(clips, key=lambda c: c.highlight_score or 0, default=None)
+    if start_clip is not None:
+        try:
+            timeline = _clip_captions(db, _place_clip(db, user, timeline, start_clip, job=job), start_clip)
+        except HTTPException:
+            if clip is not None:
+                raise  # the clip they asked for is gone
+    title = body.title or (clip.title if clip else None) or (job.title if job else None) or "Untitled edit"
+    project = EditorProject(user_id=user.id, title=title[:200], timeline=timeline.model_dump(mode="json"), chat=[],
+                            media=[a.src for a in timeline.assets], import_id=job.id if job else None,
+                            source_clip_id=clip.id if clip else None)
+    db.add(project)
+    db.flush()
+    _snapshot(db, project, "Start")
+    db.commit()
+    db.refresh(project)
+    return _read(db, project)
+
+
+def _clock(seconds: float) -> str:
+    s = int(seconds)
+    return f"{s // 3600}:{s // 60 % 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60}:{s % 60:02d}"
+
+
+@router.post("/projects/{project_id}/moments", response_model=ProjectRead)
+def add_moment(project_id: int, body: MomentRequest, user: Owner, db: DbSession) -> ProjectRead:
+    """Cut a range of the project's video as a 9:16 clip (it's saved in the Hub too) and place it.
+
+    Link videos fetch just that range in HD, which can take a minute."""
+    from app.api import studio
+    from app.schemas.import_job import StudioClipRequest
+
+    project = _owned(db, project_id, user)
+    if project.import_id is None:
+        raise HTTPException(422, "This edit wasn't opened from an imported video.")
+    try:
+        request = StudioClipRequest(start_s=body.start_s, end_s=body.end_s, layout=body.layout)
+    except ValueError as err:
+        raise HTTPException(422, str(err)) from err
+    made = studio.create_clip(project.import_id, request, user, db)
+    db.refresh(project)
+    try:
+        timeline = _place_clip(db, user, Timeline.model_validate(project.timeline), db.get(Clip, made.id),
+                               job=db.get(ImportJob, project.import_id), at=body.at)
+    except ops.EditError as err:
+        raise HTTPException(422, str(err)) from err
+    span = f"{_clock(made.start_s)}–{_clock(made.end_s)}"
+    _snapshot(db, project, "Your edits", only_if_changed=True)
+    _save(db, project, timeline)
+    _snapshot(db, project, f"Added moment {span}")
+    db.commit()
+    db.refresh(project)
+    return _read(db, project).model_copy(update={"notice": f"Added {span} to the timeline. It's saved in your Hub too."})
+
+
+@router.post("/projects/{project_id}/captions", response_model=ProjectRead)
+def generate_captions(project_id: int, body: CaptionsRequest, user: Owner, db: DbSession) -> ProjectRead:
+    """Transcribe the clips on the timeline and add editable captions (replaces existing ones)."""
+    project = _owned(db, project_id, user)
+    timeline = Timeline.model_validate(project.timeline)
+    try:
+        words = ops.caption_words(timeline, assistant.transcribe_range)
+        timeline, summary = ops.add_captions(timeline, words, preset=body.preset, words_per_caption=body.words_per_caption)
+    except ops.EditError as err:
+        raise HTTPException(422, str(err)) from err
+    _snapshot(db, project, "Your edits", only_if_changed=True)
+    _save(db, project, timeline)
+    _snapshot(db, project, "Captions")
+    db.commit()
+    db.refresh(project)
+    return _read(db, project).model_copy(update={"notice": f"{summary} Click any line to fix a word."})
+
+
 @router.get("/projects/{project_id}", response_model=ProjectRead)
 def get_project(project_id: int, user: Owner, db: DbSession) -> ProjectRead:
     return _read(db, _owned(db, project_id, user))
@@ -227,8 +422,15 @@ def upload_asset(project_id: int, user: Owner, db: DbSession, file: UploadFile =
 def add_library_asset(project_id: int, body: AddClipAsset, user: Owner, db: DbSession) -> ProjectRead:
     """Bring one of your clips, or an import's full source video, into the project."""
     project = _owned(db, project_id, user)
+    timeline = Timeline.model_validate(project.timeline)
+    if body.clip_id is not None and body.place:  # on the timeline: from its wide source when there is one
+        clip = db.get(Clip, body.clip_id)
+        if clip is None or clip.user_id != user.id:
+            raise HTTPException(404, "Clip not found.")
+        _save(db, project, _place_clip(db, user, timeline, clip))
+        return _read(db, project)
     public, name = _library_source(db, user, body.clip_id, body.import_id)
-    timeline, asset_id = _asset_from_storage(Timeline.model_validate(project.timeline), public, name)
+    timeline, asset_id = _asset_from_storage(timeline, public, name)
     _save(db, project, _place(timeline, asset_id) if body.place else timeline)
     return _read(db, project)
 

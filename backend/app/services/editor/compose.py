@@ -20,6 +20,7 @@ import math
 import random
 from collections.abc import Callable
 from html import escape
+from pathlib import Path
 
 from app.schemas.editor import Asset, AudioTrack, Clip, Effect, Text, Timeline
 
@@ -45,6 +46,23 @@ def _font_filename(font_name: str) -> str | None:
     except Exception:
         pass
     return None
+
+def font_file(font_name: str) -> Path | None:
+    """The file behind a font name (the one _font_filename names), for copying into a render."""
+    name = _font_filename(font_name)
+    if not name:
+        return None
+    path = Path(__file__).resolve().parents[3] / "assets" / "fonts" / name
+    if path.is_file():
+        return path
+    try:
+        from app.services.caption import fonts
+
+        info = fonts.get_font(font_name)
+        return Path(info.file) if info and Path(info.file).is_file() else None
+    except Exception:
+        return None
+
 
 TEXT_IN_S = 0.3
 TEXT_OUT_S = 0.2
@@ -80,10 +98,34 @@ def _sound_attrs(volume: float, duration: float, fade_in: float, fade_out: float
     return f" data-automation='{lane}'" if lane else f' data-volume="{_n(volume)}"'
 
 
+# CSS versions of the Studio's ffmpeg colour filters (services/clip/cutter.py COLOR_FILTERS).
+LOOKS = {
+    "vibrant": "contrast(1.15) saturate(1.35) brightness(1.02)",
+    "warm": "sepia(0.2) saturate(1.15) hue-rotate(-6deg)",
+    "cool": "saturate(1.05) hue-rotate(12deg) brightness(1.02)",
+    "dramatic": "grayscale(1) contrast(1.25) brightness(0.96)",
+}
+BLUR_BACKDROP = "blur(36px) brightness(0.82) saturate(1.15)"
+BACKDROP_TRACK = 1000  # blur backdrop copies: track indexes no clip or audio track uses (audio is 10 + index)
+
+
 def _clip_html(clip: Clip, asset: Asset, url: str, z: int) -> str:
     wrap = f"w-{clip.id}"
     timing = f'data-start="{_n(clip.start)}" data-duration="{_n(clip.duration)}" data-track-index="{clip.track}"'
-    style = f"object-fit: {clip.fit}"
+    look = LOOKS.get(clip.look, "")
+    style = f"object-fit: {'contain' if clip.fit == 'blur' else clip.fit}" + (f"; filter: {look}" if look else "")
+    backdrop = ""
+    if clip.fit == "blur":  # a muted, blurred copy fills the frame behind the whole picture
+        back_timing = timing.replace(f'data-track-index="{clip.track}"', f'data-track-index="{BACKDROP_TRACK + clip.track}"')
+        back_style = f"object-fit: cover; filter: {BLUR_BACKDROP}{' ' + look if look else ''}; transform: scale(1.12)"
+        if asset.kind == "image":
+            backdrop = f'<img id="b-{clip.id}" class="clip media" src="{_attr(url)}" {back_timing} style="{back_style}" alt="" />'
+        else:
+            rate = f' data-playback-rate="{_n(clip.speed)}"' if clip.speed != 1 else ""
+            backdrop = (
+                f'<video id="b-{clip.id}" class="clip media" src="{_attr(url)}" {back_timing} '
+                f'data-media-start="{_n(clip.source_in)}"{rate} muted playsinline style="{back_style}"></video>'
+            )
     if asset.kind == "image":
         media = f'<img id="m-{clip.id}" class="clip media" src="{_attr(url)}" {timing} style="{style}" alt="" />'
     else:
@@ -94,7 +136,7 @@ def _clip_html(clip: Clip, asset: Asset, url: str, z: int) -> str:
             f'<video id="m-{clip.id}" class="clip media" src="{_attr(url)}" {timing} '
             f'data-media-start="{_n(clip.source_in)}"{rate}{sound} playsinline style="{style}"></video>'
         )
-    return f'<div id="{wrap}" class="layer" style="z-index: {z}">{media}</div>'
+    return f'<div id="{wrap}" class="layer" style="z-index: {z}">{backdrop}{media}</div>'
 
 
 def _clip_tweens(clip: Clip) -> list[str]:

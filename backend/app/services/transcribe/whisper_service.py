@@ -285,6 +285,80 @@ def transcribe_with_groq(
     return words
 
 
+OPENAI_CHUNK_S = 30 * 60  # 32 kbps mono: ~7 MB per chunk, well under OpenAI's 25 MB upload cap
+
+
+def transcribe_with_openai(
+    file_path: str | Path,
+    language: str | None = "en",
+    vocabulary: Sequence[str] = GAMING_VOCABULARY,
+    start_s: float = 0.0,
+    max_seconds: float | None = None,
+) -> list[TranscriptWord]:
+    """Transcribe with OpenAI Whisper (OPENAI_TRANSCRIBE_MODEL, word timestamps). Long audio is
+    sent in 30-minute chunks. Word times are in the source file's timeline."""
+    import tempfile
+
+    import openai
+
+    if not settings.openai_api_key:
+        raise ValueError("OPENAI_API_KEY is not configured")
+    if not Path(file_path).exists():
+        raise FileNotFoundError(f"Media file not found: {file_path}")
+    from app.core.media import probe
+
+    total = max_seconds or probe(Path(file_path))[0] or OPENAI_CHUNK_S
+    client = openai.OpenAI(api_key=settings.openai_api_key, max_retries=2, timeout=300)
+    words: list[TranscriptWord] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        offset = 0.0
+        while offset < total - 0.5:
+            length = min(OPENAI_CHUNK_S, total - offset)
+            audio = extract_speech_audio(file_path, Path(tmp) / f"part{int(offset)}.mp3", start_s + offset, length)
+            with open(audio, "rb") as f:
+                resp = client.audio.transcriptions.create(
+                    file=(audio.name, f),
+                    model=settings.openai_transcribe_model or "whisper-1",
+                    language=language or None,
+                    prompt=" ".join(vocabulary)[:800] if vocabulary else None,
+                    response_format="verbose_json",
+                    timestamp_granularities=["word", "segment"],
+                    temperature=0.0,
+                )
+            data = resp.model_dump() if hasattr(resp, "model_dump") else dict(resp)
+            segments = data.get("segments") or []
+            for w in data.get("words") or []:
+                clean = (w.get("word") or "").strip()
+                if not clean:
+                    continue
+                t = float(w.get("start", 0))
+                words.append(TranscriptWord(
+                    word=clean,
+                    start=round(t + start_s + offset, 3),
+                    end=round(float(w.get("end", t)) + start_s + offset, 3),
+                    confidence=_segment_confidence(segments, t),
+                ))
+            offset += length
+    return words
+
+
+def transcribe_full(file_path: str | Path, max_seconds: float | None = None) -> list[TranscriptWord] | None:
+    """One transcript of a whole source (for finding moments by what's said): Groq when its key
+    is set, else OpenAI. None when neither is configured (local Whisper is too slow for hours of
+    audio) or the source is longer than FULL_TRANSCRIPT_MAX_MINUTES."""
+    limit = settings.full_transcript_max_minutes * 60
+    if limit <= 0 or (max_seconds or 0) > limit:
+        return None
+    if settings.groq_api_key:
+        try:
+            return transcribe_with_groq(file_path, max_seconds=max_seconds)
+        except Exception as e:
+            logger.warning(f"Groq full transcript failed ({e}), trying OpenAI")
+    if settings.openai_api_key:
+        return transcribe_with_openai(file_path, max_seconds=max_seconds)
+    return None
+
+
 def transcribe_video(
     file_path: str | Path,
     provider: str = "auto",
@@ -292,8 +366,8 @@ def transcribe_video(
 ) -> list[TranscriptWord]:
     """
     Main transcription entrypoint.
-    "auto" uses Groq when GROQ_API_KEY is set (fast, large-v3 accuracy), otherwise local
-    faster-whisper. "assemblyai" uses AssemblyAI if configured. Every cloud path falls back
+    "auto" uses Groq when GROQ_API_KEY is set (fast, large-v3 accuracy), then OpenAI Whisper
+    when OPENAI_API_KEY is set, otherwise local faster-whisper. "assemblyai" uses AssemblyAI if configured. Every cloud path falls back
     to faster-whisper on error.
     """
     if provider == "assemblyai" and settings.assemblyai_api_key:
@@ -306,5 +380,10 @@ def transcribe_video(
             return transcribe_with_groq(file_path, language=language)
         except Exception as e:
             logger.warning(f"Groq transcription failed ({e}), falling back to faster-whisper")
+    if provider in ("auto", "openai") and settings.openai_api_key:
+        try:
+            return transcribe_with_openai(file_path, language=language)
+        except Exception as e:
+            logger.warning(f"OpenAI transcription failed ({e}), falling back to faster-whisper")
 
     return transcribe_with_faster_whisper(file_path, language=language)

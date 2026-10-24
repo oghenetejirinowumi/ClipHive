@@ -124,11 +124,9 @@ def _base_opts(*, browser_cookies: bool = False) -> dict:
     if runtimes:  # YouTube's signature challenge needs a JS runtime, or downloads crawl / fail
         opts["js_runtimes"] = runtimes
     opts.update(youtube_guard.opts())  # polite retries, optional proxy and cookies
-    # A cookies file is cheap and explicit, so use it from the start. Browser cookies are
-    # only a fallback: they need a Keychain prompt and tie downloads to that account.
-    if settings.ytdlp_cookies_file:
-        opts["cookiefile"] = settings.ytdlp_cookies_file
-    elif browser_cookies and settings.ytdlp_cookies_from_browser and not opts.get("cookiefile"):
+    # A cookies file (set by youtube_guard.opts() when usable) is cheap and explicit, so it's used
+    # from the start. Browser cookies are only a fallback: they tie downloads to that account.
+    if browser_cookies and settings.ytdlp_cookies_from_browser and not opts.get("cookiefile"):
         opts.update(_browser_cookie_opts())
     return opts
 
@@ -196,7 +194,7 @@ def _probe(url: str, *, browser_cookies: bool = False) -> dict:
         youtube_guard.report(err)
         text = str(err).lower()
         needs_login = _is_bot_wall(text) or "login" in text or "cookies" in text
-        if not (needs_login and settings.ytdlp_cookies_from_browser and not settings.ytdlp_cookies_file):
+        if not (needs_login and settings.ytdlp_cookies_from_browser and not youtube_guard.cookies_file()):
             raise IngestError(_friendly(err)) from err
         logger.info("Probe needs a signed-in session; retrying with browser cookies")
         try:

@@ -70,8 +70,10 @@ class SilentLogger:
 
 def _ydl_opts(**extra) -> dict:
     opts = {"quiet": True, "no_warnings": True, "noprogress": True, "skip_download": True, "logger": SilentLogger(), **extra}
-    if settings.ytdlp_cookies_file:
-        opts["cookiefile"] = settings.ytdlp_cookies_file
+    from app.services.ingest import youtube_guard
+
+    if cookies := youtube_guard.cookies_file():
+        opts["cookiefile"] = cookies
     return opts
 
 
