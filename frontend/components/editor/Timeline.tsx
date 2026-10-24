@@ -69,6 +69,12 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
 
   function beginDrag(e: PointerEvent, kind: ItemKind, item: Item, mode: Drag["mode"]) {
     e.stopPropagation();
+    // Touch: the first tap selects. Once selected, a drag moves or trims it; an unselected
+    // item leaves the finger free to scroll the timeline.
+    if (e.pointerType === "touch" && item.id !== selectedId) {
+      onSelect(item.id);
+      return;
+    }
     onSelect(item.id);
     e.currentTarget.setPointerCapture(e.pointerId);
     drag.current = { id: item.id, kind, mode, x0: e.clientX, y0: e.clientY, item, before: timeline, changed: false };
@@ -108,17 +114,35 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
   }
 
   // Scrub: press on the ruler (or empty lane space) and drag to move the playhead.
+  // On touch, a finger on a lane scrolls the timeline instead, and a tap there seeks.
   const scrubbing = useRef(false);
-  const scrubProps = {
+  const tap = useRef<{ x: number; y: number } | null>(null);
+  const scrubProps = (ruler: boolean) => ({
     onPointerDown: (e: PointerEvent<HTMLDivElement>) => {
+      if (e.pointerType === "touch" && !ruler) {
+        tap.current = { x: e.clientX, y: e.clientY };
+        return;
+      }
       scrubbing.current = true;
       e.currentTarget.setPointerCapture(e.pointerId);
       onSelect(null);
       onSeek(timeAt(e.clientX));
     },
     onPointerMove: (e: PointerEvent<HTMLDivElement>) => scrubbing.current && onSeek(timeAt(e.clientX)),
-    onPointerUp: () => (scrubbing.current = false),
-  };
+    onPointerUp: (e: PointerEvent<HTMLDivElement>) => {
+      scrubbing.current = false;
+      const t = tap.current;
+      tap.current = null;
+      if (t && Math.abs(e.clientX - t.x) < 10 && Math.abs(e.clientY - t.y) < 10) {
+        onSelect(null);
+        onSeek(timeAt(e.clientX));
+      }
+    },
+    onPointerCancel: () => {
+      scrubbing.current = false;
+      tap.current = null;
+    },
+  });
 
   const sfxDropProps = {
     onDragOver: (e: DragEvent<HTMLDivElement>) => {
@@ -161,12 +185,12 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
   return (
     <div className={cn("flex min-w-0 select-none overflow-y-auto rounded-lg border border-line bg-surface", className)}>
       {/* Lane labels */}
-      <div className="sticky left-0 h-fit w-28 shrink-0 border-r border-line">
+      <div className="sticky left-0 h-fit w-11 shrink-0 border-r border-line sm:w-28">
         <div className="h-8 border-b border-line" />
         {LANES.map((lane) => (
-          <div key={lane.key} className="flex h-12 items-center gap-2 border-b border-line px-3 text-meta font-medium text-ink-muted last:border-b-0">
+          <div key={lane.key} title={lane.label} className="flex h-12 items-center justify-center gap-2 border-b border-line text-meta font-medium text-ink-muted last:border-b-0 sm:justify-start sm:px-3">
             <Icon name={lane.kind === "texts" ? "type" : lane.kind === "audio" ? "music" : lane.kind === "effects" ? "sparkles" : "film"} className="size-5 shrink-0" />
-            <span className="truncate">{lane.label}</span>
+            <span className="truncate max-sm:sr-only">{lane.label}</span>
           </div>
         ))}
       </div>
@@ -174,7 +198,7 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
       {/* Scrollable time area */}
       <div className="h-fit min-w-0 flex-1 overflow-x-auto">
         <div ref={content} className="relative" style={{ width, minWidth: "100%" }}>
-          <div className="relative h-8 cursor-col-resize border-b border-line bg-surface-sunken" {...scrubProps}>
+          <div className="relative h-8 cursor-col-resize touch-none border-b border-line bg-surface-sunken" {...scrubProps(true)}>
             {ticks.map((t) => (
               <span key={t} className="absolute top-0 h-full border-l border-line-strong pl-1 text-meta text-ink-faint" style={{ left: t * pxPerSec }}>
                 {formatTime(t)}
@@ -191,7 +215,7 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
                   : (timeline[lane.kind] ?? [])
             ) as Item[];
             return (
-              <div key={lane.key} className="relative h-12 border-b border-line last:border-b-0" {...scrubProps} {...dropProps(lane)}>
+              <div key={lane.key} className="relative h-12 border-b border-line last:border-b-0" {...scrubProps(false)} {...dropProps(lane)}>
                 {items.map((item) => {
                   const selected = item.id === selectedId;
                   const label =
@@ -218,17 +242,18 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
                         lane.sfx && "border-brand-soft bg-surface-sunken text-ink",
                         lane.kind === "effects" && "border-brand-soft bg-paper text-brand-strong",
                         lane.kind === "effects" && (item as Effect).auto && "border-dashed",
-                        selected && "z-10 ring-2 ring-brand",
+                        selected && "z-10 touch-none ring-2 ring-brand",
                       )}
                       style={{ left: item.start * pxPerSec, width: Math.max(item.duration * pxPerSec, 8) }}
                       onPointerDown={(e) => beginDrag(e, lane.kind, item, "move")}
                       onPointerMove={onDragMove}
                       onPointerUp={endDrag}
+                      onPointerCancel={endDrag}
                       onKeyDown={(e) => e.key === "Enter" && onSelect(item.id)}
                     >
                       <span
                         aria-hidden
-                        className="absolute inset-y-0 left-0 w-2.5 cursor-ew-resize bg-brand-soft/60 hover:bg-brand"
+                        className="absolute inset-y-0 left-0 w-2.5 cursor-ew-resize bg-brand-soft/60 hover:bg-brand max-lg:w-4"
                         onPointerDown={(e) => beginDrag(e, lane.kind, item, "start")}
                       />
                       <span className="flex min-w-0 items-baseline gap-2 truncate px-4">
@@ -244,7 +269,7 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
                       </span>
                       <span
                         aria-hidden
-                        className="absolute inset-y-0 right-0 w-2.5 cursor-ew-resize bg-brand-soft/60 hover:bg-brand"
+                        className="absolute inset-y-0 right-0 w-2.5 cursor-ew-resize bg-brand-soft/60 hover:bg-brand max-lg:w-4"
                         onPointerDown={(e) => beginDrag(e, lane.kind, item, "end")}
                       />
                     </div>
