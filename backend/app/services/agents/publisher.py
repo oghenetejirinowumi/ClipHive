@@ -137,7 +137,7 @@ def publish_approved(clip_id: int, user_id: int, platforms: list[str] | None = N
         style = style or db.query(CaptionStyle).filter(CaptionStyle.is_preset.is_(True)).first()
 
     if needs_burn and style is not None:
-        events.log(run_id, "thought", f"Burning {style.name} captions (the style the Producer picked)")
+        events.log(run_id, "thought", f"Burning {style.name} captions (the style the Worker Bee picked)")
         if burn_async:
             threading.Thread(target=_burn, args=(clip_id, style.id, run_id, style.name), daemon=True, name=f"burn-{clip_id}").start()
         else:

@@ -322,7 +322,7 @@ def _goal(job: ProducerJob) -> str:
 def _system_prompt(job: ProducerJob, profile: str | None) -> str:
     target = job.clip_seconds
     lines = [
-        "You are the Producer agent in ClipHive. You turn a long gaming/livestream video into short vertical clips for a creator.",
+        "You are the Worker Bee (producer agent) in ClipHive. You turn a long gaming/livestream video into short vertical clips for a creator.",
         "Work like a skilled human editor, using the tools:",
         "1. list_candidates: loud moments proposed by an audio detector (loudness alone is a weak signal).",
         "2. read_transcripts: read what is said in and around candidates. Read several ids per call.",
@@ -350,7 +350,7 @@ def run_producer(job: ProducerJob) -> list[int]:
     """Make clips for an import job. Returns the clip ids. Never raises for model errors."""
     origin = job.brief.get("origin") or "manual"
     run_id = events.start_run(job.user_id, "producer", goal=_goal(job), import_job_id=job.job_id)
-    events.log(run_id, "thought", f'Started on "{job.title}" ({mmss(job.duration)} analysed)' + (" — found by Scout" if origin == "scout" else ""))
+    events.log(run_id, "thought", f'Started on "{job.title}" ({mmss(job.duration)} analysed)' + (" — found by Scout Bee" if origin == "scout" else ""))
 
     client, model, label = (None, None, None)
     if settings.agent_mode_enabled:

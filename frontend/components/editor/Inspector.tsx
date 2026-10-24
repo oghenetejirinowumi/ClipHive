@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Button, Checkbox, compactInputClass, Icon, Segmented } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import {
@@ -23,12 +23,32 @@ type Props = {
 };
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
-const FONTS: Font[] = ["Bangers", "Luckiest Guy", "Poppins", "System"];
+const FONTS: Font[] = [
+  "Bangers",
+  "Poppins",
+  "Luckiest Guy",
+  "Montserrat 900",
+  "Montserrat 800",
+  "Rubik 800",
+  "Inter 700",
+  "Anton 400",
+  "Lilita One 400",
+  "Roboto 500",
+  "Lora 700",
+  "Bebas Neue 400",
+  "System",
+];
 const ANIMATIONS: { value: TextAnimation; label: string }[] = [
   { value: "pop", label: "Pop" },
+  { value: "word_pop", label: "Word Pop" },
+  { value: "highlight_box", label: "Highlight Box" },
+  { value: "single_word", label: "Single Word" },
+  { value: "karaoke", label: "Karaoke" },
+  { value: "typewriter", label: "Typewriter" },
+  { value: "reveal", label: "Reveal" },
   { value: "fade", label: "Fade" },
   { value: "slide_up", label: "Slide up" },
-  { value: "typewriter", label: "Typewriter" },
+  { value: "line", label: "Line" },
   { value: "none", label: "None" },
 ];
 
@@ -92,6 +112,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 export function Inspector({ timeline, selectedId, playhead, onPatch, onProject, onSplit, onDuplicate, onDelete }: Props) {
+  const [styleCategory, setStyleCategory] = useState("All");
   const found = selectedId ? find(timeline, selectedId) : null;
 
   if (!found) {
@@ -280,13 +301,57 @@ export function Inspector({ timeline, selectedId, playhead, onPatch, onProject, 
           </Row>
           {actions}
         </div>
-        <Section title="Style">
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(TEXT_PRESETS).map(([key, preset]) => (
-              <Button key={key} size="xs" variant="secondary" onClick={() => onPatch(id, preset.style, `${id}:preset`)}>
-                {preset.label}
-              </Button>
-            ))}
+        <Section title="Caption Style">
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-1">
+              {["All", "Gaming", "Viral", "Podcast", "Fun", "Story", "Broadcast", "Minimal"].map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  className={cn(
+                    "rounded px-2 py-0.5 text-fine font-medium transition",
+                    styleCategory === cat ? "bg-brand text-on-brand" : "bg-surface-elevated text-ink hover:bg-surface-sunken"
+                  )}
+                  onClick={() => setStyleCategory(cat)}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto rounded-md border border-line p-1">
+              {Object.entries(TEXT_PRESETS)
+                .filter(([, p]) => styleCategory === "All" || p.category === styleCategory)
+                .map(([key, preset]) => {
+                  const isActive = text.font === preset.style.font && text.color === preset.style.color;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => onPatch(id, preset.style, `${id}:preset`)}
+                      className={cn(
+                        "flex items-center gap-2 rounded px-2 py-1.5 text-left transition",
+                        isActive ? "bg-brand-subtle border border-brand" : "bg-surface hover:bg-surface-sunken border border-line"
+                      )}
+                    >
+                      <span
+                        className="grid size-7 shrink-0 place-items-center rounded text-meta font-bold"
+                        style={{
+                          color: preset.style.color,
+                          background: preset.style.background ?? "#111111", // design-check-ignore: caption colours
+                          WebkitTextStroke: preset.style.stroke_color ? `1px ${preset.style.stroke_color}` : undefined,
+                          textTransform: preset.style.uppercase ? "uppercase" : undefined,
+                        }}
+                      >
+                        Aa
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate text-meta font-medium text-ink">{preset.label}</span>
+                        <span className="block truncate text-fine text-ink-muted">{preset.category}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Row label="Font">

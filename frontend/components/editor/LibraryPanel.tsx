@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Button, compactInputClass, Icon, Select } from "@/components/ui";
 import { api, ApiError, API_URL } from "@/lib/api";
+import { type CaptionStyle } from "@/lib/captions";
 import { cn } from "@/lib/cn";
-import { formatTime, TEXT_PRESETS, type Asset, type Project } from "@/lib/editor";
+import { formatTime, TEXT_PRESETS, type Asset, type Font, type Project, type Text, type TextAnimation } from "@/lib/editor";
 import type { ImportJob } from "@/lib/imports";
 
 export type LibraryTab = "media" | "text" | "audio" | "properties";
@@ -16,7 +17,7 @@ export const ASSET_DRAG_TYPE = "application/x-cliphive-asset";
 
 const TABS: { value: LibraryTab; label: string }[] = [
   { value: "media", label: "Media" },
-  { value: "text", label: "Text" },
+  { value: "text", label: "Captions" },
   { value: "audio", label: "Audio" },
   { value: "properties", label: "Properties" },
 ];
@@ -31,7 +32,7 @@ type Props = {
   beforeServerEdit(): Promise<void>;
   onProject(project: Project): void;
   onPlace(assetId: string): void;
-  onAddText(preset: string): void;
+  onAddText(presetOrStyle: string | Partial<Text>): void;
   onError(message: string): void;
 };
 
@@ -221,30 +222,144 @@ function Tile({ asset, onPlace }: { asset: Asset; onPlace(): void }) {
   );
 }
 
-function TextTab({ onAddText }: { onAddText(preset: string): void }) {
+function TextTab({ onAddText }: { onAddText(presetOrStyle: string | Partial<Text>): void }) {
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("All");
+  const [dbStyles, setDbStyles] = useState<CaptionStyle[]>([]);
+
+  useEffect(() => {
+    api<CaptionStyle[]>("/api/styles", { auth: false })
+      .then(setDbStyles)
+      .catch(() => undefined);
+  }, []);
+
+  const allStyles = useMemo(() => {
+    const list: Array<{ key: string; label: string; category: string; description: string; style: Partial<Text> }> = [];
+
+    // Add built-in presets
+    for (const [key, preset] of Object.entries(TEXT_PRESETS)) {
+      list.push({ key, label: preset.label, category: preset.category, description: preset.description, style: preset.style });
+    }
+
+    // Add any custom styles from db that aren't presets
+    for (const s of dbStyles) {
+      if (!s.is_preset && !list.some((item) => item.label.toLowerCase() === s.name.toLowerCase())) {
+        list.push({
+          key: `custom_${s.id}`,
+          label: s.name,
+          category: s.category || "Custom",
+          description: s.description || "Custom caption style",
+          style: {
+            font: s.font_name as Font,
+            color: s.options?.text_color ?? "#FFFFFF", // design-check-ignore: caption colours
+            stroke_color: s.options?.outline_color ?? null, // design-check-ignore: caption colours
+            stroke_width: s.options?.outline_width ?? 0,
+            background: s.options?.box_color ?? null, // design-check-ignore: caption colours
+            uppercase: s.uppercase,
+            animation: (s.animation_type as TextAnimation) || "pop",
+            size: s.font_size || 84,
+            y: (s.options?.position_y ? s.options.position_y / 100 : 0.68),
+          },
+        });
+      }
+    }
+    return list;
+  }, [dbStyles]);
+
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of allStyles) {
+      if (s.category) set.add(s.category);
+    }
+    return ["All", ...Array.from(set)];
+  }, [allStyles]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return allStyles.filter((s) => {
+      const matchCat = category === "All" || s.category.toLowerCase() === category.toLowerCase();
+      const matchQ = !q || s.label.toLowerCase().includes(q) || s.category.toLowerCase().includes(q) || s.description.toLowerCase().includes(q);
+      return matchCat && matchQ;
+    });
+  }, [allStyles, category, query]);
+
   return (
     <div className="space-y-3">
-      <ul className="grid grid-cols-2 gap-2">
-        {Object.entries(TEXT_PRESETS).map(([key, preset]) => (
-          <li key={key}>
-            <button type="button" onClick={() => onAddText(key)} className="tactile flex aspect-video w-full flex-col items-center justify-center gap-1 rounded-md border border-line bg-surface-sunken hover:border-brand-soft">
-              <span
-                className="rounded-sm px-2 text-xl font-bold"
-                style={{
-                  color: preset.style.color,
-                  background: preset.style.background ?? undefined,
-                  WebkitTextStroke: preset.style.stroke_color ? `1px ${preset.style.stroke_color}` : undefined,
-                  textTransform: preset.style.uppercase ? "uppercase" : undefined,
-                }}
-              >
-                Aa
-              </span>
-              <span className="text-meta text-ink-muted">{preset.label}</span>
-            </button>
-          </li>
+      {/* Search */}
+      <div className="relative">
+        <Icon name="search" className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-ink-faint" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search caption styles…"
+          aria-label="Search caption styles"
+          className={cn(compactInputClass, "pl-10")}
+        />
+      </div>
+
+      {/* Category chips */}
+      <div className="flex flex-wrap gap-1.5">
+        {categories.map((c) => (
+          <button
+            key={c}
+            type="button"
+            className={cn(
+              "rounded px-2.5 py-1 text-meta font-medium transition",
+              category === c
+                ? "bg-brand text-on-brand"
+                : "bg-surface-elevated text-ink hover:bg-surface-sunken"
+            )}
+            onClick={() => setCategory(c)}
+          >
+            {c}
+          </button>
         ))}
-      </ul>
-      <p className="text-meta text-ink-faint">Adds a text at the playhead. Edit it in Properties, or drag it on the preview.</p>
+      </div>
+
+      {/* Grid of caption style tiles */}
+      {filtered.length === 0 ? (
+        <p className="py-6 text-center text-meta text-ink-muted">No caption styles match that search.</p>
+      ) : (
+        <ul className="grid grid-cols-2 gap-2">
+          {filtered.map((item) => (
+            <li key={item.key}>
+              <button
+                type="button"
+                onClick={() => onAddText(item.key in TEXT_PRESETS ? item.key : item.style)}
+                className="tactile group flex aspect-[16/11] w-full flex-col justify-between overflow-hidden rounded-md border border-line bg-surface-sunken p-2.5 text-left transition hover:border-brand-soft"
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span className="truncate text-meta font-semibold text-ink">{item.label}</span>
+                  <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-fine font-medium text-ink-muted">
+                    {item.category}
+                  </span>
+                </div>
+
+                <div className="flex flex-1 items-center justify-center py-1">
+                  <span
+                    className="rounded px-2 py-0.5 text-2xl font-bold transition group-hover:scale-105"
+                    style={{
+                      fontFamily: item.style.font ? `"${item.style.font}", system-ui, sans-serif` : undefined,
+                      color: item.style.color,
+                      background: item.style.background ?? undefined,
+                      WebkitTextStroke: item.style.stroke_color && item.style.stroke_width ? `1.5px ${item.style.stroke_color}` : undefined,
+                      textTransform: item.style.uppercase ? "uppercase" : undefined,
+                    }}
+                  >
+                    Aa
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between text-fine text-ink-muted">
+                  <span className="truncate pr-1 text-ink-faint">{item.description}</span>
+                  <span className="shrink-0 font-medium text-brand group-hover:underline">Add +</span>
+                </div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="text-meta text-ink-faint">Click any style to place it at the playhead. Reposition in the preview or tweak in Properties.</p>
     </div>
   );
 }
