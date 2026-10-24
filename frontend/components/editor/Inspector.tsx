@@ -195,18 +195,69 @@ export function Inspector({ timeline, selectedId, playhead, onPatch, onProject, 
         {isVideo && (
           <Section title="Speed & sound">
             <Row label="Speed">
-              <select className={control} value={clip.speed} onChange={(e) => set("speed", { speed: Number(e.target.value) })}>
-                {SPEEDS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}×{s === 1 ? " (normal)" : ""}
-                  </option>
-                ))}
-              </select>
+              <div className="space-y-2">
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { label: "0.5× Slow", speed: 0.5 },
+                    { label: "0.75×", speed: 0.75 },
+                    { label: "1× Normal", speed: 1 },
+                    { label: "1.25×", speed: 1.25 },
+                    { label: "1.5× Fast", speed: 1.5 },
+                    { label: "2×", speed: 2 },
+                  ].map((s) => (
+                    <button
+                      key={s.label}
+                      type="button"
+                      className={cn(
+                        "rounded px-2.5 py-1 text-meta font-medium transition",
+                        clip.speed === s.speed
+                          ? "bg-brand text-on-brand"
+                          : "bg-surface-elevated text-ink hover:bg-surface-sunken"
+                      )}
+                      onClick={() => set("speed", { speed: s.speed })}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+                <select className={control} value={clip.speed} onChange={(e) => set("speed", { speed: Number(e.target.value) })}>
+                  {SPEEDS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}×{s === 1 ? " (normal)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </Row>
             {asset?.has_audio ? (
               <>
                 <Row label="Volume" hint={`${Math.round(clip.volume * 100)}%`}>
-                  <Range value={clip.volume} min={0} max={2} step={0.05} onChange={(volume) => set("volume", { volume })} />
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { label: "Mute", vol: 0 },
+                        { label: "50%", vol: 0.5 },
+                        { label: "100%", vol: 1 },
+                        { label: "150%", vol: 1.5 },
+                        { label: "200%", vol: 2 },
+                      ].map((v) => (
+                        <button
+                          key={v.label}
+                          type="button"
+                          className={cn(
+                            "rounded px-2 py-0.5 text-meta font-medium transition",
+                            Math.abs(clip.volume - v.vol) < 0.05
+                              ? "bg-brand text-on-brand"
+                              : "bg-surface-elevated text-ink hover:bg-surface-sunken"
+                          )}
+                          onClick={() => set("volume", { volume: v.vol, muted: v.vol === 0 })}
+                        >
+                          {v.label}
+                        </button>
+                      ))}
+                    </div>
+                    <Range value={clip.volume} min={0} max={2} step={0.05} onChange={(volume) => set("volume", { volume })} />
+                  </div>
                 </Row>
                 <Check label="Mute this clip" checked={clip.muted} onChange={(muted) => set("muted", { muted })} />
               </>
@@ -277,7 +328,31 @@ export function Inspector({ timeline, selectedId, playhead, onPatch, onProject, 
           <Check label="ALL CAPS" checked={text.uppercase} onChange={(uppercase) => set("uppercase", { uppercase })} />
         </Section>
         <Section title="Position">
-          <p className="text-base text-ink-muted">Or drag the handle on the preview.</p>
+          <div className="space-y-1.5">
+            <span className="block text-meta font-medium text-ink">Presets</span>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { label: "Top (18%)", y: 0.18, x: 0.5 },
+                { label: "Center (50%)", y: 0.5, x: 0.5 },
+                { label: "Bottom (80%)", y: 0.8, x: 0.5 },
+              ].map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  className={cn(
+                    "rounded px-2.5 py-1 text-meta font-medium transition",
+                    Math.abs(text.y - p.y) < 0.05
+                      ? "bg-brand text-on-brand"
+                      : "bg-surface-elevated text-ink hover:bg-surface-sunken"
+                  )}
+                  onClick={() => onPatch(id, { y: p.y, x: p.x }, `${id}:pos-preset`)}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="text-base text-ink-muted">Or drag the handle directly on the video preview.</p>
           <Row label="Across" hint={`${Math.round(text.x * 100)}%`}>
             <Range value={text.x} min={0} max={1} step={0.01} onChange={(x) => set("x", { x })} />
           </Row>
