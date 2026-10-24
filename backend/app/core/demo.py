@@ -20,9 +20,14 @@ LEGACY_EMAILS = ("demo@cliphive.local",)
 def ensure_demo_account(db: Session) -> None:
     """Make sure the demo user exists with a usable password (renaming the legacy seed in place
     so it keeps its clips)."""
-    if not settings.demo_login_enabled:
-        return
     user = db.query(User).filter(User.email == DEMO_EMAIL).first()
+    if not settings.demo_login_enabled:
+        # The demo password is public (it's in this file), so on a public server lock any
+        # existing demo account: it keeps its data but can't be signed into with that password.
+        if user is not None and verify_password(DEMO_PASSWORD, user.password_hash):
+            user.password_hash = ""
+            db.commit()
+        return
     if user is None:
         user = db.query(User).filter(User.email.in_(LEGACY_EMAILS)).first()
         if user is not None:
