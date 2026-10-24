@@ -8,7 +8,7 @@ import { timeAgo, type AppNotification } from "@/lib/agents";
 import { cn } from "@/lib/cn";
 
 /** What the agents did while you were away. Polls every 15 seconds. */
-export function NotificationBell({ align = "left" }: { align?: "left" | "right" }) {
+export function NotificationBell({ align = "left", side = "bottom" }: { align?: "left" | "right"; side?: "top" | "bottom" }) {
   const [items, setItems] = useState<AppNotification[]>([]);
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -72,7 +72,8 @@ export function NotificationBell({ align = "left" }: { align?: "left" | "right" 
           role="dialog"
           aria-label="Notifications"
           className={cn(
-            "absolute top-14 z-30 w-[min(24rem,calc(100vw-2rem))] rounded-lg border border-line bg-surface p-3 shadow-glow",
+            "absolute z-30 w-[min(24rem,calc(100vw-2rem))] rounded-lg border border-line bg-surface p-3 shadow-glow",
+            side === "top" ? "bottom-14" : "top-14",
             align === "right" ? "right-0" : "left-0",
           )}
         >

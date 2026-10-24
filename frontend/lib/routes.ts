@@ -6,93 +6,116 @@ export const SESSION_COOKIE = "ch_session";
 export type NavItem = {
   href: string;
   label: string;
-  short: string;
   icon: IconName;
   description: string;
-  /** Shown in the phone bottom bar (max 5); everything is always in the desktop sidebar. */
-  tab?: boolean;
 };
 
-/** Every route here is wrapped in the app shell and requires sign-in. */
-export const APP_NAV: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", short: "Home", icon: "home", description: "Your overview.", tab: true },
+/** A sidebar / bottom-bar entry. Its pages share a tab strip at the top of the page. */
+export type NavGroup = {
+  id: string;
+  label: string;
+  icon: IconName;
+  description: string;
+  items: NavItem[];
+};
+
+/**
+ * Every route here is wrapped in the app shell and requires sign-in. Five groups so the
+ * sidebar and the phone bottom bar show the same thing; the first item is the group's home.
+ */
+export const NAV_GROUPS: NavGroup[] = [
   {
-    href: "/create",
-    label: "Create",
-    short: "Create",
-    icon: "plus",
-    description: "Paste a Twitch, Kick or YouTube link, or upload a video, and get a batch of clips.",
-    tab: true,
+    id: "home",
+    label: "Home",
+    icon: "home",
+    description: "Your overview.",
+    items: [{ href: "/dashboard", label: "Dashboard", icon: "home", description: "Your overview." }],
   },
   {
-    href: "/inbox",
-    label: "Inbox",
-    short: "Inbox",
-    icon: "inbox",
-    description: "Clips the agents made, waiting for your OK. Approve to schedule, reject to teach.",
-    tab: true,
-  },
-  {
-    href: "/agents",
+    id: "agents",
     label: "Agents",
-    short: "Agents",
     icon: "bot",
-    description: "What Scout, Producer and Publisher did, step by step, and what they've learned about you.",
+    description: "Review what the agents clipped, see their work, and choose the channels they watch.",
+    items: [
+      {
+        href: "/inbox",
+        label: "Inbox",
+        icon: "inbox",
+        description: "Clips the agents made, waiting for your OK. Approve to schedule, reject to teach.",
+      },
+      {
+        href: "/agents",
+        label: "Activity",
+        icon: "bot",
+        description: "What Scout, Producer and Publisher did, step by step, and what they've learned about you.",
+      },
+      {
+        href: "/streamers",
+        label: "Channels",
+        icon: "radio",
+        description: "Channels the Scout agent watches. New VODs get clipped automatically.",
+      },
+    ],
   },
   {
-    href: "/studio",
-    label: "Studio",
-    short: "Studio",
-    icon: "film",
-    description: "Scrub a video's timeline, pick the exact moment, choose layout and captions.",
-    tab: true,
+    id: "create",
+    label: "Create",
+    icon: "plus",
+    description: "Start from a link or upload, pick moments in the Studio, and finish in the Editor.",
+    items: [
+      {
+        href: "/create",
+        label: "New project",
+        icon: "plus",
+        description: "Paste a Twitch, Kick or YouTube link, or upload a video, and get a batch of clips.",
+      },
+      {
+        href: "/studio",
+        label: "Studio",
+        icon: "film",
+        description: "Scrub a video's timeline, pick the exact moment, choose layout and captions.",
+      },
+      {
+        href: "/editor",
+        label: "Editor",
+        icon: "scissors",
+        description: "Cut, trim, add text, music and captions on a timeline, by hand or with the AI.",
+      },
+    ],
   },
   {
-    href: "/editor",
-    label: "Editor",
-    short: "Edit",
-    icon: "scissors",
-    description: "Cut, trim, add text, music and captions on a timeline, by hand or with the AI.",
-  },
-  {
-    href: "/streamers",
-    label: "Streamers",
-    short: "Watch",
-    icon: "radio",
-    description: "Channels the Scout agent watches. New VODs get clipped automatically.",
-  },
-  {
-    href: "/hub",
-    label: "Clip hub",
-    short: "Hub",
+    id: "library",
+    label: "Library",
     icon: "grid",
-    description: "Every clip and its posting schedule: download, copy the caption, mark as posted.",
-    tab: true,
+    description: "Every clip you've made and the caption styles you use on them.",
+    items: [
+      {
+        href: "/hub",
+        label: "Clips",
+        icon: "grid",
+        description: "Every clip and its posting schedule: download, copy the caption, mark as posted.",
+      },
+      { href: "/captions", label: "Caption styles", icon: "captions", description: "Pick a preset or upload your own font." },
+    ],
   },
   {
-    href: "/captions",
-    label: "Caption styles",
-    short: "Styles",
-    icon: "captions",
-    description: "Pick a preset or upload your own font.",
-  },
-  {
-    href: "/trends",
-    label: "Trends",
-    short: "Trends",
-    icon: "trending",
-    description: "This week's hashtags for TikTok and YouTube.",
-  },
-  {
-    href: "/download",
-    label: "IG downloader",
-    short: "Download",
-    icon: "download",
-    description: "Paste an Instagram post or reel link and save the full video.",
+    id: "tools",
+    label: "Tools",
+    icon: "sparkles",
+    description: "Trending hashtags and the Instagram downloader.",
+    items: [
+      { href: "/trends", label: "Trends", icon: "trending", description: "This week's hashtags for TikTok and YouTube." },
+      {
+        href: "/download",
+        label: "IG downloader",
+        icon: "download",
+        description: "Paste an Instagram post or reel link and save the full video.",
+      },
+    ],
   },
 ];
 
-export const TAB_NAV = APP_NAV.filter((item) => item.tab);
+export const APP_NAV: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
 export const AUTH_ROUTES = ["/login", "/register"];
 
@@ -104,6 +127,11 @@ export function isAppRoute(pathname: string): boolean {
 
 export function isActive(pathname: string, href: string): boolean {
   return matches(pathname, href);
+}
+
+/** The group the current page belongs to, if any. */
+export function activeGroup(pathname: string): NavGroup | undefined {
+  return NAV_GROUPS.find((g) => g.items.some((item) => matches(pathname, item.href)));
 }
 
 /** Only allow same-origin relative redirects after sign-in. */

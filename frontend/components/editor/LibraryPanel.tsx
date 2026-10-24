@@ -1,23 +1,28 @@
 "use client";
 
-import { useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
-import { Button, compactInputClass, Icon, Select } from "@/components/ui";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { Button, compactInputClass, Icon, Segmented, Select } from "@/components/ui";
 import { api, ApiError, API_URL } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { formatTime, TEXT_PRESETS, type Asset, type Project } from "@/lib/editor";
+import { EFFECT_STYLES, EFFECTS, formatTime, TEXT_PRESETS, type Asset, type EffectKind, type EffectStyle, type Project, type SfxItem } from "@/lib/editor";
 import type { ImportJob } from "@/lib/imports";
 
-export type LibraryTab = "media" | "text" | "audio" | "properties";
+export type LibraryTab = "media" | "text" | "audio" | "effects" | "properties";
 type Sort = "name" | "newest" | "longest";
 type LibraryClip = { id: number; title: string | null; status: string; duration_s: number; file_path: string | null };
 
 /** dataTransfer type for dragging a tile onto the timeline. */
 export const ASSET_DRAG_TYPE = "application/x-cliphive-asset";
+/** dataTransfer type for dragging a built-in sound effect onto the SFX lane (data = its name). */
+export const SFX_DRAG_TYPE = "application/x-cliphive-sfx";
+
+export type SfxIntensity = "subtle" | "normal" | "hype";
 
 const TABS: { value: LibraryTab; label: string }[] = [
   { value: "media", label: "Media" },
   { value: "text", label: "Text" },
   { value: "audio", label: "Audio" },
+  { value: "effects", label: "Effects" },
   { value: "properties", label: "Properties" },
 ];
 
@@ -33,6 +38,19 @@ type Props = {
   onPlace(assetId: string): void;
   onAddText(preset: string): void;
   onError(message: string): void;
+  /** Run Auto effects on the server ("none" removes the auto effects). */
+  onAutoEffects?(style: EffectStyle | "none", amount: number): Promise<void>;
+  /** Add one effect at the playhead. */
+  onAddEffect?(kind: EffectKind): void;
+  /** How many effects were placed automatically (shown on the Remove button). */
+  autoEffectCount?: number;
+  /** Run Auto SFX on the server (AI sound design; replaces earlier auto sound effects). */
+  onAutoSfx?(intensity: SfxIntensity): Promise<void>;
+  /** Add one built-in sound effect at the playhead. */
+  onAddSfx?(sfx: SfxItem): void;
+  /** Remove every sound effect from the edit. */
+  onClearSfx?(): void;
+  sfxCount?: number;
 };
 
 /** Left panel: media bin (search, sort, tiles), text styles, audio, and the selection's properties. */
@@ -59,8 +77,17 @@ export function LibraryPanel(props: Props) {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {tab === "media" && <MediaTab {...props} kinds={["video", "image"]} />}
-        {tab === "audio" && <MediaTab {...props} kinds={["audio"]} />}
+        {tab === "audio" && (
+          <div className="space-y-5">
+            <SfxSection {...props} />
+            <section className="space-y-3 border-t border-line pt-4">
+              <h4 className="text-meta font-semibold tracking-wide text-ink-muted uppercase">Music &amp; audio</h4>
+              <MediaTab {...props} kinds={["audio"]} />
+            </section>
+          </div>
+        )}
         {tab === "text" && <TextTab onAddText={props.onAddText} />}
+        {tab === "effects" && <EffectsTab {...props} />}
         {tab === "properties" && props.properties}
       </div>
     </div>
@@ -260,5 +287,192 @@ function LibraryRow({ label, meta, busy, onAdd }: { label: string; meta: string;
         Add
       </Button>
     </div>
+  );
+}
+
+const AMOUNTS = [
+  { value: "0.35", label: "Subtle" },
+  { value: "0.6", label: "Medium" },
+  { value: "0.9", label: "Strong" },
+];
+
+function EffectsTab({ onAutoEffects, onAddEffect, autoEffectCount = 0, onError }: Props) {
+  const [style, setStyle] = useState<EffectStyle>("hype");
+  const [amount, setAmount] = useState("0.6");
+  const [busy, setBusy] = useState<"run" | "clear" | null>(null);
+
+  async function run(which: EffectStyle | "none") {
+    if (!onAutoEffects) return;
+    setBusy(which === "none" ? "clear" : "run");
+    try {
+      await onAutoEffects(which, Number(amount));
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : "Couldn't add effects.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <section className="space-y-3">
+        <h4 className="text-meta font-semibold tracking-wide text-ink-muted uppercase">Auto effects</h4>
+        <p className="text-meta text-ink-muted">Listens for the loud moments, finds your cuts and shouted captions, and places effects on them.</p>
+        <ul className="space-y-2" role="radiogroup" aria-label="Effect style">
+          {EFFECT_STYLES.map((s) => (
+            <li key={s.value}>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={style === s.value}
+                onClick={() => setStyle(s.value)}
+                className={cn(
+                  "tactile w-full rounded-md border p-2 text-left",
+                  style === s.value ? "border-brand bg-brand-subtle" : "border-line bg-paper hover:border-brand-soft",
+                )}
+              >
+                <span className="block text-meta font-semibold text-ink">{s.label}</span>
+                <span className="block text-meta text-ink-muted">{s.hint}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        <Segmented compact label="Amount" value={amount} onChange={setAmount} className="w-full" options={AMOUNTS} />
+        <Button size="xs" className="w-full" loading={busy === "run"} disabled={!!busy || !onAutoEffects} onClick={() => run(style)}>
+          <Icon name="sparkles" className="size-5" /> Auto effects
+        </Button>
+        {autoEffectCount > 0 && (
+          <Button size="xs" variant="ghost" className="w-full" loading={busy === "clear"} disabled={!!busy} onClick={() => run("none")}>
+            <Icon name="trash" className="size-5" /> Remove {autoEffectCount} auto effects
+          </Button>
+        )}
+        <p className="text-meta text-ink-faint">Running it again replaces the auto effects. Effects you added or changed by hand stay.</p>
+      </section>
+      <section className="space-y-3 border-t border-line pt-4">
+        <h4 className="text-meta font-semibold tracking-wide text-ink-muted uppercase">Add one</h4>
+        <ul className="grid grid-cols-2 gap-2">
+          {(Object.entries(EFFECTS) as [EffectKind, (typeof EFFECTS)[EffectKind]][]).map(([kind, fx]) => (
+            <li key={kind}>
+              <button
+                type="button"
+                onClick={() => onAddEffect?.(kind)}
+                className="tactile flex w-full flex-col items-start rounded-md border border-line bg-paper p-2 text-left hover:border-brand-soft"
+              >
+                <span className="text-meta font-medium text-ink">{fx.label}</span>
+                <span className="text-meta text-ink-faint">{fx.hint}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        <p className="text-meta text-ink-faint">Adds the effect at the playhead. Drag it on the Effects lane to move or stretch it.</p>
+      </section>
+    </div>
+  );
+}
+
+const INTENSITIES: { value: SfxIntensity; label: string }[] = [
+  { value: "subtle", label: "Subtle" },
+  { value: "normal", label: "Normal" },
+  { value: "hype", label: "Hype" },
+];
+
+let sfxLibrary: Promise<SfxItem[]> | null = null; // the built-in list never changes; load it once
+
+export function loadSfxLibrary(): Promise<SfxItem[]> {
+  sfxLibrary ??= api<SfxItem[]>("/api/editor/sfx").catch((err) => {
+    sfxLibrary = null; // try again next time
+    throw err;
+  });
+  return sfxLibrary;
+}
+
+function SfxSection({ onAutoSfx, onAddSfx, onClearSfx, sfxCount = 0, onError }: Props) {
+  const [items, setItems] = useState<SfxItem[] | null>(null);
+  const [intensity, setIntensity] = useState<SfxIntensity>("normal");
+  const [busy, setBusy] = useState(false);
+  const [playing, setPlaying] = useState<string | null>(null);
+  const player = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    loadSfxLibrary().then(setItems, () => setItems([]));
+    return () => player.current?.pause();
+  }, []);
+
+  async function run() {
+    if (!onAutoSfx) return;
+    setBusy(true);
+    try {
+      await onAutoSfx(intensity);
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : "Couldn't add sound effects.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function preview(sfx: SfxItem) {
+    player.current?.pause();
+    if (playing === sfx.name) return setPlaying(null);
+    const audio = new Audio(`${API_URL}/${sfx.src}`);
+    audio.onended = () => setPlaying(null);
+    player.current = audio;
+    setPlaying(sfx.name);
+    audio.play().catch(() => setPlaying(null));
+  }
+
+  return (
+    <>
+      <section className="space-y-3">
+        <h4 className="text-meta font-semibold tracking-wide text-ink-muted uppercase">Auto SFX</h4>
+        <p className="text-meta text-ink-muted">AI sound design: whooshes on cuts, pops and hits on titles and text, booms on the loud moments.</p>
+        <Segmented compact label="Intensity" value={intensity} onChange={setIntensity} className="w-full" options={INTENSITIES} />
+        <Button size="xs" className="w-full" loading={busy} disabled={busy || !onAutoSfx} onClick={run}>
+          <Icon name="sparkles" className="size-5" /> Auto SFX
+        </Button>
+        {sfxCount > 0 && onClearSfx && (
+          <Button size="xs" variant="ghost" className="w-full" disabled={busy} onClick={onClearSfx}>
+            <Icon name="trash" className="size-5" /> Remove {sfxCount} sound effect{sfxCount === 1 ? "" : "s"}
+          </Button>
+        )}
+        <p className="text-meta text-ink-faint">Running it again replaces the auto sound effects. Undo works as usual.</p>
+      </section>
+      <section className="space-y-3 border-t border-line pt-4">
+        <h4 className="text-meta font-semibold tracking-wide text-ink-muted uppercase">Sound effects</h4>
+        {items === null ? (
+          <p className="text-meta text-ink-muted">Loading…</p>
+        ) : (
+          <ul className="space-y-1">
+            {items.map((sfx) => (
+              <li key={sfx.name} className="flex items-center gap-1">
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => preview(sfx)}
+                  aria-label={playing === sfx.name ? `Stop ${sfx.label}` : `Play ${sfx.label}`}
+                  title="Preview"
+                >
+                  <Icon name={playing === sfx.name ? "pause" : "play"} className="size-5" />
+                </Button>
+                <button
+                  type="button"
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData(SFX_DRAG_TYPE, sfx.name);
+                    e.dataTransfer.effectAllowed = "copy";
+                  }}
+                  onClick={() => onAddSfx?.(sfx)}
+                  title={sfx.description}
+                  className="tactile min-w-0 flex-1 rounded-md border border-line bg-paper px-2 py-1 text-left hover:border-brand-soft"
+                >
+                  <span className="block truncate text-meta font-medium text-ink">{sfx.label}</span>
+                  <span className="block truncate text-meta text-ink-faint">{sfx.description}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-meta text-ink-faint">Click to add at the playhead, or drag onto the SFX lane. The hit lands where you drop it.</p>
+      </section>
+    </>
   );
 }

@@ -9,6 +9,8 @@
 export type Aspect = "9:16" | "16:9" | "1:1" | "4:5";
 export type Font = "Bangers" | "Luckiest Guy" | "Poppins" | "System";
 export type TextAnimation = "none" | "fade" | "pop" | "slide_up" | "typewriter";
+export type EffectKind = "punch_zoom" | "slow_zoom" | "shake" | "flash" | "glitch" | "vignette" | "color_pop" | "black_white";
+export type EffectStyle = "hype" | "cinematic" | "clean";
 
 export type Asset = {
   id: string;
@@ -64,6 +66,18 @@ export type AudioTrack = {
   volume: number;
   fade_in: number;
   fade_out: number;
+  /** Placed by "Auto SFX" (running it again replaces these) or from the sound-effects list. */
+  is_sfx?: boolean;
+};
+
+/** A timed visual effect on the picture (text is unaffected). auto: placed by "Auto effects". */
+export type Effect = {
+  id: string;
+  kind: EffectKind;
+  start: number;
+  duration: number;
+  intensity: number; // 0.05-1
+  auto: boolean;
 };
 
 export type Timeline = {
@@ -74,6 +88,7 @@ export type Timeline = {
   clips: Clip[];
   texts: Text[];
   audio: AudioTrack[];
+  effects: Effect[];
 };
 
 export type ChatMessage = {
@@ -99,12 +114,13 @@ export type Project = {
   version: number; // latest saved version, shown as "Saved · v12"
   created_at: string;
   updated_at: string | null;
+  notice?: string | null; // one-off summary of a server edit
 };
 
 export type ProjectSummary = Pick<Project, "id" | "title" | "revision" | "render_status" | "created_at" | "updated_at">;
 
-export type ItemKind = "clips" | "texts" | "audio";
-export type Item = Clip | Text | AudioTrack;
+export type ItemKind = "clips" | "texts" | "audio" | "effects";
+export type Item = Clip | Text | AudioTrack | Effect;
 
 export const ASPECT_SIZE: Record<Aspect, [number, number]> = { "9:16": [1080, 1920], "16:9": [1920, 1080], "1:1": [1080, 1080], "4:5": [1080, 1350] };
 export const VIDEO_TRACKS = 3;
@@ -123,8 +139,25 @@ export const TEXT_PRESETS: Record<string, { label: string; style: Partial<Text> 
 
 const round = (n: number) => Math.round(n * 1000) / 1000;
 
+export const EFFECTS: Record<EffectKind, { label: string; length: number; hint: string }> = {
+  punch_zoom: { label: "Punch zoom", length: 0.6, hint: "Quick zoom hit" },
+  slow_zoom: { label: "Slow zoom", length: 4, hint: "Gentle push-in" },
+  shake: { label: "Shake", length: 0.45, hint: "Camera shake" },
+  flash: { label: "Flash", length: 0.3, hint: "White flash" },
+  glitch: { label: "Glitch", length: 0.3, hint: "Digital glitch" },
+  vignette: { label: "Vignette", length: 3, hint: "Dark edges" },
+  color_pop: { label: "Colour pop", length: 3, hint: "Richer colour" },
+  black_white: { label: "Black & white", length: 3, hint: "Drain the colour" },
+};
+
+export const EFFECT_STYLES: { value: EffectStyle; label: string; hint: string }[] = [
+  { value: "hype", label: "Hype", hint: "Punch-ins, shakes, flashes and glitches on the loud moments and cuts" },
+  { value: "cinematic", label: "Cinematic", hint: "Slow push-ins, soft flashes, vignette and a light grade" },
+  { value: "clean", label: "Clean", hint: "Subtle zooms on the big moments and quick flashes on cuts" },
+];
+
 export function newId(timeline: Timeline, prefix: string): string {
-  const taken = new Set([...timeline.assets, ...timeline.clips, ...timeline.texts, ...timeline.audio].map((x) => x.id));
+  const taken = new Set([...timeline.assets, ...timeline.clips, ...timeline.texts, ...timeline.audio, ...(timeline.effects ?? [])].map((x) => x.id));
   for (;;) {
     const id = `${prefix}${Math.random().toString(16).slice(2, 8)}`;
     if (!taken.has(id)) return id;
@@ -141,8 +174,8 @@ export function assetOf(timeline: Timeline, id: string): Asset | undefined {
 }
 
 export function find(timeline: Timeline, id: string): { kind: ItemKind; item: Item } | null {
-  for (const kind of ["clips", "texts", "audio"] as const) {
-    const item = (timeline[kind] as Item[]).find((x) => x.id === id);
+  for (const kind of ["clips", "texts", "audio", "effects"] as const) {
+    const item = ((timeline[kind] ?? []) as Item[]).find((x) => x.id === id);
     if (item) return { kind, item };
   }
   return null;
@@ -150,7 +183,7 @@ export function find(timeline: Timeline, id: string): { kind: ItemKind; item: It
 
 /** Longest timeline duration an item can have from its source_in (Infinity for images and texts). */
 export function maxDuration(timeline: Timeline, kind: ItemKind, item: Item): number {
-  if (kind === "texts") return Infinity;
+  if (kind === "texts" || kind === "effects") return Infinity;
   const media = item as Clip | AudioTrack;
   const asset = assetOf(timeline, media.asset_id);
   if (!asset || asset.kind === "image" || asset.duration == null) return Infinity;
@@ -167,10 +200,11 @@ function replace<K extends ItemKind>(timeline: Timeline, kind: K, id: string, ne
   return { ...timeline, [kind]: copy };
 }
 
-export function update(timeline: Timeline, id: string, patch: Partial<Clip> | Partial<Text> | Partial<AudioTrack>): Timeline {
+export function update(timeline: Timeline, id: string, patch: Partial<Clip> | Partial<Text> | Partial<AudioTrack> | Partial<Effect>): Timeline {
   const found = find(timeline, id);
   if (!found) return timeline;
-  const next = { ...found.item, ...patch } as Item;
+  // Editing an auto effect by hand makes it yours: the next auto run keeps it.
+  const next = { ...found.item, ...patch, ...(found.kind === "effects" ? { auto: false } : {}) } as Item;
   // Changing speed or source_in can run past the end of the file: shorten to fit.
   const limit = maxDuration(timeline, found.kind, next);
   if (next.duration > limit) next.duration = round(Math.max(MIN_LEN, limit));
@@ -192,13 +226,13 @@ export function trimStart(timeline: Timeline, id: string, newStart: number): Tim
   const end = item.start + item.duration;
   const speed = kind === "clips" ? (item as Clip).speed : 1;
   let start = Math.min(newStart, end - MIN_LEN);
-  if (kind !== "texts") {
+  if (kind === "clips" || kind === "audio") {
     const sourceIn = (item as Clip | AudioTrack).source_in;
     start = Math.max(start, item.start - sourceIn / speed); // can't reveal before the file starts
   }
   start = Math.max(0, start);
   const patch: Partial<Clip> = { start: round(start), duration: round(end - start) };
-  if (kind !== "texts") patch.source_in = round(Math.max(0, (item as Clip | AudioTrack).source_in + (start - item.start) * speed));
+  if (kind === "clips" || kind === "audio") patch.source_in = round(Math.max(0, (item as Clip | AudioTrack).source_in + (start - item.start) * speed));
   return replace(timeline, kind, id, { ...item, ...patch } as never);
 }
 
@@ -219,7 +253,7 @@ export function split(timeline: Timeline, id: string, at: number): Timeline {
   if (at < item.start + MIN_LEN || at > end - MIN_LEN) return timeline;
   const left = { ...item, duration: round(at - item.start) } as Item;
   const right = { ...item, id: newId(timeline, id[0]), start: round(at), duration: round(end - at) } as Item;
-  if (kind !== "texts") {
+  if (kind === "clips" || kind === "audio") {
     const speed = kind === "clips" ? (item as Clip).speed : 1;
     (right as Clip).source_in = round((item as Clip).source_in + (at - item.start) * speed);
     (left as Clip).fade_out = 0;
@@ -235,6 +269,7 @@ export function remove(timeline: Timeline, ids: string[]): Timeline {
     clips: timeline.clips.filter((x) => !drop.has(x.id)),
     texts: timeline.texts.filter((x) => !drop.has(x.id)),
     audio: timeline.audio.filter((x) => !drop.has(x.id)),
+    effects: (timeline.effects ?? []).filter((x) => !drop.has(x.id)),
   };
 }
 
@@ -276,6 +311,12 @@ export function addText(timeline: Timeline, at: number, preset = "punch"): { tim
   return { timeline: { ...timeline, texts: [...timeline.texts, text] }, id };
 }
 
+export function addEffect(timeline: Timeline, at: number, kind: EffectKind): { timeline: Timeline; id: string } {
+  const id = newId(timeline, "fx");
+  const effect: Effect = { id, kind, start: round(at), duration: EFFECTS[kind].length, intensity: 0.6, auto: false };
+  return { timeline: { ...timeline, effects: [...(timeline.effects ?? []), effect] }, id };
+}
+
 /** Edge times worth snapping to while dragging: 0, the playhead, and every other item's edges. */
 export function snapPoints(timeline: Timeline, exceptId: string, playhead: number): number[] {
   const points = [0, playhead];
@@ -290,4 +331,20 @@ export function formatTime(seconds: number, precise = false): string {
   const m = Math.floor(s / 60);
   const rest = s - m * 60;
   return precise ? `${m}:${rest.toFixed(1).padStart(4, "0")}` : `${m}:${Math.floor(rest).toString().padStart(2, "0")}`;
+}
+
+/** A built-in sound effect (GET /api/editor/sfx). Its hit lands `lead` seconds into the file. */
+export type SfxItem = { name: string; label: string; description: string; lead: number; duration: number; src: string };
+
+/** Place a sound effect so its hit lands at `at` (the effect's asset is added the first time). */
+export function addSfx(timeline: Timeline, sfx: SfxItem, at: number, volume = 0.6): { timeline: Timeline; id: string } {
+  const assetId = `sfx_${sfx.name}`;
+  const assets = timeline.assets.some((a) => a.id === assetId)
+    ? timeline.assets
+    : [...timeline.assets, { id: assetId, kind: "audio" as const, name: `SFX · ${sfx.label}`, src: sfx.src, duration: sfx.duration, width: null, height: null, has_audio: true }];
+  const start = Math.max(0, at - sfx.lead);
+  const sourceIn = round(Math.max(0, sfx.lead - at)); // near 0:00, skip the lead-in so the hit still lands on time
+  const id = newId(timeline, "sfx");
+  const track: AudioTrack = { id, asset_id: assetId, start: round(start), duration: round(sfx.duration - sourceIn), source_in: sourceIn, volume, fade_in: 0, fade_out: 0, is_sfx: true };
+  return { timeline: { ...timeline, assets, audio: [...timeline.audio, track] }, id };
 }

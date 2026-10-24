@@ -23,6 +23,8 @@ AssetKind = Literal["video", "image", "audio"]
 Fit = Literal["cover", "contain"]
 TextAnimation = Literal["none", "fade", "pop", "slide_up", "typewriter"]
 Font = Literal["Bangers", "Luckiest Guy", "Poppins", "System"]
+# Visual effects on the picture (video/image tracks; text stays steady). See services/editor/effects.py.
+EffectKind = Literal["punch_zoom", "slow_zoom", "shake", "flash", "glitch", "vignette", "color_pop", "black_white"]
 
 ASPECTS: dict[str, tuple[int, int]] = {"9:16": (1080, 1920), "16:9": (1920, 1080), "1:1": (1080, 1080), "4:5": (1080, 1350)}
 
@@ -108,6 +110,23 @@ class AudioTrack(BaseModel):
     volume: float = Field(default=0.6, ge=0, le=2)
     fade_in: float = Field(default=0, ge=0, le=10)
     fade_out: float = Field(default=0, ge=0, le=10)
+    is_sfx: bool = False  # placed by "auto SFX"; running it again replaces these
+
+    @property
+    def end(self) -> float:
+        return self.start + self.duration
+
+
+class Effect(BaseModel):
+    """A timed visual effect on the whole picture. auto=True marks ones "Auto effects" placed,
+    which the next auto run replaces; effects you add or edit by hand are kept."""
+
+    id: str = Field(pattern=ID_PATTERN)
+    kind: EffectKind
+    start: float = Field(ge=0, le=MAX_SECONDS)
+    duration: float = Field(gt=0, le=MAX_SECONDS)
+    intensity: float = Field(default=0.6, ge=0.05, le=1)
+    auto: bool = False
 
     @property
     def end(self) -> float:
@@ -121,7 +140,8 @@ class Timeline(BaseModel):
     assets: list[Asset] = Field(default_factory=list, max_length=200)
     clips: list[Clip] = Field(default_factory=list, max_length=500)
     texts: list[Text] = Field(default_factory=list, max_length=2000)
-    audio: list[AudioTrack] = Field(default_factory=list, max_length=50)
+    audio: list[AudioTrack] = Field(default_factory=list, max_length=300)
+    effects: list[Effect] = Field(default_factory=list, max_length=500)
 
     @field_validator("background")
     @classmethod
@@ -142,7 +162,7 @@ class Timeline(BaseModel):
 
     @model_validator(mode="after")
     def check_refs(self) -> Timeline:
-        ids = [x.id for x in (*self.assets, *self.clips, *self.texts, *self.audio)]
+        ids = [x.id for x in (*self.assets, *self.clips, *self.texts, *self.audio, *self.effects)]
         dupes = {i for i in ids if ids.count(i) > 1}
         if dupes:
             raise ValueError(f"duplicate ids: {sorted(dupes)}")
@@ -200,6 +220,7 @@ class ProjectRead(ORMModel):
     render_path: str | None  # public "storage/..." path of the last export
     export_clip_id: int | None
     version: int = 1  # latest version number, shown as "Saved · v12"
+    notice: str | None = None  # one-off summary of a server edit ("Added 12 hype effects ...")
     created_at: datetime
     updated_at: datetime | None
 
@@ -235,3 +256,22 @@ class AddClipAsset(BaseModel):
     clip_id: int | None = None
     import_id: int | None = None
     place: bool = True  # also put it on the timeline (at the end of track 0)
+
+
+class AutoEffectsRequest(BaseModel):
+    style: Literal["hype", "cinematic", "clean", "none"] = "hype"  # "none" removes the auto effects
+    amount: float = Field(default=0.6, ge=0.1, le=1)  # how many effects, and how strong
+
+
+class AutoSfxRequest(BaseModel):
+    intensity: Literal["subtle", "normal", "hype"] = "normal"
+    replace: bool = True  # remove the effects a previous run added
+
+
+class SfxRead(BaseModel):
+    name: str
+    label: str
+    description: str
+    lead: float  # seconds before the cue the sound starts
+    duration: float
+    src: str

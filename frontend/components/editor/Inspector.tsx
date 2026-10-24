@@ -4,11 +4,11 @@ import type { ReactNode } from "react";
 import { Button, Checkbox, compactInputClass, Icon, Segmented } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import {
-  assetOf, DEFAULT_BOX, DEFAULT_OUTLINE, find, formatTime, maxDuration, TEXT_PRESETS,
-  type Aspect, type AudioTrack, type Clip, type Font, type Text, type TextAnimation, type Timeline,
+  assetOf, DEFAULT_BOX, DEFAULT_OUTLINE, EFFECTS, find, formatTime, maxDuration, TEXT_PRESETS,
+  type Aspect, type AudioTrack, type Clip, type Effect, type EffectKind, type Font, type Text, type TextAnimation, type Timeline,
 } from "@/lib/editor";
 
-type Patch = Partial<Clip> | Partial<Text> | Partial<AudioTrack>;
+type Patch = Partial<Clip> | Partial<Text> | Partial<AudioTrack> | Partial<Effect>;
 
 type Props = {
   timeline: Timeline;
@@ -150,7 +150,7 @@ export function Inspector({ timeline, selectedId, playhead, onPatch, onProject, 
           <Num value={item.duration} min={0.1} max={limit} onChange={(d) => set("duration", { duration: d })} />
         </Row>
       </div>
-      {kind !== "texts" && (
+      {(kind === "clips" || kind === "audio") && (
         <Row label="Starts in source at" hint="trim the beginning">
           <Num value={(item as Clip | AudioTrack).source_in} onChange={(source_in) => set("source_in", { source_in })} />
         </Row>
@@ -286,6 +286,34 @@ export function Inspector({ timeline, selectedId, playhead, onPatch, onProject, 
           </Row>
           <Row label="Line width" hint={`${Math.round(text.width * 100)}%`}>
             <Range value={text.width} min={0.1} max={1} step={0.01} onChange={(w) => set("width", { width: w })} />
+          </Row>
+        </Section>
+        {timing}
+      </div>
+    );
+  }
+
+  if (kind === "effects") {
+    const effect = item as Effect;
+    return (
+      <div className="space-y-5">
+        <div className="space-y-3">
+          <p className="truncate text-lg font-semibold text-ink">{EFFECTS[effect.kind].label}</p>
+          {effect.auto && <p className="text-base text-ink-muted">Placed by Auto effects. Change it and it&apos;s yours: the next auto run keeps it.</p>}
+          {actions}
+        </div>
+        <Section title="Effect">
+          <Row label="Type">
+            <select className={control} value={effect.kind} onChange={(e) => set("kind", { kind: e.target.value as EffectKind })}>
+              {Object.entries(EFFECTS).map(([value, fx]) => (
+                <option key={value} value={value}>
+                  {fx.label} · {fx.hint}
+                </option>
+              ))}
+            </select>
+          </Row>
+          <Row label="Strength" hint={`${Math.round(effect.intensity * 100)}%`}>
+            <Range value={effect.intensity} min={0.05} max={1} step={0.05} onChange={(intensity) => set("intensity", { intensity })} />
           </Row>
         </Section>
         {timing}

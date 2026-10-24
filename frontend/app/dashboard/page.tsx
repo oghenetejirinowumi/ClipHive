@@ -4,15 +4,15 @@ import { AgentStatsStrip, LearnedProfile } from "@/components/agents/AgentOvervi
 import { RecentProjects } from "@/components/projects/RecentProjects";
 import { Greeting } from "@/components/shell/Greeting";
 import { Button, buttonClass, Icon, Panel, SectionLabel, SkyHeader } from "@/components/ui";
-import { APP_NAV } from "@/lib/routes";
+import { NAV_GROUPS } from "@/lib/routes";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
-const SECTIONS = APP_NAV.filter((item) => item.href !== "/dashboard");
+const SECTIONS = NAV_GROUPS.filter((g) => g.id !== "home");
 
 export default function DashboardPage() {
   return (
-    <div className="space-y-14">
+    <div className="space-y-12">
       <SkyHeader
         size="lg"
         eyebrow="Dashboard"
@@ -54,19 +54,27 @@ export default function DashboardPage() {
       <section className="space-y-6">
         <SectionLabel>Workspace</SectionLabel>
         <div className="grid gap-6 sm:grid-cols-2">
-          {SECTIONS.map((item) => (
-            <Link key={item.href} href={item.href} className="group rounded-lg">
-              <Panel interactive className="flex h-full items-start gap-5">
-                <span className="grid size-14 shrink-0 place-items-center rounded-full bg-brand-subtle text-brand-strong">
-                  <Icon name={item.icon} />
+          {SECTIONS.map((g) => (
+            <Panel key={g.id} className="flex h-full flex-col gap-4">
+              <div className="flex items-start gap-4">
+                <span className="grid size-12 shrink-0 place-items-center rounded-full bg-brand-subtle text-brand-strong">
+                  <Icon name={g.icon} />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block font-display text-2xl font-semibold tracking-tight text-ink">{item.label}</span>
-                  <span className="mt-2 block text-lg text-ink-muted">{item.description}</span>
+                  <span className="block font-display text-2xl font-semibold tracking-tight text-ink">{g.label}</span>
+                  <span className="mt-1 block text-base text-ink-muted">{g.description}</span>
                 </span>
-                <Icon name="arrowRight" className="mt-1 size-5 text-ink-faint transition-transform duration-(--motion-fast) group-hover:translate-x-0.5" />
-              </Panel>
-            </Link>
+              </div>
+              <ul className="mt-auto flex flex-wrap gap-2">
+                {g.items.map((item) => (
+                  <li key={item.href}>
+                    <Link href={item.href} className={buttonClass({ variant: "secondary", size: "xs" })}>
+                      <Icon name={item.icon} className="size-5" /> {item.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Panel>
           ))}
         </div>
       </section>

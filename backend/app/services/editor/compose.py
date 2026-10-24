@@ -8,14 +8,19 @@ Conventions follow the HyperFrames core contract: timing lives on the media/text
 itself (`data-start`, `data-duration`, `data-media-start`, `data-playback-rate`), never on a
 timed ancestor; fades animate an untimed wrapper; text animations tween an inner span, so no
 GSAP tween ever touches a `.clip` element or fights a CSS transform.
+
+Effects animate a chain of untimed wrappers around the visual tracks (one wrapper per effect
+layer, so a punch-in and a shake can run at once without fighting over `transform`), plus two
+overlays (flash, vignette) between the picture and the text. Text is never moved by effects.
 """
 from __future__ import annotations
 
 import json
+import random
 from collections.abc import Callable
 from html import escape
 
-from app.schemas.editor import Asset, AudioTrack, Clip, Text, Timeline
+from app.schemas.editor import Asset, AudioTrack, Clip, Effect, Text, Timeline
 
 GSAP_URL = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"
 
@@ -129,6 +134,68 @@ def _text_tweens(text: Text) -> list[str]:
     return out
 
 
+# Effect layers, outermost first. Each is an untimed full-frame div wrapping the next.
+FX_WRAPPERS = ("fx-push", "fx-zoom", "fx-shake", "fx-glitch", "fx-pop", "fx-bw")
+FX_LAYER = {"slow_zoom": "fx-push", "punch_zoom": "fx-zoom", "shake": "fx-shake", "glitch": "fx-glitch",
+            "color_pop": "fx-pop", "black_white": "fx-bw", "flash": "fx-flash", "vignette": "fx-vignette"}
+
+
+def _from_to(sel: str, start: dict, end: dict, duration: float, at: float, ease: str = "none") -> str:
+    """A seek-safe fromTo that only takes effect from its own start time."""
+    to = {**end, "duration": round(max(duration, 0.001), 3), "ease": ease, "immediateRender": False}
+    return f"tl.fromTo({sel}, {json.dumps(start)}, {json.dumps(to)}, {_n(at)});"
+
+
+def _jitter(sel: str, effect: Effect, frame: Callable[[random.Random, float], dict], rest: dict, step: float) -> list[str]:
+    """Random steps (same every render: seeded by the effect id) that decay back to `rest`."""
+    rng = random.Random(effect.id)
+    count = max(2, int(effect.duration / step))
+    dt = effect.duration / count
+    points = [rest] + [frame(rng, 1 - n / count) for n in range(1, count)] + [rest]
+    return [_from_to(sel, a, b, dt, effect.start + n * dt) for n, (a, b) in enumerate(zip(points, points[1:]))]
+
+
+def _ramp(sel: str, effect: Effect, off: dict, on: dict) -> list[str]:
+    """Ease into a look, hold it, ease back out."""
+    ramp = min(0.3, effect.duration / 3)
+    return [
+        _from_to(sel, off, on, ramp, effect.start, "power1.out"),
+        _from_to(sel, on, off, ramp, effect.end - ramp, "power1.in"),
+    ]
+
+
+def _effect_tweens(effect: Effect) -> list[str]:
+    sel = json.dumps(f"#{FX_LAYER[effect.kind]}")
+    i, start, dur = effect.intensity, effect.start, effect.duration
+    if effect.kind == "punch_zoom":
+        peak = round(1.05 + 0.2 * i, 3)
+        attack = min(0.12, dur / 3)
+        return [_from_to(sel, {"scale": 1}, {"scale": peak}, attack, start, "power3.out"),
+                _from_to(sel, {"scale": peak}, {"scale": 1}, dur - attack, start + attack, "power2.inOut")]
+    if effect.kind == "slow_zoom":
+        return [_from_to(sel, {"scale": 1}, {"scale": round(1 + 0.15 * i, 3)}, dur, start, "sine.inOut"),
+                f"tl.set({sel}, {{scale: 1}}, {_n(effect.end)});"]
+    if effect.kind == "shake":
+        amp, turn = 8 + 40 * i, 0.4 + 1.6 * i
+        return _jitter(sel, effect, lambda r, k: {"x": round(r.uniform(-amp, amp) * k, 1), "y": round(r.uniform(-amp, amp) * k, 1),
+                                                   "rotation": round(r.uniform(-turn, turn) * k, 2)}, {"x": 0, "y": 0, "rotation": 0}, 0.05)
+    if effect.kind == "glitch":
+        shift, skew, hue = 12 + 60 * i, 2 + 10 * i, 40 + 140 * i
+        return _jitter(sel, effect, lambda r, k: {"x": round(r.choice((-1, 1)) * r.uniform(0.4, 1) * shift, 1),
+                                                   "skewX": round(r.uniform(-skew, skew), 1),
+                                                   "filter": f"hue-rotate({round(r.uniform(-hue, hue))}deg) saturate({round(1 + 2 * i, 2)})"},
+                       {"x": 0, "skewX": 0, "filter": "hue-rotate(0deg) saturate(1)"}, 0.04)
+    if effect.kind == "flash":
+        return [_from_to(sel, {"opacity": round(0.4 + 0.55 * i, 2)}, {"opacity": 0}, dur, start, "power2.out")]
+    if effect.kind == "vignette":
+        return _ramp(sel, effect, {"opacity": 0}, {"opacity": round(0.3 + 0.7 * i, 2)})
+    if effect.kind == "color_pop":
+        return _ramp(sel, effect, {"filter": "saturate(1) contrast(1)"}, {"filter": f"saturate({round(1 + 0.9 * i, 2)}) contrast({round(1 + 0.25 * i, 2)})"})
+    if effect.kind == "black_white":
+        return _ramp(sel, effect, {"filter": "grayscale(0) contrast(1)"}, {"filter": f"grayscale({round(i, 2)}) contrast({round(1 + 0.2 * i, 2)})"})
+    return []
+
+
 def _audio_html(track: AudioTrack, url: str, index: int) -> str:
     return (
         f'<audio id="a-{track.id}" src="{_attr(url)}" data-start="{_n(track.start)}" data-duration="{_n(track.duration)}" '
@@ -148,13 +215,24 @@ def compose(timeline: Timeline, *, media_url: Callable[[Asset], str], font_url: 
     )
 
     body: list[str] = []
+    picture: list[str] = []
     tweens: list[str] = []
     # Visual tracks stack bottom-up; within a track later clips draw over earlier ones.
     for z, clip in enumerate(sorted(timeline.clips, key=lambda c: (c.track, c.start)), start=1):
         asset = timeline.asset(clip.asset_id)
         if asset:
-            body.append(_clip_html(clip, asset, media_url(asset), z))
+            picture.append(_clip_html(clip, asset, media_url(asset), z))
             tweens += _clip_tweens(clip)
+    # The picture sits inside the effect wrappers (their own stacking context, under the text).
+    opening = "".join(f'<div id="{w}" class="fx">' for w in FX_WRAPPERS)
+    body.append(f'<div id="stage" class="fx">{opening}' + "".join(picture) + "</div>" * len(FX_WRAPPERS) + "</div>")
+    kinds = {e.kind for e in timeline.effects}
+    if "vignette" in kinds:
+        body.append('<div id="fx-vignette" class="fx overlay vignette"></div>')
+    if "flash" in kinds:
+        body.append('<div id="fx-flash" class="fx overlay flash"></div>')
+    for effect in sorted(timeline.effects, key=lambda e: e.start):
+        tweens += _effect_tweens(effect)
     for z, text in enumerate(sorted(timeline.texts, key=lambda t: t.start), start=1000):
         body.append(_text_html(text, width, height, z))
         tweens += _text_tweens(text)
@@ -176,6 +254,11 @@ def compose(timeline: Timeline, *, media_url: Callable[[Asset], str], font_url: 
       html, body {{ margin: 0; background: {timeline.background}; }}
       #root {{ position: relative; width: 100%; height: 100%; overflow: hidden; background: {timeline.background}; }}
       .layer {{ position: absolute; inset: 0; }}
+      .fx {{ position: absolute; inset: 0; transform-origin: 50% 50%; }}
+      #stage {{ z-index: 1; overflow: hidden; }}
+      .overlay {{ pointer-events: none; opacity: 0; }}
+      .vignette {{ z-index: 900; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(0,0,0,0.85) 100%); }}
+      .flash {{ z-index: 901; background: #FFFFFF; }}
       .media {{ position: absolute; left: 0; top: 0; width: {width}px; height: {height}px; }}
       .text {{ position: absolute; transform: translate(-50%, -50%); text-align: center; line-height: 1.12; white-space: pre-line; }}
       .text-inner {{ display: inline-block; font-weight: 700; }}

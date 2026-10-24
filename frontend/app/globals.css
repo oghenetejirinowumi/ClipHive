@@ -357,6 +357,12 @@
     color-mix(in oklab, var(--brand) 88%, var(--brand-deep)) 62%,
     color-mix(in oklab, var(--brand) 40%, var(--paper)) 84%, var(--paper) 100%);
 }
+/* App page headers are short, so their text runs to the bottom: stay on brand, no fade. */
+.fx-sky-compact .fx-sky-base {
+  background: linear-gradient(180deg, var(--brand-deep) 0%,
+    color-mix(in oklab, var(--brand) 72%, var(--brand-deep)) 45%,
+    color-mix(in oklab, var(--brand) 88%, var(--brand-deep)) 100%);
+}
 .fx-sky-cloud {
   position: absolute;
   left: -30%;

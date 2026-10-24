@@ -12,9 +12,9 @@ from app.config import settings
 from app.core.media import MediaError, storage_root
 from app.models import Clip, EditorProject, EditorVersion, ImportJob, User
 from app.schemas.editor import (
-    AddClipAsset, ChatRequest, ChatResponse, ProjectCreate, ProjectRead, ProjectSummary, ProjectUpdate, Timeline, VersionRead,
+    AddClipAsset, AutoEffectsRequest, AutoSfxRequest, SfxRead, ChatRequest, ChatResponse, ProjectCreate, ProjectRead, ProjectSummary, ProjectUpdate, Timeline, VersionRead,
 )
-from app.services.editor import assistant, ops, render
+from app.services.editor import assistant, effects, ops, render, sfx
 from app.services.editor.compose import compose
 from app.services.editor.media import UPLOAD_EXTS, probe_asset, project_dir, public_media_path
 from app.services.ingest.pipeline import source_file
@@ -145,7 +145,7 @@ def update_project(project_id: int, body: ProjectUpdate, user: Owner, db: DbSess
         project.title = body.title
     if body.timeline is not None:
         known = set(project.media or [])
-        if any(a.src not in known for a in body.timeline.assets):
+        if any(a.src not in known and not sfx.is_library_src(a.src) for a in body.timeline.assets):
             raise HTTPException(422, "Add media through the upload or library endpoints.")
         _save(db, project, body.timeline)
     else:
@@ -240,6 +240,45 @@ def chat(project_id: int, body: ChatRequest, user: Owner, db: DbSession) -> Chat
     db.commit()
     db.refresh(project)
     return ChatResponse(reply=result.reply, changes=result.changes, project=_read(db, project))
+
+
+@router.post("/projects/{project_id}/auto-effects", response_model=ProjectRead)
+def auto_effects(project_id: int, body: AutoEffectsRequest, user: Owner, db: DbSession) -> ProjectRead:
+    """Place visual effects automatically (from the audio, cuts and captions), as one version."""
+    project = _owned(db, project_id, user)
+    try:
+        timeline, summary = effects.auto_effects(Timeline.model_validate(project.timeline), body.style, body.amount)
+    except ops.EditError as err:
+        raise HTTPException(422, str(err)) from err
+    _snapshot(db, project, "Your edits", only_if_changed=True)
+    _save(db, project, timeline)
+    _snapshot(db, project, "Removed auto effects" if body.style == "none" else f"Auto effects ({body.style})")
+    db.commit()
+    db.refresh(project)
+    return _read(db, project).model_copy(update={"notice": summary})
+
+
+@router.get("/sfx", response_model=list[SfxRead])
+def sfx_library(user: Owner) -> list[dict]:
+    """The built-in sound effects (generated on first use)."""
+    return sfx.library()
+
+
+@router.post("/projects/{project_id}/auto-sfx", response_model=ProjectRead)
+def auto_sfx(project_id: int, body: AutoSfxRequest, user: Owner, db: DbSession) -> ProjectRead:
+    """AI sound design: effects on cuts, titles, text pop-ins and loud moments, as one version."""
+    project = _owned(db, project_id, user)
+    try:
+        result = sfx.auto(Timeline.model_validate(project.timeline), body.intensity, replace=body.replace, loudness=sfx.file_loudness)
+    except ValueError as err:
+        raise HTTPException(422, str(err)) from err
+    _snapshot(db, project, "Your edits", only_if_changed=True)
+    _save(db, project, result.timeline)
+    _snapshot(db, project, f"Auto SFX ({body.intensity})")
+    db.commit()
+    db.refresh(project)
+    how = "picked by AI" if result.used_ai else "placed by the built-in rules (set OPENAI_API_KEY or GROQ_API_KEY for AI picks)"
+    return _read(db, project).model_copy(update={"notice": f"{result.summary}, {how}."})
 
 
 @router.get("/projects/{project_id}/versions", response_model=list[VersionRead])

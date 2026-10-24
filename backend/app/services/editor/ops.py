@@ -17,7 +17,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.core.media import storage_root
-from app.schemas.editor import ASPECTS, Asset, AudioTrack, Clip, Timeline
+from app.schemas.editor import ASPECTS, Asset, AudioTrack, Clip, Effect, Timeline
 
 MIN_LEN = 0.1
 
@@ -36,7 +36,7 @@ class EditError(ValueError):
 
 
 def new_id(timeline: Timeline, prefix: str) -> str:
-    taken = {x.id for x in (*timeline.assets, *timeline.clips, *timeline.texts, *timeline.audio)}
+    taken = {x.id for x in (*timeline.assets, *timeline.clips, *timeline.texts, *timeline.audio, *timeline.effects)}
     while True:
         candidate = f"{prefix}{secrets.token_hex(3)}"
         if candidate not in taken:
@@ -61,11 +61,11 @@ def _validated(data: dict) -> Timeline:
 
 
 def _find(timeline: Timeline, item_id: str) -> tuple[str, int]:
-    for kind in ("clips", "texts", "audio"):
+    for kind in ("clips", "texts", "audio", "effects"):
         for index, item in enumerate(getattr(timeline, kind)):
             if item.id == item_id:
                 return kind, index
-    raise EditError(f"There's no clip, text or audio with id {item_id!r}.")
+    raise EditError(f"There's no clip, text, audio or effect with id {item_id!r}.")
 
 
 def _remaining(asset: Asset, source_in: float, speed: float = 1.0) -> float | None:
@@ -141,7 +141,7 @@ def delete(timeline: Timeline, ids: list[str]) -> tuple[Timeline, str]:
     for item_id in ids:
         _find(timeline, item_id)
     data = timeline.model_dump()
-    for kind in ("clips", "texts", "audio"):
+    for kind in ("clips", "texts", "audio", "effects"):
         data[kind] = [x for x in data[kind] if x["id"] not in ids]
     return _validated(data), f"Deleted {', '.join(ids)}."
 
@@ -235,6 +235,37 @@ def update_audio(timeline: Timeline, audio_id: str, **changes: Any) -> tuple[Tim
     data["audio"][index].update({k: v for k, v in changes.items() if v is not None})
     described = ", ".join(f"{k}={v}" for k, v in changes.items() if v is not None)
     return _validated(data), f"Updated audio {audio_id}: {described}."
+
+
+# --- effects ------------------------------------------------------------------------------
+
+def add_effect(timeline: Timeline, kind: str, start: float, duration: float | None = None,
+               intensity: float = 0.6) -> tuple[Timeline, str]:
+    from app.services.editor.effects import DEFAULT_LENGTH  # effects imports ops
+
+    duration = duration or DEFAULT_LENGTH.get(kind, 1.0)
+    effect = {"id": new_id(timeline, "fx"), "kind": kind, "start": start, "duration": duration, "intensity": intensity}
+    data = timeline.model_dump()
+    data["effects"].append(effect)
+    return _validated(data), f"Added a {kind.replace('_', ' ')} effect at {_fmt(start)} ({_fmt(duration)})."
+
+
+def update_effect(timeline: Timeline, effect_id: str, **changes: Any) -> tuple[Timeline, str]:
+    kind, index = _find(timeline, effect_id)
+    if kind != "effects":
+        raise EditError(f"{effect_id} isn't an effect.")
+    data = timeline.model_dump()
+    # Touching an auto effect makes it yours, so the next auto run leaves it alone.
+    data["effects"][index].update({k: v for k, v in changes.items() if v is not None}, auto=False)
+    described = ", ".join(f"{k}={v}" for k, v in changes.items() if v is not None)
+    return _validated(data), f"Updated effect {effect_id}: {described}."
+
+
+def set_effects(timeline: Timeline, effects: list[Effect]) -> Timeline:
+    """Replace every auto effect with `effects` (hand-placed effects are kept)."""
+    data = timeline.model_dump()
+    data["effects"] = [e for e in data["effects"] if not e["auto"]] + [e.model_dump() for e in effects]
+    return _validated(data)
 
 
 # --- project ------------------------------------------------------------------------------

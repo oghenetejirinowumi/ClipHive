@@ -1,22 +1,25 @@
 "use client";
 
 import { useRef, type DragEvent, type PointerEvent } from "react";
-import { ASSET_DRAG_TYPE } from "@/components/editor/LibraryPanel";
+import { ASSET_DRAG_TYPE, SFX_DRAG_TYPE } from "@/components/editor/LibraryPanel";
 import { Icon } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import {
-  assetOf, duration, formatTime, move, snapPoints, trimEnd, trimStart, VIDEO_TRACKS,
-  type Item, type ItemKind, type Timeline as TimelineDoc,
+  assetOf, duration, EFFECTS, formatTime, move, snapPoints, trimEnd, trimStart, VIDEO_TRACKS,
+  type Effect, type Item, type ItemKind, type Timeline as TimelineDoc,
 } from "@/lib/editor";
 
 const LANE_H = 48; // px; matches h-12
 const SNAP_PX = 8;
 
-type Lane = { key: string; label: string; kind: ItemKind; track?: number };
+/** sfx: the audio lanes split in two, sound effects (is_sfx) in their own lane under the music. */
+type Lane = { key: string; label: string; kind: ItemKind; track?: number; sfx?: boolean };
 const LANES: Lane[] = [
   ...Array.from({ length: VIDEO_TRACKS }, (_, i) => VIDEO_TRACKS - 1 - i).map((track) => ({ key: `v${track}`, label: `Video ${track + 1}`, kind: "clips" as const, track })),
   { key: "text", label: "Text", kind: "texts" },
-  { key: "audio", label: "Audio", kind: "audio" },
+  { key: "audio", label: "Audio", kind: "audio", sfx: false },
+  { key: "sfx", label: "SFX", kind: "audio", sfx: true },
+  { key: "effects", label: "Effects", kind: "effects" },
 ];
 
 type Drag = {
@@ -44,9 +47,11 @@ type Props = {
   onCommit(next: TimelineDoc, before: TimelineDoc): void;
   /** A media tile was dropped on a lane: video track number, or undefined for the audio lane. */
   onDropAsset?(assetId: string, at: number, track: number | undefined): void;
+  /** A sound effect from the library was dropped on the SFX lane; `at` is where its hit lands. */
+  onDropSfx?(name: string, at: number): void;
 };
 
-export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, onSelect, onSeek, onPreview, onCommit, onDropAsset }: Props) {
+export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, onSelect, onSeek, onPreview, onCommit, onDropAsset, onDropSfx }: Props) {
   const content = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
   const total = Math.max(duration(timeline) + 10, 30);
@@ -115,8 +120,25 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
     onPointerUp: () => (scrubbing.current = false),
   };
 
+  const sfxDropProps = {
+    onDragOver: (e: DragEvent<HTMLDivElement>) => {
+      if (e.dataTransfer.types.includes(SFX_DRAG_TYPE)) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+      }
+    },
+    onDrop: (e: DragEvent<HTMLDivElement>) => {
+      const name = e.dataTransfer.getData(SFX_DRAG_TYPE);
+      if (!name || !onDropSfx) return;
+      e.preventDefault();
+      onDropSfx(name, timeAt(e.clientX));
+    },
+  };
+
   const dropProps = (lane: Lane) =>
-    lane.kind === "texts" || !onDropAsset
+    lane.sfx
+      ? sfxDropProps
+      : lane.kind === "texts" || lane.kind === "effects" || !onDropAsset
       ? {}
       : {
           onDragOver: (e: DragEvent<HTMLDivElement>) => {
@@ -143,7 +165,7 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
         <div className="h-8 border-b border-line" />
         {LANES.map((lane) => (
           <div key={lane.key} className="flex h-12 items-center gap-2 border-b border-line px-3 text-meta font-medium text-ink-muted last:border-b-0">
-            <Icon name={lane.kind === "texts" ? "type" : lane.kind === "audio" ? "music" : "film"} className="size-5 shrink-0" />
+            <Icon name={lane.kind === "texts" ? "type" : lane.kind === "audio" ? "music" : lane.kind === "effects" ? "sparkles" : "film"} className="size-5 shrink-0" />
             <span className="truncate">{lane.label}</span>
           </div>
         ))}
@@ -161,7 +183,13 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
           </div>
 
           {LANES.map((lane) => {
-            const items = (lane.kind === "clips" ? timeline.clips.filter((c) => c.track === lane.track) : timeline[lane.kind]) as Item[];
+            const items = (
+              lane.kind === "clips"
+                ? timeline.clips.filter((c) => c.track === lane.track)
+                : lane.kind === "audio"
+                  ? timeline.audio.filter((a) => !!a.is_sfx === lane.sfx)
+                  : (timeline[lane.kind] ?? [])
+            ) as Item[];
             return (
               <div key={lane.key} className="relative h-12 border-b border-line last:border-b-0" {...scrubProps} {...dropProps(lane)}>
                 {items.map((item) => {
@@ -169,6 +197,10 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
                   const label =
                     lane.kind === "texts"
                       ? (item as { text: string }).text
+                      : lane.kind === "effects"
+                      ? `${EFFECTS[(item as Effect).kind]?.label ?? "Effect"}${(item as Effect).auto ? " · auto" : ""}`
+                      : lane.sfx
+                      ? (assetOf(timeline, (item as { asset_id: string }).asset_id)?.name.replace(/^SFX · /, "") ?? "Sound effect")
                       : (assetOf(timeline, (item as { asset_id: string }).asset_id)?.name ?? "Missing media");
                   const speed = lane.kind === "clips" ? (item as { speed: number }).speed : 1;
                   return (
@@ -182,7 +214,10 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
                         "absolute top-1 bottom-1 flex cursor-grab items-center overflow-hidden rounded-md border text-meta active:cursor-grabbing",
                         lane.kind === "clips" && "border-brand-soft bg-brand-subtle text-brand-strong",
                         lane.kind === "texts" && "border-line-strong bg-paper text-ink",
-                        lane.kind === "audio" && "border-line-strong bg-surface-sunken text-ink-muted",
+                        lane.kind === "audio" && !lane.sfx && "border-line-strong bg-surface-sunken text-ink-muted",
+                        lane.sfx && "border-brand-soft bg-surface-sunken text-ink",
+                        lane.kind === "effects" && "border-brand-soft bg-paper text-brand-strong",
+                        lane.kind === "effects" && (item as Effect).auto && "border-dashed",
                         selected && "z-10 ring-2 ring-brand",
                       )}
                       style={{ left: item.start * pxPerSec, width: Math.max(item.duration * pxPerSec, 8) }}

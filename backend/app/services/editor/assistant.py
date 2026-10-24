@@ -17,7 +17,7 @@ from typing import Any
 
 from app.config import settings
 from app.schemas.editor import Timeline
-from app.services.editor import ops
+from app.services.editor import effects, ops, sfx
 
 logger = logging.getLogger("cliphive.editor.ai")
 
@@ -28,6 +28,8 @@ _INT = {"type": "integer"}
 _STR = {"type": "string"}
 _BOOL = {"type": "boolean"}
 _PRESET = {"type": "string", "enum": list(ops.TEXT_PRESETS)}
+_EFFECT = {"type": "string", "enum": list(effects.DEFAULT_LENGTH),
+           "description": "punch_zoom quick zoom hit, slow_zoom push-in, shake, flash (white), glitch, vignette, color_pop, black_white"}
 _TEXT_STYLE = {
     "preset": _PRESET,
     "x": {**_NUM, "description": "centre, 0-1 of frame width"},
@@ -57,7 +59,7 @@ TOOLS = [
           {"clip_id": _STR, "start": _NUM, "track": _INT, "source_in": _NUM, "duration": _NUM, "speed": _NUM, "volume": _NUM,
            "muted": _BOOL, "fit": {"type": "string", "enum": ["cover", "contain"]}, "fade_in": _NUM, "fade_out": _NUM}, ["clip_id"]),
     _tool("split", "Cut a clip, text or audio track in two at a timeline time.", {"item_id": _STR, "at": _NUM}, ["item_id", "at"]),
-    _tool("delete", "Remove clips, texts or audio tracks by id.", {"ids": {"type": "array", "items": _STR}}, ["ids"]),
+    _tool("delete", "Remove clips, texts, audio tracks or effects by id.", {"ids": {"type": "array", "items": _STR}}, ["ids"]),
     _tool("duplicate", "Copy an item; omit start to place the copy right after the original.", {"item_id": _STR, "start": _NUM}, ["item_id"]),
     _tool("close_gaps", "Pack a track's clips back to back from 0, removing empty space.", {"track": _INT}),
     _tool("add_text", "Add a text overlay (titles, labels, call-outs). Prefer a preset.",
@@ -71,6 +73,18 @@ TOOLS = [
           {"asset_id": _STR, "start": _NUM, "duration": _NUM, "source_in": _NUM, "volume": _NUM, "fade_in": _NUM, "fade_out": _NUM}, ["asset_id"]),
     _tool("update_audio", "Change an audio track's timing, volume or fades.",
           {"audio_id": _STR, "start": _NUM, "duration": _NUM, "source_in": _NUM, "volume": _NUM, "fade_in": _NUM, "fade_out": _NUM}, ["audio_id"]),
+    _tool("auto_effects", "Automatically add visual effects across the whole edit, timed to loud moments, cuts and shouted captions. Replaces earlier auto effects; style none removes them.",
+          {"style": {"type": "string", "enum": [*effects.STYLES, "none"], "description": "hype: punch-ins, shakes, flashes, glitches; cinematic: slow push-ins, vignette, soft grade; clean: subtle"},
+           "amount": {**_NUM, "description": "0.1-1, how many and how strong (default 0.6)"}}, ["style"]),
+    _tool("add_effect", "Add one visual effect to the picture at a time (text is unaffected).",
+          {"kind": _EFFECT, "start": _NUM, "duration": {**_NUM, "description": "omit for the effect's natural length"},
+           "intensity": {**_NUM, "description": "0.05-1, default 0.6"}}, ["kind", "start"]),
+    _tool("update_effect", "Change an effect's kind, timing or intensity.",
+          {"effect_id": _STR, "kind": _EFFECT, "start": _NUM, "duration": _NUM, "intensity": _NUM}, ["effect_id"]),
+    _tool("auto_sfx", "Sound-design the whole edit: place sound effects on cuts, titles, text pop-ins and loud moments (replaces earlier auto sound effects).",
+          {"intensity": {"type": "string", "enum": ["subtle", "normal", "hype"], "description": "default normal"}}),
+    _tool("add_sfx", "Add one sound effect whose hit lands at a timeline time.",
+          {"name": {"type": "string", "enum": list(sfx.LIBRARY)}, "at": _NUM, "volume": {**_NUM, "description": "0.05-1, default 0.6"}}, ["name", "at"]),
     _tool("set_project", "Change the canvas aspect ratio or background colour.",
           {"aspect": {"type": "string", "enum": ["9:16", "16:9", "1:1", "4:5"]}, "background": _STR}),
     _tool("get_transcript", "Read what's said in a video asset, with source-time timestamps, to find a moment by its words. Slow the first time.",
@@ -85,6 +99,8 @@ How the timeline works:
 - Times are seconds. "start"/"duration" are timeline time; "source_in" is where a clip starts inside its file.
 - A clip uses duration x speed seconds of its source. Visual tracks: 0 is the main track, 1-2 draw on top.
 - Texts are overlays with x/y as fractions of the frame. Captions are texts generated from speech.
+- Audio items with is_sfx are sound effects. For "add sound effects" / "sound design this" use auto_sfx; for one specific sound use add_sfx.
+- Effects are timed visual effects on the picture (zoom, shake, flash, glitch, grades). For "add effects" / "make it pop" use auto_effects; use add_effect for one specific moment.
 - Ids are shown in the state below. Use them exactly. New items get new ids, returned by each tool.
 
 Rules:
@@ -155,6 +171,15 @@ def _apply(timeline: Timeline, name: str, args: dict[str, Any]) -> tuple[Timelin
             raise ops.EditError(f"{args['asset_id']} isn't a video.")
         found = _highlights(ops.asset_path(asset), asset.duration, max(1, min(10, args.get("count") or 3)), max(5, min(90, args.get("seconds") or 15)))
         return timeline, json.dumps(found), False
+    if name == "auto_sfx":
+        result = sfx.auto(timeline, args.get("intensity") or "normal", loudness=sfx.file_loudness)
+        return result.timeline, result.summary, True
+    if name == "add_sfx":
+        try:
+            new, msg = sfx.add_one(timeline, args["name"], float(args["at"]), float(args.get("volume") or 0.6))
+        except ValueError as err:
+            raise ops.EditError(str(err)) from None
+        return new, msg, True
     if name == "add_captions":
         words = ops.caption_words(timeline, transcribe_words)
         new, msg = ops.add_captions(timeline, words, **args)
@@ -164,7 +189,8 @@ def _apply(timeline: Timeline, name: str, args: dict[str, Any]) -> tuple[Timelin
         "add_clip": ops.add_clip, "update_clip": ops.update_clip, "split": ops.split, "delete": ops.delete,
         "duplicate": ops.duplicate, "close_gaps": ops.close_gaps, "add_text": ops.add_text, "update_text": ops.update_text,
         "restyle_captions": ops.restyle_captions, "add_audio": ops.add_audio, "update_audio": ops.update_audio,
-        "set_project": ops.set_project,
+        "set_project": ops.set_project, "auto_effects": effects.auto_effects, "add_effect": ops.add_effect,
+        "update_effect": ops.update_effect,
     }
     if name not in handlers:
         raise ops.EditError(f"Unknown tool {name}.")
@@ -187,6 +213,7 @@ def _state(timeline: Timeline, playhead: float, selected_id: str | None) -> str:
         "texts": [round_all(t.model_dump(include={"id", "text", "start", "duration", "x", "y", "size", "font", "color", "animation", "is_caption"}))
                   for t in sorted(timeline.texts, key=lambda t: t.start)][:300],
         "audio": [round_all(a.model_dump()) for a in timeline.audio],
+        "effects": [round_all(e.model_dump()) for e in sorted(timeline.effects, key=lambda e: e.start)][:200],
     }
     return json.dumps(state, separators=(",", ":"))
 

@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AgentPanel } from "@/components/editor/AgentPanel";
 import { Inspector } from "@/components/editor/Inspector";
-import { LibraryPanel, type LibraryTab } from "@/components/editor/LibraryPanel";
+import { LibraryPanel, loadSfxLibrary, type LibraryTab, type SfxIntensity } from "@/components/editor/LibraryPanel";
 import { Preview, type PreviewHandle } from "@/components/editor/Preview";
 import { Timeline } from "@/components/editor/Timeline";
 import { Badge, Button, buttonClass, Icon, Panel, ResizeHandle, Select } from "@/components/ui";
@@ -13,8 +13,8 @@ import { api, ApiError, API_URL } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { usePersistentState } from "@/lib/usePersistentState";
 import {
-  addText, duplicate, duration, find, formatTime, placeAsset, remove, split, update,
-  type Aspect, type Project, type Timeline as TimelineDoc, type Text,
+  addEffect, addSfx, addText, duplicate, duration, find, formatTime, placeAsset, remove, split, update,
+  type Aspect, type EffectKind, type EffectStyle, type Project, type SfxItem, type Timeline as TimelineDoc, type Text,
 } from "@/lib/editor";
 
 const SAVE_DELAY_MS = 700;
@@ -71,6 +71,7 @@ export default function EditorPage() {
   const [html, setHtml] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [notice, setNotice] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null); // a server edit's summary ("Added 14 hype effects ...")
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -267,6 +268,55 @@ export default function EditorPage() {
     setSelectedId(result.id);
   }, [apply, selectedId]);
 
+  const doAddEffect = useCallback((kind: EffectKind) => {
+    const tl = timelineRef.current;
+    if (!tl) return;
+    const result = addEffect(tl, playhead, kind);
+    apply(result.timeline);
+    setSelectedId(result.id);
+  }, [apply, playhead]);
+
+  /** Auto effects run on the server (it analyses the audio); one Undo reverts the whole run. */
+  const autoEffects = useCallback(async (style: EffectStyle | "none", amount: number) => {
+    await flush(); // it edits what's saved, so save your latest changes first
+    const p = await api<Project>(`/api/editor/projects/${projectId}/auto-effects`, { method: "POST", body: { style, amount } });
+    adoptServerEdit(p);
+    setInfo(p.notice ?? null);
+    if (selectedId && !find(p.timeline, selectedId)) setSelectedId(null);
+  }, [flush, projectId, adoptServerEdit, selectedId]);
+
+  /** Auto SFX: the server finds the cues and the AI picks the sounds; one Undo reverts the run. */
+  const autoSfx = useCallback(async (intensity: SfxIntensity) => {
+    await flush();
+    const p = await api<Project>(`/api/editor/projects/${projectId}/auto-sfx`, { method: "POST", body: { intensity } });
+    adoptServerEdit(p);
+    setInfo(p.notice ?? null);
+    if (selectedId && !find(p.timeline, selectedId)) setSelectedId(null);
+  }, [flush, projectId, adoptServerEdit, selectedId]);
+
+  /** One sound effect whose hit lands at `at` (the playhead, or where it was dropped). */
+  const doAddSfx = useCallback((sfx: SfxItem, at = playhead) => {
+    const tl = timelineRef.current;
+    if (!tl) return;
+    const result = addSfx(tl, sfx, at);
+    apply(result.timeline);
+    setSelectedId(result.id);
+  }, [apply, playhead]);
+
+  const doDropSfx = useCallback(async (name: string, at: number) => {
+    const sfx = (await loadSfxLibrary().catch(() => [])).find((s) => s.name === name);
+    if (sfx) doAddSfx(sfx, at);
+  }, [doAddSfx]);
+
+  const doClearSfx = useCallback(() => {
+    const tl = timelineRef.current;
+    if (!tl) return;
+    const audio = tl.audio.filter((a) => !a.is_sfx);
+    const used = new Set([...audio.map((a) => a.asset_id), ...tl.clips.map((c) => c.asset_id)]);
+    apply({ ...tl, audio, assets: tl.assets.filter((a) => !a.id.startsWith("sfx_") || used.has(a.id)) });
+    if (selectedId && tl.audio.some((a) => a.is_sfx && a.id === selectedId)) setSelectedId(null);
+  }, [apply, selectedId]);
+
   const doAddText = useCallback((preset = "punch") => {
     const tl = timelineRef.current;
     if (!tl) return;
@@ -418,11 +468,14 @@ export default function EditorPage() {
 
   const doneNotice = project.render_status === "done" && project.render_path && dismissedExport !== project.render_path;
   const captions = timeline.texts.filter((t) => t.is_caption).length;
+  const sfxCount = timeline.audio.filter((a) => a.is_sfx).length;
   const layers = [
     { label: "Clips", count: timeline.clips.length },
     { label: "Text", count: timeline.texts.length - captions },
     { label: "Captions", count: captions },
-    { label: "Music", count: timeline.audio.length },
+    { label: "Music", count: timeline.audio.length - sfxCount },
+    { label: "SFX", count: sfxCount },
+    { label: "Effects", count: timeline.effects?.length ?? 0 },
   ];
 
   return (
@@ -466,6 +519,11 @@ export default function EditorPage() {
         </Button>
       </div>
 
+      {info && (
+        <Strip tone="success" onDismiss={() => setInfo(null)}>
+          {info}
+        </Strip>
+      )}
       {notice && (
         <Strip tone="danger" onDismiss={() => setNotice(null)}>
           {notice}
@@ -506,6 +564,13 @@ export default function EditorPage() {
                   onProject={adoptServerEdit}
                   onPlace={doPlace}
                   onAddText={doAddText}
+                  onAutoEffects={autoEffects}
+                  onAddEffect={doAddEffect}
+                  autoEffectCount={timeline.effects?.filter((e) => e.auto).length ?? 0}
+                  onAutoSfx={autoSfx}
+                  onAddSfx={doAddSfx}
+                  onClearSfx={doClearSfx}
+                  sfxCount={sfxCount}
                   onError={setNotice}
                   properties={
                     <Inspector
@@ -668,6 +733,7 @@ export default function EditorPage() {
             }}
             onCommit={(next, before) => apply(next, { before })}
             onDropAsset={doDropAsset}
+            onDropSfx={doDropSfx}
           />
         </section>
       </div>

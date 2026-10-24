@@ -25,23 +25,23 @@ export function SkyHeader({
   return (
     <header
       className={cn(
-        "relative isolate overflow-hidden rounded-xl px-8 lg:px-14",
-        size === "lg" ? "pt-12 pb-24 lg:pt-16 lg:pb-32" : "pt-10 pb-20 lg:pt-12 lg:pb-24",
+        "relative isolate overflow-hidden rounded-xl px-6 sm:px-8 lg:px-12",
+        size === "lg" ? "pt-10 pb-16 lg:pt-12 lg:pb-20" : "pt-7 pb-10 lg:pt-8 lg:pb-12",
         className,
       )}
     >
-      <SkyBackground />
+      <SkyBackground className="fx-sky-compact" />
       {eyebrow && <SectionLabel inverse>{eyebrow}</SectionLabel>}
       <h1
         className={cn(
-          "mt-4 font-display font-semibold tracking-tight [overflow-wrap:anywhere] text-on-brand",
-          size === "lg" ? "text-5xl lg:text-7xl" : "text-4xl lg:text-6xl",
+          "mt-3 font-display font-semibold tracking-tight [overflow-wrap:anywhere] text-on-brand",
+          size === "lg" ? "text-4xl lg:text-6xl" : "text-3xl lg:text-5xl",
         )}
       >
         {title}
       </h1>
-      {description && <p className="mt-4 max-w-3xl text-xl text-on-brand/85 lg:text-2xl">{description}</p>}
-      {actions && <div className="mt-8 flex flex-wrap gap-3">{actions}</div>}
+      {description && <p className="mt-3 max-w-3xl text-lg text-on-brand/85 lg:text-xl">{description}</p>}
+      {actions && <div className="mt-6 flex flex-wrap gap-3">{actions}</div>}
     </header>
   );
 }

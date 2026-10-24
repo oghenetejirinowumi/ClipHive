@@ -217,6 +217,9 @@ CREATE TABLE posts (
 | `/api/editor/projects/{id}/composition` | `GET` | **Editor** | Compiled HyperFrames HTML for the preview | — | `{"revision", "html"}` |
 | `/api/editor/projects/{id}/chat` | `POST` | **Editor** | AI edits the timeline (one revision per reply) | `{"message", "playhead", "selected_id"?}` | `{"reply", "changes", "project"}` |
 | `/api/editor/projects/{id}/render` | `POST` | **Editor** | Export to MP4 in the background → Hub clip | — | `ProjectRead` (202) |
+| `/api/editor/sfx` | `GET` | **Editor** | Built-in sound effects (synthesised once into `storage/sfx/`) | — | `list[SfxRead]` |
+| `/api/editor/projects/{id}/auto-sfx` | `POST` | **Editor** | AI sound design: effects on cuts, titles, text and loud moments (rules without a model key); replaces earlier auto SFX, saved as a version | `{"intensity": "subtle"\|"normal"\|"hype", "replace"?}` | `ProjectRead` (+ `notice`) |
+| `/api/editor/projects/{id}/auto-effects` | `POST` | **Editor** | Auto visual effects (zoom, shake, flash, glitch, grades) on loud moments, cuts and shouted captions; replaces earlier auto effects, keeps hand-made ones, saved as a version | `{"style": "hype"\|"cinematic"\|"clean"\|"none", "amount": 0.1-1}` | `ProjectRead` (+ `notice`) |
 | `/api/downloads/instagram` | `POST` | **C1** | Fetch a public Instagram post/reel as MP4 | `{"url"}` | `DownloadRead` |
 | `/api/downloads/{id}/file` | `GET` | **C1** | The fetched file, as an attachment | — | Binary MP4 file |
 | `/api/studio/imports/{id}` | `GET` | **C1** | Open a project in the Clipping Studio: source video, energy curve, suggested moments, its clips | — | `StudioProject` |
