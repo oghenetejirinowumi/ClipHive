@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { AgentFeed } from "@/components/agents/AgentFeed";
 import { CommandBar } from "@/components/agents/CommandBar";
@@ -56,7 +55,7 @@ export default function CreatePage() {
   const [url, setUrl] = useState("");
   const [clipCount, setClipCount] = useState<"3" | "5" | "10" | "20">("5");
   const [clipSeconds, setClipSeconds] = useState<"15" | "30" | "60">("30");
-  const [layout, setLayout] = useState<Layout>("fill");
+  const [layout, setLayout] = useState<Layout>("blur");
   const [jobs, setJobs] = useState<ImportJob[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -90,7 +89,7 @@ export default function CreatePage() {
     e.preventDefault();
     if (!url.trim()) return;
     if (platform === "instagram") {
-      setError("Instagram links go in the IG downloader. This box takes Twitch, Kick and YouTube.");
+      setError("Instagram links aren't supported. This box takes Twitch, Kick and YouTube.");
       return;
     }
     setSubmitting(true);
@@ -174,7 +173,7 @@ export default function CreatePage() {
 
       <Panel padding="lg" className="space-y-8">
         {/* 1. Link */}
-        <form onSubmit={submitLink} className="space-y-3">
+        <form onSubmit={submitLink} className="space-y-3" data-tour="create-link">
           <label htmlFor="source-url" className="block text-lg font-medium text-ink">
             Video link
           </label>
@@ -206,12 +205,7 @@ export default function CreatePage() {
             </Button>
           </div>
           {platform === "instagram" && (
-            <p className="text-base text-ink-muted">
-              Looks like Instagram.{" "}
-              <Link href="/download" className="inline-flex min-h-11 items-center font-medium text-brand hover:text-brand-strong">
-                Open the IG downloader
-              </Link>
-            </p>
+            <p className="text-base text-ink-muted">Looks like Instagram. Only Twitch, Kick and YouTube links can be turned into clips.</p>
           )}
         </form>
 
@@ -287,8 +281,8 @@ export default function CreatePage() {
               value={layout}
               onChange={setLayout}
               options={[
-                { value: "fill", label: "Fill" },
                 { value: "blur", label: "Blur" },
+                { value: "fill", label: "Fill" },
               ]}
             />
           </div>
@@ -310,7 +304,9 @@ export default function CreatePage() {
           <h2 className="font-display text-3xl font-semibold tracking-tight text-ink">Or just tell the agents</h2>
           <p className="mt-2 text-lg text-ink-muted">Say what you want in your own words. The agents find your latest stream and plan the clips; you confirm before anything runs.</p>
         </div>
-        <CommandBar onStarted={(job) => setJobs((prev) => [job, ...prev])} />
+        <div data-tour="create-command">
+          <CommandBar onStarted={(job) => setJobs((prev) => [job, ...prev])} />
+        </div>
       </Panel>
 
       {/* Projects */}

@@ -9,12 +9,14 @@ export const API_URL = (
 /** What users see whenever something fails for a technical reason (offline, server crash, timeout). */
 export const GENERIC_ERROR = "Something went wrong. Please try again.";
 
-// Reads like it was written for developers: env var names, stack traces, tool and server names.
-const TECHNICAL = /\b[A-Z]{3,}_[A-Z_]{3,}\b|traceback|exception|errno|\bserver\b|backend|localhost|ffmpeg|yt-dlp|\bapi\b|\.py\b|\bnull\b|\bundefined\b|\bNaN\b|\[object/i;
+// Reads like it was written for developers: setting names (ALL_CAPS_WITH_UNDERSCORES, matched
+// case-sensitively so normal titles like "my_video" pass), stack traces, tool and server names.
+const SETTING_NAME = /\b[A-Z][A-Z0-9]{2,}_[A-Z0-9_]{2,}\b/;
+const TECHNICAL_WORDS = /traceback|exception|errno|\bserver\b|backend|localhost|ffmpeg|yt-dlp|\bapi\b|\.py\b|\bnull\b|\bundefined\b|\bNaN\b|\[object/i;
 
 /** Any message headed for the screen: kept if it reads like plain words, else GENERIC_ERROR. */
 export function friendly(text: string | null | undefined): string {
-  return !text || TECHNICAL.test(text) ? GENERIC_ERROR : text;
+  return !text || SETTING_NAME.test(text) || TECHNICAL_WORDS.test(text) ? GENERIC_ERROR : text;
 }
 
 /**

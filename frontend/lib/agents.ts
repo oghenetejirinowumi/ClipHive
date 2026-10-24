@@ -63,6 +63,8 @@ export type InboxClip = {
   reason: string | null;
   source_title: string | null;
   import_job_id: number | null;
+  /** null for live-recording clips, which can't be re-cut in the other layout. */
+  layout: "fill" | "blur" | null;
 };
 
 export type PostPlatform = "tiktok" | "youtube" | "instagram" | "x";

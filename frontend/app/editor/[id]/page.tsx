@@ -5,11 +5,12 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AgentPanel } from "@/components/editor/AgentPanel";
 import { Inspector } from "@/components/editor/Inspector";
-import { LibraryPanel, loadSfxLibrary, type LibraryTab, type SfxIntensity } from "@/components/editor/LibraryPanel";
+import { LibraryPanel, loadSfxLibrary, type EmojiPlacement, type LibraryTab, type SfxIntensity } from "@/components/editor/LibraryPanel";
 import { Preview, type PreviewHandle } from "@/components/editor/Preview";
 import { Timeline } from "@/components/editor/Timeline";
 import { Badge, Button, buttonClass, Icon, Panel, ResizeHandle, Select } from "@/components/ui";
 import { api, ApiError, API_URL, friendly } from "@/lib/api";
+import type { EmojiAmount, EmojiMotion } from "@/lib/captions";
 import { cn } from "@/lib/cn";
 import { usePersistentState } from "@/lib/usePersistentState";
 import {
@@ -294,6 +295,15 @@ export default function EditorPage() {
     if (selectedId && !find(p.timeline, selectedId)) setSelectedId(null);
   }, [flush, projectId, adoptServerEdit, selectedId]);
 
+  /** Auto emoji: the server picks the captions that call for one; one Undo reverts the run. */
+  const autoEmoji = useCallback(async (amount: EmojiAmount | "none", motion: EmojiMotion | "mix", placement: EmojiPlacement) => {
+    await flush();
+    const p = await api<Project>(`/api/editor/projects/${projectId}/auto-emoji`, { method: "POST", body: { amount, motion, placement } });
+    adoptServerEdit(p);
+    setInfo(p.notice ?? null);
+    if (selectedId && !find(p.timeline, selectedId)) setSelectedId(null);
+  }, [flush, projectId, adoptServerEdit, selectedId]);
+
   /** One sound effect whose hit lands at `at` (the playhead, or where it was dropped). */
   const doAddSfx = useCallback((sfx: SfxItem, at = playhead) => {
     const tl = timelineRef.current;
@@ -571,6 +581,8 @@ export default function EditorPage() {
                   onAddSfx={doAddSfx}
                   onClearSfx={doClearSfx}
                   sfxCount={sfxCount}
+                  onAutoEmoji={autoEmoji}
+                  emojiCount={timeline.texts.filter((t) => t.is_emoji).length}
                   onError={setNotice}
                   properties={
                     <Inspector

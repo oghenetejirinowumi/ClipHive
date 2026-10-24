@@ -143,7 +143,7 @@ def recover_interrupted() -> None:
     with SessionLocal() as db:
         stuck = db.query(ImportJob).filter(ImportJob.status.notin_([ImportStatus.DONE, ImportStatus.FAILED])).all()
         for job in stuck:
-            job.status, job.error, job.detail = ImportStatus.QUEUED, None, "Resuming after a server restart"
+            job.status, job.error, job.detail = ImportStatus.QUEUED, None, "Picking up where it left off"
         ids = [job.id for job in stuck]
         if stuck:
             db.commit()
@@ -481,7 +481,7 @@ def cut_and_handoff(
     user_id: int,
     title: str,
     name: str,
-    layout: str = "fill",
+    layout: str = "blur",
     stream_id: int | None = None,
     offset_s: float = 0.0,
     first_number: int = 1,

@@ -14,9 +14,9 @@ from app.config import settings
 from app.core.media import MediaError, storage_root
 from app.models import Clip, EditorProject, EditorVersion, ImportJob, User
 from app.schemas.editor import (
-    AddClipAsset, AutoEffectsRequest, AutoSfxRequest, SfxRead, ChatRequest, ChatResponse, ProjectCreate, ProjectRead, ProjectSummary, ProjectUpdate, Timeline, VersionRead,
+    AddClipAsset, AutoEffectsRequest, AutoEmojiRequest, AutoSfxRequest, SfxRead, ChatRequest, ChatResponse, ProjectCreate, ProjectRead, ProjectSummary, ProjectUpdate, Timeline, VersionRead,
 )
-from app.services.editor import assistant, effects, ops, render, sfx
+from app.services.editor import assistant, effects, emojis, ops, render, sfx
 from app.services.editor.compose import compose
 from app.services.editor.media import UPLOAD_EXTS, probe_asset, project_dir, public_media_path
 from app.services.ingest.pipeline import source_file
@@ -283,6 +283,23 @@ def auto_sfx(project_id: int, body: AutoSfxRequest, user: Owner, db: DbSession) 
     db.refresh(project)
     how = "picked by AI" if result.used_ai else "placed automatically"
     return _read(db, project).model_copy(update={"notice": f"{result.summary}, {how}."})
+
+
+@router.post("/projects/{project_id}/auto-emoji", response_model=ProjectRead)
+def auto_emoji(project_id: int, body: AutoEmojiRequest, user: Owner, db: DbSession) -> ProjectRead:
+    """Emoji next to the captions that call for one, each with its own motion, as one version."""
+    project = _owned(db, project_id, user)
+    try:
+        result = emojis.auto(Timeline.model_validate(project.timeline), body.amount, body.motion, body.placement)
+    except ValueError as err:
+        raise HTTPException(422, str(err)) from err
+    _snapshot(db, project, "Your edits", only_if_changed=True)
+    _save(db, project, result.timeline)
+    _snapshot(db, project, "Removed auto emoji" if body.amount == "none" else f"Auto emoji ({body.amount})")
+    db.commit()
+    db.refresh(project)
+    how = "" if body.amount == "none" or not result.count else (", picked by AI" if result.used_ai else ", picked by the built-in rules")
+    return _read(db, project).model_copy(update={"notice": f"{result.summary}{how}."})
 
 
 @router.get("/projects/{project_id}/versions", response_model=list[VersionRead])

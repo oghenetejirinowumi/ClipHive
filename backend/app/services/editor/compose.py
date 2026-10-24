@@ -16,6 +16,7 @@ overlays (flash, vignette) between the picture and the text. Text is never moved
 from __future__ import annotations
 
 import json
+import math
 import random
 from collections.abc import Callable
 from html import escape
@@ -107,6 +108,10 @@ def _clip_tweens(clip: Clip) -> list[str]:
     return out
 
 
+BURST_SPARKS = 7
+EMOJI_ANIMATIONS = ("bounce", "float", "spin", "wiggle", "stamp", "slide_in", "burst")
+
+
 def _text_html(text: Text, width: int, height: int, z: int) -> str:
     content = text.text.upper() if text.uppercase else text.text
     stroke = (
@@ -120,10 +125,53 @@ def _text_html(text: Text, width: int, height: int, z: int) -> str:
     )
     font_fam = FONT_STACK.get(text.font, f"'{text.font}'" if text.font != "System" else "system-ui")
     inner = f"font-family: {font_fam}, system-ui, sans-serif; font-size: {text.size}px; color: {text.color}; {stroke} {box}"
+    # Burst throws small copies outward; they sit beside the inner span so its scaling doesn't move them.
+    sparks = "".join(
+        f'<span id="tp-{text.id}-{k}" class="burst-spark" style="font-size: {_n(text.size * 0.35)}px">{escape(content)}</span>'
+        for k in range(BURST_SPARKS)
+    ) if text.animation == "burst" else ""
     return (
         f'<div id="t-{text.id}" class="clip text" data-start="{_n(text.start)}" data-duration="{_n(text.duration)}" '
-        f'data-track-index="5" style="{outer}"><span id="ts-{text.id}" class="text-inner" style="{inner}">{escape(content)}</span></div>'
+        f'data-track-index="5" style="{outer}">{sparks}<span id="ts-{text.id}" class="text-inner" style="{inner}">{escape(content)}</span></div>'
     )
+
+
+def _emoji_tweens(text: Text, sel: str) -> list[str]:
+    """Entrances for the emoji motions (any text can use them)."""
+    start, dur = text.start, text.duration
+    at = _n(start)
+    side = 1 if text.x >= 0.5 else -1  # slide in from the nearer edge
+    if text.animation == "bounce":
+        return [f"tl.fromTo({sel}, {{opacity: 0, y: -{_n(text.size * 1.3)}}}, {{opacity: 1, y: 0, duration: 0.6, ease: 'bounce.out'}}, {at});"]
+    if text.animation == "float":
+        rise = min(0.5, dur / 2)
+        return [f"tl.fromTo({sel}, {{opacity: 0, y: {_n(text.size * 0.6)}, scale: 0.7}}, {{opacity: 1, y: 0, scale: 1, duration: {_n(rise)}, ease: 'power2.out'}}, {at});",
+                f"tl.fromTo({sel}, {{y: 0, rotation: -5}}, {{y: -{_n(text.size * 0.35)}, rotation: 5, duration: {_n(max(0.1, dur - rise))}, ease: 'sine.inOut', immediateRender: false}}, {_n(start + rise)});"]
+    if text.animation == "spin":
+        return [f"tl.fromTo({sel}, {{opacity: 0, scale: 0, rotation: {-360 * side}}}, {{opacity: 1, scale: 1, rotation: 0, duration: 0.5, ease: 'back.out(1.6)'}}, {at});"]
+    if text.animation == "wiggle":
+        swings = max(1, int((dur - 0.25) / 0.16))
+        return [f"tl.fromTo({sel}, {{opacity: 0, scale: 0}}, {{opacity: 1, scale: 1, duration: 0.25, ease: 'back.out(2)'}}, {at});",
+                f"tl.fromTo({sel}, {{rotation: -14}}, {{rotation: 14, duration: 0.16, ease: 'sine.inOut', yoyo: true, repeat: {swings - 1}, immediateRender: false}}, {_n(start + 0.2)});",
+                f"tl.set({sel}, {{rotation: 0}}, {_n(start + dur)});"]
+    if text.animation == "stamp":
+        return [f"tl.fromTo({sel}, {{opacity: 0, scale: 2.4, rotation: -10}}, {{opacity: 1, scale: 1, rotation: -10, duration: 0.2, ease: 'power4.in'}}, {at});",
+                f"tl.fromTo({sel}, {{x: -6}}, {{x: 6, duration: 0.04, yoyo: true, repeat: 5, ease: 'none', immediateRender: false}}, {_n(start + 0.2)});",
+                f"tl.set({sel}, {{x: 0}}, {_n(start + 0.45)});"]
+    if text.animation == "slide_in":
+        return [f"tl.fromTo({sel}, {{opacity: 0, xPercent: {140 * side}, rotation: {-18 * side}}}, {{opacity: 1, xPercent: 0, rotation: 0, duration: 0.42, ease: 'back.out(1.7)'}}, {at});"]
+    if text.animation == "burst":
+        out = [f"tl.fromTo({sel}, {{opacity: 0, scale: 0}}, {{opacity: 1, scale: 1, duration: 0.32, ease: 'back.out(2.8)'}}, {at});"]
+        rng = random.Random(text.id)
+        for k in range(BURST_SPARKS):
+            angle = k / BURST_SPARKS * 2 * math.pi + rng.uniform(-0.3, 0.3)
+            dist = text.size * rng.uniform(1.0, 1.6)
+            spark = json.dumps(f"#tp-{text.id}-{k}")
+            out.append(f"tl.fromTo({spark}, {{x: 0, y: 0, opacity: 1, scale: 1}}, {{x: {_n(math.cos(angle) * dist)}, y: {_n(math.sin(angle) * dist)}, "
+                       f"opacity: 0, scale: 0.5, duration: 0.75, ease: 'power2.out'}}, {at});")
+            out.append(f"tl.set({spark}, {{opacity: 0}}, {_n(start + 0.76)});")
+        return out
+    return []
 
 
 def _text_tweens(text: Text) -> list[str]:
@@ -149,6 +197,8 @@ def _text_tweens(text: Text) -> list[str]:
             f"duration: {_n(min(1.2, dur * 0.6))}, ease: 'steps({max(2, min(40, len(text.text)))})'}}, {_n(start)});"
         ),
     }
+    if text.animation in EMOJI_ANIMATIONS:
+        tweens[text.animation] = "\n      ".join(_emoji_tweens(text, sel))
     # "none" adds no entry tween: the runtime hides the clip before its start. (Zero-length
     # opacity sets at 0 combined with the end kill below left the text hidden in renders.)
     out = [tweens[text.animation]] if text.animation in tweens else []
@@ -291,6 +341,7 @@ def compose(timeline: Timeline, *, media_url: Callable[[Asset], str], font_url: 
       .media {{ position: absolute; left: 0; top: 0; width: {width}px; height: {height}px; }}
       .text {{ position: absolute; transform: translate(-50%, -50%); text-align: center; line-height: 1.12; white-space: pre-line; }}
       .text-inner {{ display: inline-block; font-weight: 700; }}
+      .burst-spark {{ position: absolute; left: 50%; top: 50%; margin: -0.6em 0 0 -0.6em; width: 1.2em; line-height: 1.2em; opacity: 0; pointer-events: none; }}
     </style>
   </head>
   <body>

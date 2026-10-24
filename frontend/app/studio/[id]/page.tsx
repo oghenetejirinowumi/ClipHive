@@ -622,7 +622,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
             {project.clips.length}
           </Badge>
         </div>
-        {project.job.error && <Notice tone="brand">{project.job.error}</Notice>}
+        {project.job.error && <Notice tone="brand">{friendly(project.job.error)}</Notice>}
         <MoreClips job={project.job} onFinished={onMoreFinished} />
         {project.clips.length === 0 ? (
           <Panel tone="sunken" padding="lg" className="text-center">

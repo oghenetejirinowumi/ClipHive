@@ -180,7 +180,7 @@ export default function StreamersPage() {
     setMessage(null);
     try {
       const r = await api<CheckResult>(`/api/streamers/${s.id}/check-now`, { method: "POST", auth: false });
-      setMessage({ tone: r.status === "error" ? "danger" : r.status === "new_vod" ? "success" : "brand", text: `${s.username}: ${r.message}`, jobId: r.import_job_id });
+      setMessage({ tone: r.status === "error" ? "danger" : r.status === "new_vod" ? "success" : "brand", text: `${s.username}: ${r.status === "error" ? friendly(r.message) : r.message}`, jobId: r.import_job_id });
     } catch (err) {
       setMessage({ tone: "danger", text: err instanceof ApiError ? err.message : "Check failed." });
     } finally {
@@ -312,7 +312,7 @@ export default function StreamersPage() {
                               {live.category && ` · ${live.category}`}
                             </span>
                           ) : live.live === null ? (
-                            <span className="text-warning">Couldn&apos;t check{live.error ? ` · ${live.error}` : ""}</span>
+                            <span className="text-warning">Couldn&apos;t check{live.error ? ` · ${friendly(live.error)}` : ""}</span>
                           ) : (
                             <span className="text-ink-muted">Offline</span>
                           )}
@@ -378,7 +378,7 @@ export default function StreamersPage() {
         </section>
 
         <aside className="space-y-8 lg:col-span-5">
-          <Panel padding="lg">
+          <Panel padding="lg" data-tour="add-channel">
             <h2 className="font-display text-3xl font-semibold tracking-tight text-ink">Add a channel</h2>
             <p className="mt-2 text-lg text-ink-muted">The first check clips its newest VOD, then every new one.</p>
 
