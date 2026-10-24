@@ -21,6 +21,8 @@ type Streamer = {
   last_seen_video_title: string | null;
   last_seen_video_url: string | null;
   last_check_error: string | null;
+  /** Recording the live broadcast right now (stream monitor); clips arrive as it goes. */
+  recording: boolean;
 };
 
 type CheckResult = { streamer_id: number; status: "new_vod" | "no_change" | "first_seen" | "error"; message: string; import_job_id: number | null };
@@ -51,6 +53,7 @@ function ago(iso: string | null): string {
 
 function statusLine(s: Streamer): { text: string; tone: "ok" | "idle" | "error" | "paused" } {
   if (!s.is_active) return { text: "Paused", tone: "paused" };
+  if (s.recording) return { text: "Recording the stream · clips arrive as it goes", tone: "ok" };
   if (s.last_check_error) return { text: `Last check failed: ${s.last_check_error}`, tone: "error" };
   if (!s.last_checked_at) return { text: "Not checked yet", tone: "idle" };
   return { text: `Checked ${timeAgo(s.last_checked_at)}`, tone: "ok" };
@@ -62,6 +65,7 @@ export default function StreamersPage() {
   const [username, setUsername] = useState("");
   const [message, setMessage] = useState<{ tone: "success" | "danger" | "brand"; text: string; jobId?: number | null } | null>(null);
   const [checking, setChecking] = useState<number | "all" | null>(null);
+  const [recordingBusy, setRecordingBusy] = useState<number | null>(null);
   const [scoutRunId, setScoutRunId] = useState<number | null>(null);
   const [isPending, startTransition] = useTransition();
   const [statuses, setStatuses] = useState<Record<number, LiveStatus>>({});
@@ -169,6 +173,27 @@ export default function StreamersPage() {
     }
   }
 
+  /** Record the live broadcast start to finish, or stop (what was recorded is still clipped). */
+  async function setRecording(s: Streamer, on: boolean) {
+    setRecordingBusy(s.id);
+    setMessage(null);
+    try {
+      await api(`/api/streamers/${s.id}/${on ? "record" : "stop"}`, { method: "POST" });
+      setStreamers((prev) => prev.map((x) => (x.id === s.id ? { ...x, recording: on } : x)));
+      setMessage({
+        tone: "success",
+        text: on
+          ? `Recording ${s.username} until the stream ends. New clips land in the Hub every few minutes.`
+          : `Stopped recording ${s.username}. The part already recorded is still being clipped.`,
+      });
+    } catch (err) {
+      setMessage({ tone: "danger", text: err instanceof ApiError ? err.message : on ? "Couldn't start the recording." : "Couldn't stop the recording." });
+      load();
+    } finally {
+      setRecordingBusy(null);
+    }
+  }
+
   async function checkAll() {
     setChecking("all");
     setMessage(null);
@@ -196,7 +221,7 @@ export default function StreamersPage() {
             Channels we&apos;re <Em>watching</Em>
           </>
         }
-        description="See who's live right now, checked against each platform. The Scout also watches these channels for finished streams: when a new VOD appears it starts clipping it on its own, and the clips land in your inbox."
+        description="See who's live right now, checked against each platform. Live channels are recorded start to finish and clipped as they go. The Scout also watches for finished streams: when a new VOD appears it starts clipping it on its own, and the clips land in your inbox."
       />
 
       {message && (
@@ -264,7 +289,9 @@ export default function StreamersPage() {
                           )}
                         </div>
                         {isLive && live.title && <p className="mt-1 line-clamp-1 text-base text-ink-muted">{live.title}</p>}
-                        <p className={cn("mt-1 text-base", st.tone === "error" ? "text-danger" : "text-ink-muted")}>Scout: {st.text}</p>
+                        <p className={cn("mt-1 text-base", st.tone === "error" ? "text-danger" : s.recording ? "font-medium text-warning" : "text-ink-muted")}>
+                          {s.recording ? st.text : `Scout: ${st.text}`}
+                        </p>
                         {s.last_seen_video_title && (
                           <p className="truncate text-base text-ink-muted">
                             Latest:{" "}
@@ -281,6 +308,18 @@ export default function StreamersPage() {
                     </div>
 
                     <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      {s.recording ? (
+                        <Button variant="secondary" size="sm" loading={recordingBusy === s.id} onClick={() => setRecording(s, false)}>
+                          <Icon name="x" className="size-5" /> Stop recording
+                        </Button>
+                      ) : (
+                        isLive &&
+                        s.is_active && (
+                          <Button size="sm" loading={recordingBusy === s.id} disabled={recordingBusy !== null} onClick={() => setRecording(s, true)}>
+                            <Icon name="radio" className="size-5" /> Record now
+                          </Button>
+                        )
+                      )}
                       {isLive && (
                         <a href={live.url} target="_blank" rel="noopener noreferrer" className={buttonClass({ variant: "secondary", size: "sm" })}>
                           <Icon name="play" className="size-5" /> Watch
@@ -292,7 +331,7 @@ export default function StreamersPage() {
                       <Button variant="ghost" size="sm" disabled={isPending} onClick={() => togglePaused(s)} aria-label={s.is_active ? `Pause ${s.username}` : `Resume ${s.username}`}>
                         <Icon name={s.is_active ? "pause" : "play"} className="size-5" />
                       </Button>
-                      <Button variant="ghost" size="sm" disabled={isPending} onClick={() => handleDeleteStreamer(s.id)}>
+                      <Button variant="ghost" size="sm" disabled={isPending || s.recording} onClick={() => handleDeleteStreamer(s.id)}>
                         Remove
                       </Button>
                     </div>

@@ -16,3 +16,5 @@ deno>=2.0  # JS runtime yt-dlp-ejs runs on (YouTube throttles/blocks without it)
 psutil>=5.9  # cancel: stop a job's own ffmpeg download process
 imageio-ffmpeg>=0.5.1
 fonttools>=4.50  # caption layout: font metrics + renaming downloaded Google Fonts
+numpy>=1.26
+streamlink>=6.8

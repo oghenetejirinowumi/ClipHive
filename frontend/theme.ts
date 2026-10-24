@@ -78,9 +78,11 @@ export const theme = {
   // ever makes things bigger. Tailwind's text-xs / text-sm are removed; the smallest
   // content size is `text-meta`, and `text-fine` is for tiny badges / legal only.
   type: {
-    // Fluid root: 16px on phones, growing with the viewport to 22px on very wide screens.
-    // Every size in the app is rem-based, so the whole UI scales up instead of floating in white space.
-    rootSize: "clamp(100%, 0.55rem + 0.62vw, 137.5%)",
+    // Root size: 15px on phones, easing to 14px on laptops and desktops. Every size in the app is
+    // rem-based, so text, spacing and controls all scale together. Phones stay at 15px so the
+    // form fields (text-lg) remain at or above 16px and iOS doesn't zoom in on focus.
+    // (It used to grow to 22px on wide screens, which made every page feel oversized.)
+    rootSize: "clamp(87.5%, 1.05rem - 0.15vw, 93.75%)",
     body: "1.0625rem", // 17px
     bodyLeading: "1.55",
     meta: "0.9375rem", // 15px: captions, helper text, table cells, timestamps

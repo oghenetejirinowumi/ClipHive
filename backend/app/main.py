@@ -12,6 +12,7 @@ from app.api.agents import router as agents_router
 from app.api.inbox import router as inbox_router
 from app.api.clips import router as clips_router
 from app.api.downloads import router as downloads_router
+from app.api.editor import router as editor_router
 from app.api.hub import router as hub_router
 from app.api.imports import router as imports_router
 from app.api.live import router as live_router
@@ -27,7 +28,10 @@ from app.models.clip import Clip
 from app.models.enums import CaptionMode, ClipStatus
 from app.models.user import User
 from app.services.caption.styles import seed_preset_styles
+from app.services.editor import render as editor_render
+from app.services.editor.render import FONTS_DIR as EDITOR_FONTS_DIR
 from app.services.ingest.pipeline import recover_interrupted
+from app.workers import ingest_worker
 from app.services.agents.publisher import publisher_loop
 from app.services.agents.scout import scout_loop
 from app.services.trends.scheduler import trend_scheduler
@@ -51,6 +55,8 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing database...")
     init_db()
     recover_interrupted()
+    ingest_worker.recover_interrupted()
+    editor_render.recover_interrupted()
     # Resolve ffmpeg once (bundled fallback goes on PATH for the caption burner and yt-dlp).
     logger.info("ffmpeg: %s", ffmpeg_bin())
 
@@ -88,6 +94,7 @@ async def lifespan(app: FastAPI):
                 db.commit()
                 logger.info("Seeded initial fixture clip for testing.")
 
+    ingest_worker.start()
     background = [asyncio.create_task(publisher_loop())]
     if settings.trends_scheduler_enabled:
         background.append(asyncio.create_task(trend_scheduler()))
@@ -97,6 +104,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        ingest_worker.stop()
         for task in background:
             task.cancel()
             try:
@@ -129,6 +137,8 @@ app.add_middleware(
 storage_dir = Path(settings.storage_dir)  # same folder the import pipeline writes to
 storage_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/storage", StaticFiles(directory=str(storage_dir)), name="storage")
+# Caption fonts for the video editor preview (the composition loads them by URL).
+app.mount("/editor-fonts", StaticFiles(directory=str(EDITOR_FONTS_DIR)), name="editor-fonts")
 
 # Include routers (paths per docs/CONTRACT.md: everything under /api).
 app.include_router(auth.router, prefix="/api")
@@ -141,6 +151,7 @@ app.include_router(imports_router, prefix="/api")
 app.include_router(downloads_router, prefix="/api")
 app.include_router(hub_router, prefix="/api")
 app.include_router(studio_router, prefix="/api")
+app.include_router(editor_router, prefix="/api")
 app.include_router(agents_router, prefix="/api")
 app.include_router(inbox_router, prefix="/api")
 
