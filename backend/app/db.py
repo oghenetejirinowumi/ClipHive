@@ -26,7 +26,7 @@ def get_db() -> Generator[Session, None, None]:
 # Columns added to tables that already existed. create_all() never alters an existing table,
 # so add any that are missing. {table: {column: DDL type + default}}
 ADDED_COLUMNS: dict[str, dict[str, str]] = {
-    "clips": {"review_status": "VARCHAR(20) DEFAULT 'pending'"},
+    "clips": {"review_status": "VARCHAR(20) DEFAULT 'pending'", "description": "TEXT"},
     "streamers": {
         "last_checked_at": "DATETIME",
         "last_seen_video_id": "VARCHAR(255)",

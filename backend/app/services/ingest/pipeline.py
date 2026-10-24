@@ -79,6 +79,7 @@ _ADDED_COLUMNS = {
     "clips": {
         "starred": "BOOLEAN DEFAULT 0 NOT NULL",
         "moment_features": "JSON",
+        "description": "TEXT",
     },
 }
 

@@ -12,7 +12,7 @@ from app.db import SessionLocal, get_db
 from app.models.caption_style import CaptionStyle
 from app.models.clip import Clip
 from app.models.enums import CaptionMode, ClipStatus, PostPlatform
-from app.schemas.clip import CaptionRequest, ClipRead, ClipUpdate
+from app.schemas.clip import AIPackResponse, CaptionRequest, ClipRead, ClipUpdate
 from app.services.ai.context_engine import (
     GAME_SIGNATURES,
     ClipContext,
@@ -91,6 +91,8 @@ def update_clip(clip_id: int, payload: ClipUpdate, user: Owner, db: Session = De
     feedback: list[tuple[str, dict, dict]] = []
     if payload.title is not None and payload.title != clip.title:
         feedback.append(("title_edit", {"title": clip.title}, {"title": payload.title}))
+    if payload.description is not None and payload.description != clip.description:
+        feedback.append(("description_edit", {"description": clip.description}, {"description": payload.description}))
     if payload.hashtags is not None and list(payload.hashtags) != list(clip.hashtags or []):
         feedback.append(("hashtag_edit", {"hashtags": clip.hashtags or []}, {"hashtags": payload.hashtags}))
     if payload.caption_style_id is not None and payload.caption_style_id != clip.caption_style_id:
@@ -98,6 +100,8 @@ def update_clip(clip_id: int, payload: ClipUpdate, user: Owner, db: Session = De
 
     if payload.title is not None:
         clip.title = payload.title
+    if payload.description is not None:
+        clip.description = payload.description
     if payload.hashtags is not None:
         clip.hashtags = payload.hashtags
     if payload.caption_style_id is not None:
@@ -207,8 +211,8 @@ def _social_response(clip: Clip, context: dict, trends: dict) -> dict:
     }
 
 
-@router.post("/{clip_id}/ai-pack", response_model=ClipRead)
-@router.post("/{clip_id}/analyze-context", response_model=ClipRead)
+@router.post("/{clip_id}/ai-pack", response_model=AIPackResponse)
+@router.post("/{clip_id}/analyze-context", response_model=AIPackResponse)
 def generate_ai_metadata(
     user: Owner,
     clip_id: int,
@@ -216,18 +220,27 @@ def generate_ai_metadata(
     db: Session = Depends(get_db),
 ):
     """
-    Extracts deep multimodal context (game/topic, energy, dialogue) and applies:
-    - Proper Caption Aesthetic (Punch, Neon, Clean) + kinetic hype words
-    - Context-matched hashtags blending game niche, creator, moment, and live trends
-    - High-CTR viral title
+    Reads clip transcript and generates viral packaging (titles, descriptions, hashtags),
+    saving titles[0], descriptions[0], and hashtags onto the clip.
     """
     clip = db.query(Clip).filter(Clip.id == clip_id, Clip.user_id == user.id).first()
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
 
-    context = extract_clip_context(clip, db, platform=platform)
-    apply_context_to_clip(clip, db, context)
-    return clip
+    try:
+        from app.services.ai.ai_pack import apply_ai_pack_to_clip, generate_ai_pack_data
+
+        pack = generate_ai_pack_data(clip, db, platform=platform)
+        apply_ai_pack_to_clip(clip, db, pack)
+        return pack
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"AI packaging failed for clip {clip_id}: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"AI packaging failed: {str(exc)}",
+        )
 
 
 def process_clip_captioning(clip_id: int, style_id: int, caption_mode: CaptionMode) -> bool:
@@ -283,6 +296,8 @@ def process_clip_captioning(clip_id: int, style_id: int, caption_mode: CaptionMo
                 clip.status = ClipStatus.READY
                 clip.error = None
                 db.commit()
+                from app.services.ai.ai_pack import auto_run_ai_pack
+                auto_run_ai_pack(clip, db)
                 return True
 
             # 4. Burn kinetic captions
@@ -314,6 +329,8 @@ def process_clip_captioning(clip_id: int, style_id: int, caption_mode: CaptionMo
             clip.status = ClipStatus.READY
             clip.error = None
             db.commit()
+            from app.services.ai.ai_pack import auto_run_ai_pack
+            auto_run_ai_pack(clip, db)
             return True
 
         except Exception as e:
@@ -325,6 +342,9 @@ def process_clip_captioning(clip_id: int, style_id: int, caption_mode: CaptionMo
             reason = "the video encoder ran out of memory, try again" if "FFmpeg" in str(e) else str(e)
             clip.error = f"Captions failed: {reason}"[:500]
             db.commit()
+            if clip.status == ClipStatus.READY:
+                from app.services.ai.ai_pack import auto_run_ai_pack
+                auto_run_ai_pack(clip, db)
             return False
 
 
