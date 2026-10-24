@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api import auth
 from app.api.clips import router as clips_router
 from app.api.downloads import router as downloads_router
+from app.api.editor import router as editor_router
 from app.api.imports import router as imports_router
 from app.api.streamers import router as streamers_router
 from app.api.studio import router as studio_router
@@ -26,7 +27,10 @@ from app.models.clip import Clip
 from app.models.enums import CaptionMode, ClipStatus
 from app.models.user import User
 from app.services.caption.styles import seed_preset_styles
+from app.services.editor import render as editor_render
+from app.services.editor.render import FONTS_DIR as EDITOR_FONTS_DIR
 from app.services.ingest.pipeline import recover_interrupted
+from app.workers import ingest_worker
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("cliphive")
@@ -41,6 +45,8 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing database...")
     init_db()
     recover_interrupted()
+    ingest_worker.recover_interrupted()
+    editor_render.recover_interrupted()
     # Resolve ffmpeg once (bundled fallback goes on PATH for the caption burner and yt-dlp).
     logger.info("ffmpeg: %s", ffmpeg_bin())
 
@@ -75,7 +81,9 @@ async def lifespan(app: FastAPI):
                 db.commit()
                 logger.info("Seeded initial fixture clip for testing.")
 
+    ingest_worker.start()
     yield
+    ingest_worker.stop()
 
 
 # Ensure tables exist at startup
@@ -101,6 +109,8 @@ app.add_middleware(
 storage_dir = Path(settings.storage_dir)  # same folder the import pipeline writes to
 storage_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/storage", StaticFiles(directory=str(storage_dir)), name="storage")
+# Caption fonts for the video editor preview (the composition loads them by URL).
+app.mount("/editor-fonts", StaticFiles(directory=str(EDITOR_FONTS_DIR)), name="editor-fonts")
 
 # Include routers (paths per docs/CONTRACT.md: everything under /api).
 app.include_router(auth.router, prefix="/api")
@@ -111,6 +121,7 @@ app.include_router(trends_router, prefix="/api")
 app.include_router(imports_router, prefix="/api")
 app.include_router(downloads_router, prefix="/api")
 app.include_router(studio_router, prefix="/api")
+app.include_router(editor_router, prefix="/api")
 
 
 @app.api_route("/", methods=["GET", "HEAD"])

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,7 +22,7 @@ from sqlalchemy import inspect, text
 from app.db import SessionLocal, engine
 from app.models import Clip, ClipStatus, ImportJob, ImportSource, ImportStatus
 from app.services.clip.cutter import cut_vertical
-from app.services.clip.detector import find_highlights
+from app.services.clip.detector import Highlight, find_highlights
 from app.services.ingest.downloader import IngestError, download
 
 logger = logging.getLogger("cliphive.imports")
@@ -98,7 +99,7 @@ def _run(job_id: int) -> None:
         layout = job.layout or "fill"
 
     work = job_dir(job_id)
-    max_seconds = settings.max_import_minutes * 60
+    max_seconds = settings.max_import_minutes * 60 or None  # None = the whole video
 
     # 1. Get the video file
     if source == ImportSource.UPLOAD:
@@ -118,7 +119,8 @@ def _run(job_id: int) -> None:
     duration, has_video = probe(src)
     if not has_video:
         raise MediaError("That file has no video track.")
-    duration = min(duration, max_seconds)
+    if max_seconds:
+        duration = min(duration, max_seconds)
 
     thumb = work / "thumb.jpg"
     try:
@@ -133,31 +135,60 @@ def _run(job_id: int) -> None:
 
     # 3. Cut each one as a 9:16 clip and hand it to the caption pipeline
     _update(job_id, status=ImportStatus.CUTTING, progress=60)
+    clip_ids = cut_and_handoff(
+        src, moments, user_id=user_id, title=title, name=f"import_{job_id}", layout=layout,
+        on_clip=lambda ids, n: _update(
+            job_id, clip_ids=list(ids), clip_layouts={str(i): layout for i in ids}, progress=60 + int(39 * n / len(moments)),
+        ),
+    )
+
+    _update(job_id, status=ImportStatus.DONE, progress=100, finished_at=datetime.now(UTC))
+    logger.info("Import %s produced %d clips", job_id, len(clip_ids))
+
+
+def cut_and_handoff(
+    src: Path,
+    moments: list[Highlight],
+    *,
+    user_id: int,
+    title: str,
+    name: str,
+    layout: str = "fill",
+    stream_id: int | None = None,
+    offset_s: float = 0.0,
+    first_number: int = 1,
+    on_clip: Callable[[list[int], int], None] | None = None,
+) -> list[int]:
+    """Cut each moment as a 9:16 clip and write it as a `clips` row (status='processing').
+
+    This is the C1 → C2 handoff shared by link/upload imports and live recordings. A live
+    segment passes offset_s (where it starts in the broadcast) so start_s/end_s are broadcast
+    times, and first_number so clip titles keep counting across segments.
+    """
     clips_dir = storage_root() / "clips"
     clip_ids: list[int] = []
-    layouts: dict[str, str] = {}
     for n, moment in enumerate(moments, start=1):
-        out = cut_vertical(src, moment.start_s, moment.end_s, clips_dir / f"import_{job_id}_{n}.mp4", layout)
+        number = first_number + n - 1
+        out = cut_vertical(src, moment.start_s, moment.end_s, clips_dir / f"{name}_{number}.mp4", layout)
         with SessionLocal() as db:
             clip = Clip(
                 user_id=user_id,
-                start_s=moment.start_s,
-                end_s=moment.end_s,
+                stream_id=stream_id,
+                start_s=round(offset_s + moment.start_s, 2),
+                end_s=round(offset_s + moment.end_s, 2),
                 raw_file_path=str(out),
                 file_path=public_path(out),
                 highlight_score=moment.score,
-                title=f"{title} · Clip {n}",
+                title=f"{title} · Clip {number}"[:255],
                 hashtags=[],
                 status=ClipStatus.PROCESSING,
             )
             db.add(clip)
             db.commit()
             clip_ids.append(clip.id)
-            layouts[str(clip.id)] = layout
-        _update(job_id, clip_ids=list(clip_ids), clip_layouts=dict(layouts), progress=60 + int(39 * n / len(moments)))
-
-    _update(job_id, status=ImportStatus.DONE, progress=100, finished_at=datetime.now(UTC))
-    logger.info("Import %s produced %d clips", job_id, len(clip_ids))
+        if on_clip:
+            on_clip(clip_ids, n)
+    return clip_ids
 
 
 def save_upload(job_id: int, fileobj, filename: str) -> Path:

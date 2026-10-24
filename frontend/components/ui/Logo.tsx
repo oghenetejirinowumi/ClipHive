@@ -3,11 +3,12 @@ import { cn } from "@/lib/cn";
 import { SITE } from "@/lib/site";
 import { Icon } from "./Icon";
 
-/** `inverse` is for brand backgrounds (the sky hero, the auth showcase). */
-export function Logo({ href = "/", inverse, className }: { href?: string; inverse?: boolean; className?: string }) {
+/** `inverse` is for brand backgrounds (the sky hero, the auth showcase); `compact` shows the mark only. */
+export function Logo({ href = "/", inverse, compact, className }: { href?: string; inverse?: boolean; compact?: boolean; className?: string }) {
   return (
     <Link
       href={href}
+      aria-label={compact ? SITE.name : undefined}
       className={cn(
         "inline-flex min-h-11 items-center gap-3 rounded-full font-display text-2xl font-semibold tracking-tight",
         inverse ? "text-on-brand" : "text-ink",
@@ -17,7 +18,7 @@ export function Logo({ href = "/", inverse, className }: { href?: string; invers
       <span className={cn("grid size-12 place-items-center rounded-md shadow-glow", inverse ? "bg-on-brand text-brand" : "bg-brand text-on-brand")}>
         <Icon name="play" className="size-6" />
       </span>
-      {SITE.name}
+      {!compact && SITE.name}
     </Link>
   );
 }

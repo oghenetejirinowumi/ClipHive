@@ -1,5 +1,6 @@
 from app.models.caption_style import CaptionStyle
 from app.models.clip import Clip
+from app.models.editor import EditorProject, EditorVersion
 from app.models.enums import (
     AnimationType,
     CaptionMode,
@@ -23,6 +24,8 @@ __all__ = [
     "CaptionStyle",
     "Clip",
     "ClipStatus",
+    "EditorProject",
+    "EditorVersion",
     "ImportJob",
     "ImportSource",
     "ImportStatus",

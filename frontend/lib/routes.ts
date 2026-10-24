@@ -33,6 +33,13 @@ export const APP_NAV: NavItem[] = [
     tab: true,
   },
   {
+    href: "/editor",
+    label: "Editor",
+    short: "Edit",
+    icon: "scissors",
+    description: "Cut, trim, add text, music and captions on a timeline, by hand or with the AI.",
+  },
+  {
     href: "/streamers",
     label: "Streamers",
     short: "Watch",

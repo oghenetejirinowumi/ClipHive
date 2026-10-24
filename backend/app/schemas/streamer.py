@@ -23,6 +23,19 @@ class StreamerRead(ORMModel):
     username: str
     is_active: bool
     created_at: datetime
+    # Live status from the stream monitor (in memory; None/False until the first check).
+    is_live: bool = False
+    live_title: str | None = None
+    last_checked_at: datetime | None = None
+    check_error: str | None = None
+    recording: bool = False
+    channel_url: str = ""
+
+
+# POST /streamers/{id}/latest-vod
+class LatestVodRequest(BaseModel):
+    clip_count: int = Field(default=5, ge=1, le=30)
+    clip_seconds: int = Field(default=30, ge=10, le=90)
 
 
 class StreamCreate(BaseModel):
@@ -47,3 +60,4 @@ class StreamRead(ORMModel):
     started_at: datetime | None
     ended_at: datetime | None
     status: StreamStatus
+    clip_ids: list[int] = Field(default_factory=list)

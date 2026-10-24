@@ -46,7 +46,7 @@ function uploadWithProgress(file: File, clipCount: number, clipSeconds: number, 
 
 export default function CreatePage() {
   const [url, setUrl] = useState("");
-  const [clipCount, setClipCount] = useState<"3" | "5" | "8">("5");
+  const [clipCount, setClipCount] = useState<"3" | "5" | "10" | "20">("5");
   const [clipSeconds, setClipSeconds] = useState<"15" | "30" | "60">("30");
   const [layout, setLayout] = useState<Layout>("fill");
   const [jobs, setJobs] = useState<ImportJob[]>([]);
@@ -210,7 +210,7 @@ export default function CreatePage() {
                 <Icon name="upload" />
               </span>
               <p className="font-display text-2xl font-semibold tracking-tight text-ink">Choose a video or drag it here</p>
-              <p className="text-base text-ink-muted">MP4, MOV or WEBM · from your computer or camera roll · up to 1 GB</p>
+              <p className="text-base text-ink-muted">MP4, MOV or WEBM · from your computer or camera roll · up to 8 GB</p>
             </>
           )}
         </label>
@@ -219,7 +219,7 @@ export default function CreatePage() {
         <div className="flex flex-wrap items-end gap-x-10 gap-y-6 border-t border-line pt-8">
           <div className="space-y-2">
             <p className="text-lg font-medium text-ink">How many clips</p>
-            <Segmented label="How many clips" value={clipCount} onChange={setClipCount} options={[{ value: "3", label: "3" }, { value: "5", label: "5" }, { value: "8", label: "8" }]} />
+            <Segmented label="How many clips" value={clipCount} onChange={setClipCount} options={[{ value: "3", label: "3" }, { value: "5", label: "5" }, { value: "10", label: "10" }, { value: "20", label: "20" }]} />
           </div>
           <div className="space-y-2">
             <p className="text-lg font-medium text-ink">Clip length</p>
@@ -238,8 +238,8 @@ export default function CreatePage() {
             />
           </div>
           <p className="max-w-md text-base text-ink-muted">
-            {layout === "fill" ? "Fill zooms in so the frame covers the screen." : "Blur keeps the whole frame, with a blurred copy above and below."} We analyse the first 30 minutes; live
-            streams are clipped from the VOD once they end.
+            {layout === "fill" ? "Fill zooms in so the frame covers the screen." : "Blur keeps the whole frame, with a blurred copy above and below."} We analyse the whole video, however
+            long. To clip a stream while it&apos;s live, add the channel on the Streamers page.
           </p>
         </div>
 

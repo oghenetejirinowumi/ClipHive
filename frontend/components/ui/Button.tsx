@@ -3,7 +3,7 @@ import type { ButtonHTMLAttributes, ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger" | "inverse" | "ghostInverse";
-type Size = "sm" | "md" | "lg";
+type Size = "xs" | "sm" | "md" | "lg";
 
 const base =
   "tactile inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50";
@@ -19,8 +19,10 @@ const variants: Record<Variant, string> = {
   ghostInverse: "border border-on-brand/45 text-on-brand hover:bg-on-brand/12 hover:text-on-brand [--tactile-glow:none]",
 };
 
-// Generous by default: 56px. Compact (sm) is 48px; the 44px floor is never crossed. min-w keeps icon-only buttons square.
+// Generous by default: 56px. Compact (sm) is 48px; dense tool UIs (xs, the editor) sit on the
+// 44px floor, which is never crossed. min-w keeps icon-only buttons square.
 const sizes: Record<Size, string> = {
+  xs: "h-11 min-w-11 px-4 text-base",
   sm: "h-12 min-w-12 px-5 text-base",
   md: "h-14 min-w-14 px-7 text-lg",
   lg: "h-16 min-w-16 px-9 text-xl",

@@ -23,17 +23,29 @@ class Settings(BaseSettings):
     twitch_client_id: str = ""
     twitch_client_secret: str = ""
     live_poll_interval_s: int = 60
-    max_recording_minutes: int = 10
+    # Stream monitor: polls active streamers and records each live broadcast start to finish,
+    # split into gapless segments that are clipped as soon as each one completes.
+    stream_monitor_enabled: bool = True
+    segment_minutes: int = 10
+    max_stream_hours: float = 12  # safety stop for one broadcast; 0 = record until it ends
+    recording_workers: int = 3  # broadcasts recorded at the same time
+    segment_clip_count: int = 3  # clips cut from each segment
+    segment_clip_seconds: int = 30
+    keep_recordings: bool = False  # delete each segment once its clips are cut
 
     # Link / upload imports (VOD-first: we process files offline, never record 24/7)
     ffmpeg_path: str = ""  # empty = system ffmpeg on PATH, else the bundled imageio-ffmpeg binary
     storage_dir: str = "storage"  # served at /storage by app.main
-    max_import_minutes: int = 30  # only the first N minutes of a link/upload are analysed
-    max_upload_mb: int = 1024
+    max_import_minutes: int = 0  # 0 = analyse the whole video; N = only the first N minutes
+    max_upload_mb: int = 8192
     import_workers: int = 2  # concurrent download/cut jobs
     # Netscape cookies.txt exported from a logged-in browser. Instagram (and some YouTube
     # videos) refuse anonymous downloads; with this set, yt-dlp downloads as that account.
     ytdlp_cookies_file: str = ""
+
+    # Video editor: exports render with the HyperFrames CLI (needs Node.js 22+; npx fetches it once).
+    hyperframes_version: str = "0.8.189"
+    editor_render_quality: str = "looks"  # draft | looks | delivery
 
     # One-click demo login (app/core/demo.py). Disable for anything public.
     demo_login_enabled: bool = True

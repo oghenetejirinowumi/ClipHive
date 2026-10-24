@@ -15,6 +15,7 @@ from app.schemas.clip import (
 from app.schemas.common import ORMModel, Page
 from app.schemas.post import HubClip, PostRead, PostRequest, PostResponse
 from app.schemas.streamer import (
+    LatestVodRequest,
     StreamCreate,
     StreamerCreate,
     StreamerRead,
@@ -37,6 +38,7 @@ __all__ = [
     "ClipRead",
     "ClipUpdate",
     "HubClip",
+    "LatestVodRequest",
     "ORMModel",
     "Page",
     "PostRead",
