@@ -20,7 +20,8 @@ ID_PATTERN = r"^[A-Za-z0-9_-]{1,40}$"  # ids become HTML ids in the composition
 MAX_SECONDS = 4 * 3600
 
 AssetKind = Literal["video", "image", "audio"]
-Fit = Literal["cover", "contain"]
+Fit = Literal["cover", "contain", "blur"]  # blur: the whole frame, over a blurred copy filling the rest
+Look = Literal["none", "vibrant", "warm", "cool", "dramatic"]  # colour grade, same names as the Studio used
 TextAnimation = Literal[
     "none",
     "fade",
@@ -73,6 +74,7 @@ class Clip(BaseModel):
     volume: float = Field(default=1, ge=0, le=2)
     muted: bool = False
     fit: Fit = "cover"
+    look: Look = "none"
     fade_in: float = Field(default=0, ge=0, le=10)
     fade_out: float = Field(default=0, ge=0, le=10)
 
@@ -233,6 +235,8 @@ class ProjectRead(ORMModel):
     export_clip_id: int | None
     version: int = 1  # latest version number, shown as "Saved · v12"
     notice: str | None = None  # one-off summary of a server edit ("Added 12 hype effects ...")
+    import_id: int | None = None  # opened from this imported video: the Moments tab picks from it
+    source_clip_id: int | None = None
     created_at: datetime
     updated_at: datetime | None
 
@@ -273,6 +277,30 @@ class AddClipAsset(BaseModel):
 class AutoEffectsRequest(BaseModel):
     style: Literal["hype", "cinematic", "clean", "none"] = "hype"  # "none" removes the auto effects
     amount: float = Field(default=0.6, ge=0.1, le=1)  # how many effects, and how strong
+
+
+class OpenRequest(BaseModel):
+    """Open a clip or an imported video in the editor (reuses the edit made from it before)."""
+
+    clip_id: int | None = None
+    import_id: int | None = None
+    # Only used when this starts a new edit (an existing one reopens as it is).
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    aspect: Literal["9:16", "16:9", "1:1", "4:5"] | None = None
+
+
+class MomentRequest(BaseModel):
+    """Cut a range of the project's imported video and put it on the timeline."""
+
+    start_s: float = Field(ge=0)
+    end_s: float = Field(gt=0)
+    layout: Literal["fill", "blur"] = "fill"
+    at: float | None = Field(default=None, ge=0)  # timeline time; None = after the last clip
+
+
+class CaptionsRequest(BaseModel):
+    preset: str = "punch"
+    words_per_caption: int = Field(default=3, ge=1, le=8)
 
 
 class AutoSfxRequest(BaseModel):

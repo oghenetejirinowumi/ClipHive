@@ -11,7 +11,7 @@ import {
 } from "@/lib/editor";
 import type { ImportJob } from "@/lib/imports";
 
-export type LibraryTab = "media" | "text" | "audio" | "effects" | "properties";
+export type LibraryTab = "moments" | "media" | "captions" | "text" | "audio" | "effects" | "properties";
 type Sort = "name" | "newest" | "longest";
 type LibraryClip = { id: number; title: string | null; status: string; duration_s: number; file_path: string | null };
 
@@ -23,8 +23,10 @@ export const SFX_DRAG_TYPE = "application/x-cliphive-sfx";
 export type SfxIntensity = "subtle" | "normal" | "hype";
 
 const TABS: { value: LibraryTab; label: string }[] = [
+  { value: "moments", label: "Moments" }, // only when the edit came from an imported video
   { value: "media", label: "Media" },
-  { value: "text", label: "Captions" },
+  { value: "captions", label: "Captions" }, // the caption lines, editable
+  { value: "text", label: "Text" }, // add a title or label in any style
   { value: "audio", label: "Audio" },
   { value: "effects", label: "Effects" },
   { value: "properties", label: "Properties" },
@@ -37,6 +39,10 @@ type Props = {
   assets: Asset[];
   /** The Properties tab (the selected item's settings). */
   properties: ReactNode;
+  /** The Captions tab: every caption line, editable. */
+  captions: ReactNode;
+  /** The Moments tab (the imported video behind this edit), or undefined to hide the tab. */
+  moments?: ReactNode;
   beforeServerEdit(): Promise<void>;
   onProject(project: Project): void;
   onPlace(assetId: string): void;
@@ -62,8 +68,8 @@ export function LibraryPanel(props: Props) {
   const { tab, onTab } = props;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div role="tablist" aria-label="Library" className="flex gap-1 border-b border-line px-2">
-        {TABS.map((t) => (
+      <div role="tablist" aria-label="Library" className="flex flex-wrap gap-x-1 border-b border-line px-2">
+        {TABS.filter((t) => t.value !== "moments" || props.moments).map((t) => (
           <button
             key={t.value}
             role="tab"
@@ -71,7 +77,7 @@ export function LibraryPanel(props: Props) {
             aria-selected={tab === t.value}
             onClick={() => onTab(t.value)}
             className={cn(
-              "-mb-px min-h-11 border-b-2 px-3 text-meta font-medium transition-colors",
+              "-mb-px min-h-11 shrink-0 border-b-2 px-3 text-meta font-medium whitespace-nowrap transition-colors",
               tab === t.value ? "border-brand text-ink" : "border-transparent text-ink-muted hover:text-ink",
             )}
           >
@@ -80,7 +86,9 @@ export function LibraryPanel(props: Props) {
         ))}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        {tab === "moments" && props.moments}
         {tab === "media" && <MediaTab {...props} kinds={["video", "image"]} />}
+        {tab === "captions" && props.captions}
         {tab === "audio" && (
           <div className="space-y-5">
             <SfxSection {...props} />
@@ -252,9 +260,10 @@ function Tile({ asset, onPlace }: { asset: Asset; onPlace(): void }) {
   );
 }
 
-function TextTab({ onAddText }: { onAddText(presetOrStyle: string | Partial<Text>): void }) {
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("All");
+export type TextStyleOption = { key: string; label: string; category: string; description: string; style: Partial<Text> };
+
+/** The text looks you can pick: the built-in presets plus your saved caption styles. */
+export function useTextStyles(): TextStyleOption[] {
   const [dbStyles, setDbStyles] = useState<CaptionStyle[]>([]);
 
   useEffect(() => {
@@ -263,8 +272,8 @@ function TextTab({ onAddText }: { onAddText(presetOrStyle: string | Partial<Text
       .catch(() => undefined);
   }, []);
 
-  const allStyles = useMemo(() => {
-    const list: Array<{ key: string; label: string; category: string; description: string; style: Partial<Text> }> = [];
+  return useMemo(() => {
+    const list: TextStyleOption[] = [];
 
     // Add built-in presets
     for (const [key, preset] of Object.entries(TEXT_PRESETS)) {
@@ -295,6 +304,12 @@ function TextTab({ onAddText }: { onAddText(presetOrStyle: string | Partial<Text
     }
     return list;
   }, [dbStyles]);
+}
+
+function TextTab({ onAddText }: { onAddText(presetOrStyle: string | Partial<Text>): void }) {
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("All");
+  const allStyles = useTextStyles();
 
   const categories = useMemo(() => {
     const set = new Set<string>();

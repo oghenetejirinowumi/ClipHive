@@ -442,3 +442,12 @@
 @media (prefers-reduced-motion: reduce) {
   .caption-pop { animation: none; }
 }
+
+/* No visible scrollbars anywhere: panels, lists and the timeline still scroll with the wheel,
+   trackpad and touch (Shift + wheel scrolls sideways). */
+* {
+  scrollbar-width: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+}

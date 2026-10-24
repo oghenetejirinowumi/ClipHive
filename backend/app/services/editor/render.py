@@ -21,7 +21,7 @@ from sqlalchemy import inspect, text
 from app.db import SessionLocal, engine
 from app.models import Clip, ClipStatus, EditorProject
 from app.schemas.editor import Timeline
-from app.services.editor.compose import FONT_FILES, compose
+from app.services.editor.compose import compose, font_file
 from app.services.editor.media import link_or_copy, project_dir
 from app.services.editor.ops import asset_path
 
@@ -42,7 +42,7 @@ def submit(project_id: int) -> None:
 
 # Columns added after editor_projects first shipped. create_all() never alters an existing
 # table, so add any that are missing (SQLite and Postgres both accept this ALTER).
-_ADDED_COLUMNS = {"media": "JSON"}
+_ADDED_COLUMNS = {"media": "JSON", "import_id": "INTEGER", "source_clip_id": "INTEGER"}
 
 
 def ensure_columns() -> None:
@@ -96,8 +96,10 @@ def build_render_folder(timeline: Timeline, work: Path, title: str) -> Path:
             raise RenderError(f"{asset.name} is no longer on disk. Remove it from the timeline and export again.")
         names[asset.id] = f"assets/{asset.id}{src.suffix.lower()}"
         link_or_copy(src, work / names[asset.id])
-    for font in {t.font for t in timeline.texts if t.font in FONT_FILES}:
-        link_or_copy(FONTS_DIR / FONT_FILES[font], work / "assets" / "fonts" / FONT_FILES[font])
+    for font in {t.font for t in timeline.texts}:
+        source = font_file(font)  # the built-in three, or any caption font (Montserrat 900, ...)
+        if source is not None:
+            link_or_copy(source, work / "assets" / "fonts" / source.name)
     html = compose(timeline, media_url=lambda a: names[a.id], font_url=lambda f: f"assets/fonts/{f}", title=title)
     index = work / "index.html"
     index.write_text(html, encoding="utf-8")

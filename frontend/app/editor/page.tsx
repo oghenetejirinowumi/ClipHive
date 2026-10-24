@@ -5,12 +5,12 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { Badge, Button, Em, Field, Icon, Input, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import type { Aspect, Project, ProjectSummary } from "@/lib/editor";
-import type { ImportJob } from "@/lib/imports";
+import { formatTime, SOURCE_LABEL, type ImportJob } from "@/lib/imports";
 
 type LibraryClip = { id: number; title: string | null; file_path: string | null; duration_s: number };
 type Start = "blank" | "clip" | "import";
 
-/** Project list + new project. `/editor?clip=ID` opens a new edit of that clip straight away. */
+/** Your edits, your videos, and a new edit. `/editor?clip=ID` opens that clip straight away. */
 function EditorIndex() {
   const router = useRouter();
   const clipParam = useSearchParams().get("clip");
@@ -40,7 +40,7 @@ function EditorIndex() {
   useEffect(() => {
     if (clipParam && !openedFromClip.current) {
       openedFromClip.current = true;
-      create({ title: "Clip edit", aspect: "9:16", clip_id: Number(clipParam) });
+      router.replace(`/editor/open?clip=${clipParam}`);
       return;
     }
     api<ProjectSummary[]>("/api/editor/projects").then(setProjects).catch(() => setProjects([]));
@@ -51,10 +51,11 @@ function EditorIndex() {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    const body: Record<string, unknown> = { title: title.trim() || "Untitled edit", aspect };
-    if (start === "clip" && sourceId) body.clip_id = Number(sourceId);
-    if (start === "import" && sourceId) body.import_id = Number(sourceId);
-    create(body);
+    // A clip or a video reopens the edit made from it before (and a video gets its Moments tab).
+    const extra = new URLSearchParams({ aspect, ...(title.trim() ? { title: title.trim() } : {}) }).toString();
+    if (start === "clip" && sourceId) return router.push(`/editor/open?clip=${sourceId}&${extra}`);
+    if (start === "import" && sourceId) return router.push(`/editor/open?import=${sourceId}&${extra}`);
+    create({ title: title.trim() || "Untitled edit", aspect });
   }
 
   async function removeProject(id: number) {
@@ -77,7 +78,7 @@ function EditorIndex() {
             Edit it <Em>your way</Em>
           </>
         }
-        description="Cut, trim, add text, music and captions on a real timeline, or just tell the AI what you want and fine-tune it by hand."
+        description="Pick the moments from your videos, then cut, trim, caption and add music on one timeline, by hand or by telling the AI what you want."
       />
 
       {error && (
@@ -123,6 +124,27 @@ function EditorIndex() {
               ))}
             </ul>
           )}
+
+          {imports.length > 0 && (
+            <>
+              <SectionLabel>Your videos</SectionLabel>
+              <ul className="divide-y divide-line border-y border-line">
+                {imports.map((j) => (
+                  <li key={j.id} className="flex items-center justify-between gap-4 py-4">
+                    <div className="min-w-0">
+                      <p className="truncate text-lg font-medium text-ink">{j.title ?? j.original_filename ?? `Video ${j.id}`}</p>
+                      <p className="text-base text-ink-muted">
+                        {SOURCE_LABEL[j.source]} · {formatTime(j.duration_s)} · {(j.clip_ids ?? []).length} clips
+                      </p>
+                    </div>
+                    <Button size="sm" variant="secondary" href={`/editor/open?import=${j.id}`}>
+                      <Icon name="scissors" className="size-5" /> Pick moments
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </section>
 
         <aside className="lg:col-span-5">
@@ -160,7 +182,7 @@ function EditorIndex() {
                   options={[
                     { value: "blank", label: "Blank" },
                     { value: "clip", label: "A clip" },
-                    { value: "import", label: "Full video" },
+                    { value: "import", label: "A video" },
                   ]}
                 />
               </div>

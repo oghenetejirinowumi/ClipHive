@@ -4,13 +4,16 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AgentPanel } from "@/components/editor/AgentPanel";
+import { CaptionsTab } from "@/components/editor/CaptionsTab";
 import { Inspector } from "@/components/editor/Inspector";
+import { MomentsTab } from "@/components/editor/MomentsTab";
 import { LibraryPanel, loadSfxLibrary, type LibraryTab, type SfxIntensity } from "@/components/editor/LibraryPanel";
 import { Preview, type PreviewHandle } from "@/components/editor/Preview";
 import { Timeline } from "@/components/editor/Timeline";
 import { Badge, Button, buttonClass, Icon, Panel, ResizeHandle, Select } from "@/components/ui";
 import { api, ApiError, API_URL } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import type { Layout } from "@/lib/imports";
 import { usePersistentState } from "@/lib/usePersistentState";
 import {
   addEffect, addSfx, addText, duplicate, duration, find, formatTime, placeAsset, remove, split, update,
@@ -111,6 +114,8 @@ export default function EditorPage() {
       .then((p) => {
         adopt(p);
         setTitle(p.title);
+        // Opened from a video (not one of its clips): start where you pick the moments.
+        if (p.import_id && !p.source_clip_id) setLibraryTab("moments");
         refreshPreview();
       })
       .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Couldn't open this project."));
@@ -293,6 +298,21 @@ export default function EditorPage() {
     setInfo(p.notice ?? null);
     if (selectedId && !find(p.timeline, selectedId)) setSelectedId(null);
   }, [flush, projectId, adoptServerEdit, selectedId]);
+
+  /** A server edit that reports back: save first, adopt the result, show its summary. */
+  const serverEdit = useCallback(async (path: string, body: Record<string, unknown>) => {
+    await flush();
+    const p = await api<Project>(`/api/editor/projects/${projectId}/${path}`, { method: "POST", body });
+    adoptServerEdit(p);
+    setInfo(p.notice ?? null);
+  }, [flush, projectId, adoptServerEdit]);
+
+  const addMoment = useCallback((start: number, end: number, layout: Layout) => serverEdit("moments", { start_s: start, end_s: end, layout }), [serverEdit]);
+  const addVideoClip = useCallback((clipId: number) => serverEdit("assets/library", { clip_id: clipId, place: true }), [serverEdit]);
+  const generateCaptions = useCallback(
+    (preset: string, wordsPerCaption: number) => serverEdit("captions", { preset, words_per_caption: wordsPerCaption }),
+    [serverEdit],
+  );
 
   /** One sound effect whose hit lands at `at` (the playhead, or where it was dropped). */
   const doAddSfx = useCallback((sfx: SfxItem, at = playhead) => {
@@ -572,6 +592,23 @@ export default function EditorPage() {
                   onClearSfx={doClearSfx}
                   sfxCount={sfxCount}
                   onError={setNotice}
+                  moments={
+                    project.import_id ? (
+                      <MomentsTab importId={project.import_id} onAddRange={addMoment} onAddClip={addVideoClip} onError={setNotice} />
+                    ) : undefined
+                  }
+                  captions={
+                    <CaptionsTab
+                      timeline={timeline}
+                      playhead={playhead}
+                      selectedId={selectedId}
+                      onChange={(next, coalesce) => apply(next, coalesce ? { coalesce } : undefined)}
+                      onSeek={seek}
+                      onSelect={setSelectedId}
+                      onGenerate={generateCaptions}
+                      onError={setNotice}
+                    />
+                  }
                   properties={
                     <Inspector
                       timeline={timeline}

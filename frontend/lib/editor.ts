@@ -37,6 +37,8 @@ export type TextAnimation =
   | "single_word";
 export type EffectKind = "punch_zoom" | "slow_zoom" | "shake" | "flash" | "glitch" | "vignette" | "color_pop" | "black_white";
 export type EffectStyle = "hype" | "cinematic" | "clean";
+/** Colour grade on a clip. */
+export type Look = "none" | "vibrant" | "warm" | "cool" | "dramatic";
 
 export type Asset = {
   id: string;
@@ -59,7 +61,9 @@ export type Clip = {
   speed: number;
   volume: number;
   muted: boolean;
-  fit: "cover" | "contain";
+  /** blur: the whole frame over a blurred copy of itself (the Studio's "Blur" layout). */
+  fit: "cover" | "contain" | "blur";
+  look?: Look;
   fade_in: number;
   fade_out: number;
 };
@@ -130,6 +134,9 @@ export type Project = {
   id: number;
   title: string;
   timeline: Timeline;
+  /** Opened from this imported video: the Moments tab picks more from it. */
+  import_id?: number | null;
+  source_clip_id?: number | null;
   revision: number;
   chat: ChatMessage[];
   render_status: "idle" | "rendering" | "done" | "failed";
@@ -340,7 +347,7 @@ export function placeAsset(timeline: Timeline, assetId: string, at: number, onTr
   const id = newId(timeline, "c");
   const clip: Clip = {
     id, asset_id: asset.id, track, start: round(at), duration: round(length), source_in: 0, speed: 1,
-    volume: 1, muted: false, fit: "cover", fade_in: 0, fade_out: 0,
+    volume: 1, muted: false, fit: "cover", look: "none", fade_in: 0, fade_out: 0,
   };
   return { timeline: { ...timeline, clips: [...timeline.clips, clip] }, id };
 }

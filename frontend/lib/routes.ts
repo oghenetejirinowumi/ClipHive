@@ -50,12 +50,6 @@ export const NAV_GROUPS: NavGroup[] = [
         description: "Your colony of autonomous bees: Scout Bee, Worker Bee, Honey Bee & Queen Bee.",
       },
       {
-        href: "/agents",
-        label: "Activity",
-        icon: "bot",
-        description: "What Scout, Producer and Publisher did, step by step, and what they've learned about you.",
-      },
-      {
         href: "/streamers",
         label: "Channels",
         icon: "radio",
@@ -67,7 +61,7 @@ export const NAV_GROUPS: NavGroup[] = [
     id: "create",
     label: "Create",
     icon: "plus",
-    description: "Start from a link or upload, pick moments in the Studio, and finish in the Editor.",
+    description: "Start from a link or upload, then pick moments, caption and finish it in the Editor.",
     items: [
       {
         href: "/create",
@@ -76,16 +70,10 @@ export const NAV_GROUPS: NavGroup[] = [
         description: "Paste a Twitch, Kick or YouTube link, or upload a video, and get a batch of clips.",
       },
       {
-        href: "/studio",
-        label: "Studio",
-        icon: "film",
-        description: "Scrub a video's timeline, pick the exact moment, choose layout and captions.",
-      },
-      {
         href: "/editor",
         label: "Editor",
         icon: "scissors",
-        description: "Cut, trim, add text, music and captions on a timeline, by hand or with the AI.",
+        description: "Pick moments from your videos, then cut, caption, add music and effects, by hand or with the AI.",
       },
     ],
   },

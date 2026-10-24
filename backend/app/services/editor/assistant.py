@@ -55,9 +55,11 @@ TOOLS = [
           {"asset_id": _STR, "start": _NUM, "track": {**_INT, "description": "0 main, 1-2 overlays on top"},
            "source_in": {**_NUM, "description": "seconds into the source file"}, "duration": {**_NUM, "description": "timeline seconds; omit for the rest of the file"}},
           ["asset_id"]),
-    _tool("update_clip", "Move, trim or restyle a clip: start, track, source_in (trim the head), duration (trim the tail), speed (0.25-4), volume (0-2), muted, fit, fades.",
+    _tool("update_clip", "Move, trim or restyle a clip: start, track, source_in (trim the head), duration (trim the tail), speed (0.25-4), volume (0-2), muted, fit, look (colour), fades.",
           {"clip_id": _STR, "start": _NUM, "track": _INT, "source_in": _NUM, "duration": _NUM, "speed": _NUM, "volume": _NUM,
-           "muted": _BOOL, "fit": {"type": "string", "enum": ["cover", "contain"]}, "fade_in": _NUM, "fade_out": _NUM}, ["clip_id"]),
+           "muted": _BOOL, "fit": {"type": "string", "enum": ["cover", "contain", "blur"], "description": "cover fills the frame, contain shows all, blur shows all over a blurred copy"},
+           "look": {"type": "string", "enum": ["none", "vibrant", "warm", "cool", "dramatic"], "description": "colour grade"},
+           "fade_in": _NUM, "fade_out": _NUM}, ["clip_id"]),
     _tool("split", "Cut a clip, text or audio track in two at a timeline time.", {"item_id": _STR, "at": _NUM}, ["item_id", "at"]),
     _tool("delete", "Remove clips, texts, audio tracks or effects by id.", {"ids": {"type": "array", "items": _STR}}, ["ids"]),
     _tool("duplicate", "Copy an item; omit start to place the copy right after the original.", {"item_id": _STR, "start": _NUM}, ["item_id"]),
@@ -147,6 +149,25 @@ def transcribe_words(path: Path) -> list[dict]:
     return _cached("transcript", path, run)
 
 
+def transcribe_range(path: Path, start: float, end: float) -> list[dict]:
+    """Words said in [start, end] of a file, in file time. Only that part is decoded and sent,
+    so captioning a short clip of a multi-hour upload costs the clip, not the upload."""
+    def run() -> list[dict]:
+        import subprocess
+        import tempfile
+
+        from app.core.media import ffmpeg_bin
+        from app.services.transcribe.whisper_service import transcribe_video
+
+        with tempfile.TemporaryDirectory() as tmp:
+            part = Path(tmp) / "part.wav"
+            subprocess.run([ffmpeg_bin(), "-hide_banner", "-loglevel", "error", "-ss", f"{start:.3f}", "-t", f"{max(0.1, end - start):.3f}",
+                            "-i", str(path), "-vn", "-ac", "1", "-ar", "16000", str(part)], check=True, timeout=600)
+            return [{"word": w.word, "start": float(w.start) + start, "end": float(w.end) + start} for w in transcribe_video(part)]
+
+    return _cached(f"transcript:{start:.2f}-{end:.2f}", path, run)
+
+
 def _highlights(path: Path, duration: float, count: int, seconds: int) -> list[dict]:
     from app.services.clip.detector import find_highlights
 
@@ -181,7 +202,7 @@ def _apply(timeline: Timeline, name: str, args: dict[str, Any]) -> tuple[Timelin
             raise ops.EditError(str(err)) from None
         return new, msg, True
     if name == "add_captions":
-        words = ops.caption_words(timeline, transcribe_words)
+        words = ops.caption_words(timeline, transcribe_range)
         new, msg = ops.add_captions(timeline, words, **args)
         return new, msg, True
 

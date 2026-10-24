@@ -23,6 +23,7 @@ export function Scrubber({
   end,
   onSeek,
   onRangeChange,
+  maxTicks = 8,
 }: {
   duration: number;
   energy: number[];
@@ -32,6 +33,8 @@ export function Scrubber({
   end: number;
   onSeek: (t: number) => void;
   onRangeChange: (start: number, end: number) => void;
+  /** Time labels under the track; fewer for a narrow panel. */
+  maxTicks?: number;
 }) {
   const track = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag>(null);
@@ -86,9 +89,9 @@ export function Scrubber({
   }
 
   const ticks = useMemo(() => {
-    const step = TICK_STEPS.find((s) => duration / s <= 8) ?? 3600;
+    const step = TICK_STEPS.find((s) => duration / s <= maxTicks) ?? 3600;
     return Array.from({ length: Math.floor(duration / step) + 1 }, (_, i) => i * step);
-  }, [duration]);
+  }, [duration, maxTicks]);
 
   const bars = useMemo(() => {
     const n = energy.length || 1;

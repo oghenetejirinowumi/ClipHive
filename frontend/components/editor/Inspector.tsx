@@ -5,7 +5,7 @@ import { Button, Checkbox, compactInputClass, Icon, Segmented } from "@/componen
 import { cn } from "@/lib/cn";
 import {
   assetOf, DEFAULT_BOX, DEFAULT_OUTLINE, EFFECTS, find, formatTime, maxDuration, TEXT_PRESETS,
-  type Aspect, type AudioTrack, type Clip, type Effect, type EffectKind, type Font, type Text, type TextAnimation, type Timeline,
+  type Aspect, type AudioTrack, type Clip, type Effect, type EffectKind, type Font, type Look, type Text, type TextAnimation, type Timeline,
 } from "@/lib/editor";
 
 type Patch = Partial<Clip> | Partial<Text> | Partial<AudioTrack> | Partial<Effect>;
@@ -23,6 +23,13 @@ type Props = {
 };
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+const LOOKS: { value: Look; label: string }[] = [
+  { value: "none", label: "Original" },
+  { value: "vibrant", label: "Vibrant" },
+  { value: "warm", label: "Warm" },
+  { value: "cool", label: "Cool" },
+  { value: "dramatic", label: "Dramatic" },
+];
 const FONTS: Font[] = [
   "Bangers",
   "Poppins",
@@ -201,8 +208,33 @@ export function Inspector({ timeline, selectedId, playhead, onPatch, onProject, 
               options={[{ value: "0", label: "1" }, { value: "1", label: "2" }, { value: "2", label: "3" }]}
             />
           </Row>
-          <Row label="Fit">
-            <Segmented compact label="Fit" value={clip.fit} onChange={(fit) => set("fit", { fit })} className="w-full" options={[{ value: "cover", label: "Fill frame" }, { value: "contain", label: "Show all" }]} />
+          <Row label="Layout">
+            <Segmented
+              compact
+              label="Layout"
+              value={clip.fit}
+              onChange={(fit) => set("fit", { fit })}
+              className="w-full"
+              options={[{ value: "cover", label: "Fill" }, { value: "blur", label: "Blur" }, { value: "contain", label: "Fit" }]}
+            />
+          </Row>
+          <Row label="Colour">
+            <div className="flex flex-wrap gap-1.5">
+              {LOOKS.map((l) => (
+                <button
+                  key={l.value}
+                  type="button"
+                  aria-pressed={(clip.look ?? "none") === l.value}
+                  className={cn(
+                    "rounded px-2.5 py-1 text-meta font-medium transition",
+                    (clip.look ?? "none") === l.value ? "bg-brand text-on-brand" : "bg-surface-elevated text-ink hover:bg-surface-sunken",
+                  )}
+                  onClick={() => set("look", { look: l.value })}
+                >
+                  {l.label}
+                </button>
+              ))}
+            </div>
           </Row>
           <div className="grid grid-cols-2 gap-3">
             <Row label="Fade in">

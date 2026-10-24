@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, type DragEvent, type PointerEvent } from "react";
+import { useEffect, useRef, type DragEvent, type PointerEvent, type WheelEvent } from "react";
 import { ASSET_DRAG_TYPE, SFX_DRAG_TYPE } from "@/components/editor/LibraryPanel";
 import { Icon } from "@/components/ui";
 import { cn } from "@/lib/cn";
@@ -30,8 +30,12 @@ type Drag = {
   y0: number;
   item: Item;
   before: TimelineDoc;
+  /** The latest previewed timeline, committed when the button comes up. */
+  next: TimelineDoc;
   changed: boolean;
 };
+
+const DRAG_PX = 4; // a press that moves less than this is a click (select), never an edit
 
 type Props = {
   className?: string;
@@ -54,6 +58,11 @@ type Props = {
 export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, onSelect, onSeek, onPreview, onCommit, onDropAsset, onDropSfx }: Props) {
   const content = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
+  const endDrag = useRef<((commit: boolean) => void) | null>(null);
+  // A drag outlives the render that started it: read these through a ref, not a stale closure.
+  const live = useRef({ pxPerSec, playhead, onPreview, onCommit });
+  live.current = { pxPerSec, playhead, onPreview, onCommit };
+  useEffect(() => () => endDrag.current?.(false), []); // leaving mid-drag: drop it, unsaved
   const total = Math.max(duration(timeline) + 10, 30);
   const width = total * pxPerSec;
 
@@ -67,18 +76,48 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
     return Math.abs(near - t) * pxPerSec <= SNAP_PX ? near : t;
   }
 
+  /**
+   * A drag is followed on the window, not on the clip: moving a clip to another track redraws it
+   * in that lane as a new element, which used to lose the pointerup and leave the clip glued to
+   * the mouse ("it moves whenever I click near it"). Only the left button drags.
+   */
   function beginDrag(e: PointerEvent, kind: ItemKind, item: Item, mode: Drag["mode"]) {
     e.stopPropagation();
     onSelect(item.id);
-    e.currentTarget.setPointerCapture(e.pointerId);
-    drag.current = { id: item.id, kind, mode, x0: e.clientX, y0: e.clientY, item, before: timeline, changed: false };
+    if (e.button !== 0) return;
+    e.preventDefault(); // no text selection or native drag while moving
+    drag.current = { id: item.id, kind, mode, x0: e.clientX, y0: e.clientY, item, before: timeline, next: timeline, changed: false };
+    const move = (ev: globalThis.PointerEvent) => {
+      if (ev.buttons === 0) return finish(true); // released somewhere we didn't hear about
+      onDragMove(ev);
+    };
+    const up = () => finish(true);
+    const cancel = () => finish(false);
+    function finish(commit: boolean) {
+      endDrag.current = null;
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("blur", cancel);
+      const d = drag.current;
+      drag.current = null;
+      if (!d?.changed) return;
+      if (commit) live.current.onCommit(d.next, d.before);
+      else live.current.onPreview(d.before); // cancelled: put it back
+    }
+    endDrag.current = finish;
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("blur", cancel);
   }
 
-  function onDragMove(e: PointerEvent) {
+  function onDragMove(e: { clientX: number; clientY: number }) {
     const d = drag.current;
     if (!d) return;
+    const { pxPerSec, playhead, onPreview } = live.current;
     const dt = (e.clientX - d.x0) / pxPerSec;
-    if (!d.changed && Math.abs(e.clientX - d.x0) < 3 && Math.abs(e.clientY - d.y0) < 3) return;
+    if (!d.changed && Math.abs(e.clientX - d.x0) < DRAG_PX && Math.abs(e.clientY - d.y0) < DRAG_PX) return;
     d.changed = true;
     const points = snapPoints(d.before, d.id, playhead);
     const { start, duration: length } = d.item;
@@ -96,15 +135,8 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
     } else {
       next = trimEnd(d.before, d.id, snap(start + length + dt, points));
     }
+    d.next = next;
     onPreview(next);
-  }
-
-  function endDrag(e: PointerEvent) {
-    const d = drag.current;
-    drag.current = null;
-    if (!d) return;
-    e.currentTarget.releasePointerCapture?.(e.pointerId);
-    if (d.changed) onCommit(timeline, d.before);
   }
 
   // Scrub: press on the ruler (or empty lane space) and drag to move the playhead.
@@ -116,7 +148,11 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
       onSelect(null);
       onSeek(timeAt(e.clientX));
     },
-    onPointerMove: (e: PointerEvent<HTMLDivElement>) => scrubbing.current && onSeek(timeAt(e.clientX)),
+    onPointerMove: (e: PointerEvent<HTMLDivElement>) => {
+      if (!scrubbing.current) return;
+      if (e.buttons === 0) scrubbing.current = false; // the release went somewhere else
+      else onSeek(timeAt(e.clientX));
+    },
     onPointerUp: () => (scrubbing.current = false),
   };
 
@@ -155,6 +191,15 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
           },
         };
 
+  /** There are no scrollbars: a plain wheel scrolls the lanes, then the time sideways once
+   * the lanes can't scroll any further that way. */
+  function wheelSideways(e: WheelEvent<HTMLDivElement>) {
+    if (e.shiftKey || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return; // already sideways
+    const lanes = e.currentTarget.parentElement;
+    const canScrollLanes = lanes && (e.deltaY < 0 ? lanes.scrollTop > 0 : lanes.scrollTop + lanes.clientHeight < lanes.scrollHeight - 1);
+    if (!canScrollLanes) e.currentTarget.scrollLeft += e.deltaY;
+  }
+
   const step = pxPerSec >= 80 ? 1 : pxPerSec >= 30 ? 5 : pxPerSec >= 12 ? 10 : 30;
   const ticks = Array.from({ length: Math.floor(total / step) + 1 }, (_, i) => i * step);
 
@@ -172,7 +217,7 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
       </div>
 
       {/* Scrollable time area */}
-      <div className="h-fit min-w-0 flex-1 overflow-x-auto">
+      <div className="h-fit min-w-0 flex-1 overflow-x-auto" onWheel={wheelSideways}>
         <div ref={content} className="relative" style={{ width, minWidth: "100%" }}>
           <div className="relative h-8 cursor-col-resize border-b border-line bg-surface-sunken" {...scrubProps}>
             {ticks.map((t) => (
@@ -222,8 +267,6 @@ export function Timeline({ className, timeline, playhead, selectedId, pxPerSec, 
                       )}
                       style={{ left: item.start * pxPerSec, width: Math.max(item.duration * pxPerSec, 8) }}
                       onPointerDown={(e) => beginDrag(e, lane.kind, item, "move")}
-                      onPointerMove={onDragMove}
-                      onPointerUp={endDrag}
                       onKeyDown={(e) => e.key === "Enter" && onSelect(item.id)}
                     >
                       <span

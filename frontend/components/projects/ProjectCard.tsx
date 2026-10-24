@@ -8,7 +8,7 @@ import { ACTIVE_STATUSES, formatTime, projectTitle, SOURCE_LABEL, STEP_LABEL, ty
 
 /**
  * One import project: thumbnail, live progress with the current step, and actions:
- * review in the inbox and open in studio (done), retry (failed link), cancel (running) and delete
+ * review in the inbox and open in the editor (done), retry (failed link), cancel (running) and delete
  * (with or without its clips). `children` sits under the progress, e.g. the agent's live feed.
  */
 export function ProjectCard({
@@ -103,8 +103,8 @@ export function ProjectCard({
                   <Link href="/inbox" className={buttonClass({ size: "sm" })}>
                     <Icon name="inbox" className="size-5" /> Review
                   </Link>
-                  <Link href={`/studio/${job.id}`} className={buttonClass({ variant: "secondary", size: "sm" })} aria-label="Open in studio">
-                    <Icon name="film" className="size-5" />
+                  <Link href={`/editor/open?import=${job.id}`} className={buttonClass({ variant: "secondary", size: "sm" })} aria-label="Open in the editor" title="Open in the editor">
+                    <Icon name="scissors" className="size-5" />
                   </Link>
                 </>
               )}

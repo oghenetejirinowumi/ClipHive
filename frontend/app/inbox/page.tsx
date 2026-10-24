@@ -104,7 +104,7 @@ export default function InboxPage() {
       const key = e.key.toLowerCase();
       if (key === "a") approveRef.current(clip);
       else if (key === "r") setRejecting(clip.id);
-      else if (key === "e") router.push(`/studio?clip=${clip.id}`);
+      else if (key === "e") router.push(`/editor/open?clip=${clip.id}`);
       else if (key === "j" || key === "arrowright" || key === "arrowdown") setSelected((i) => Math.min((clips?.length ?? 1) - 1, i + 1));
       else if (key === "k" || key === "arrowleft" || key === "arrowup") setSelected((i) => Math.max(0, i - 1));
       else return;
@@ -279,8 +279,8 @@ export default function InboxPage() {
                           <Button size="sm" variant="secondary" onClick={() => setRejecting(clip.id)}>
                             <Icon name="x" className="size-5" /> Reject
                           </Button>
-                          <Link href={`/studio?clip=${clip.id}`} className={buttonClass({ variant: "ghost", size: "sm" })}>
-                            <Icon name="film" className="size-5" /> Edit
+                          <Link href={`/editor/open?clip=${clip.id}`} className={buttonClass({ variant: "ghost", size: "sm" })}>
+                            <Icon name="scissors" className="size-5" /> Edit
                           </Link>
                         </div>
                       )}

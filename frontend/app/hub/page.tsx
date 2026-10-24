@@ -240,8 +240,8 @@ export default function HubPage() {
                   </ul>
                 )}
 
-                <Link href={`/studio?clip=${clip.id}`} className={buttonClass({ variant: "ghost", size: "sm", className: "justify-start px-0" })}>
-                  <Icon name="film" className="size-5" /> Edit in studio
+                <Link href={`/editor/open?clip=${clip.id}`} className={buttonClass({ variant: "ghost", size: "sm", className: "justify-start px-0" })}>
+                  <Icon name="scissors" className="size-5" /> Edit in the editor
                 </Link>
 
                 <div className="grid grid-cols-2 gap-3 border-t border-line pt-6">
