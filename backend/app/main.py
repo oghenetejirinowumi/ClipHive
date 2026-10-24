@@ -128,6 +128,8 @@ app.add_middleware(
     CORSMiddleware,
     # Bearer tokens, not cookies, so no credentials mode is needed.
     allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()] or ["*"],
+    # Local dev from any port, as localhost or 127.0.0.1 (pages on someone's own machine only).
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
