@@ -7,8 +7,34 @@
  */
 
 export type Aspect = "9:16" | "16:9" | "1:1" | "4:5";
-export type Font = "Bangers" | "Luckiest Guy" | "Poppins" | "System";
-export type TextAnimation = "none" | "fade" | "pop" | "slide_up" | "typewriter";
+export type Font =
+  | "Bangers"
+  | "Luckiest Guy"
+  | "Poppins"
+  | "Montserrat 900"
+  | "Montserrat 800"
+  | "Rubik 800"
+  | "Inter 700"
+  | "Anton 400"
+  | "Lilita One 400"
+  | "Roboto 500"
+  | "Lora 700"
+  | "Bebas Neue 400"
+  | "System"
+  | (string & {});
+
+export type TextAnimation =
+  | "none"
+  | "fade"
+  | "pop"
+  | "slide_up"
+  | "typewriter"
+  | "highlight_box"
+  | "karaoke"
+  | "reveal"
+  | "line"
+  | "word_pop"
+  | "single_word";
 
 export type Asset = {
   id: string;
@@ -113,12 +139,30 @@ export const MIN_LEN = 0.1;
 // User-chosen text colours are content, not UI chrome, so they're real colour values.
 export const DEFAULT_OUTLINE = "#000000"; // design-check-ignore: text content colour
 export const DEFAULT_BOX = "#111111"; // design-check-ignore: text content colour
-export const TEXT_PRESETS: Record<string, { label: string; style: Partial<Text> }> = {
-  punch: { label: "Punch", style: { font: "Bangers", color: "#FFE600", stroke_color: "#000000", stroke_width: 6, uppercase: true, animation: "pop", background: null } }, // design-check-ignore: caption colours
-  clean: { label: "Clean", style: { font: "Poppins", color: "#FFFFFF", stroke_color: null, stroke_width: 0, uppercase: false, animation: "fade", background: "#111111" } }, // design-check-ignore: caption colours
-  neon: { label: "Neon", style: { font: "Luckiest Guy", color: "#00E5FF", stroke_color: "#FF00C8", stroke_width: 5, uppercase: true, animation: "pop", background: null } }, // design-check-ignore: caption colours
-  title: { label: "Title", style: { font: "Bangers", color: "#FFFFFF", stroke_color: "#000000", stroke_width: 8, uppercase: true, animation: "slide_up", background: null, size: 120 } }, // design-check-ignore: caption colours
-  subtle: { label: "Subtle", style: { font: "System", color: "#FFFFFF", stroke_color: "#000000", stroke_width: 3, uppercase: false, animation: "fade", background: null, size: 56 } }, // design-check-ignore: caption colours
+export type TextPreset = {
+  label: string;
+  category: string;
+  description: string;
+  style: Partial<Text>;
+};
+
+export const TEXT_PRESETS: Record<string, TextPreset> = {
+  punch: { label: "Punch", category: "Gaming", description: "Comic-book caps with thick black outline & yellow pop", style: { font: "Bangers", color: "#FFE600", stroke_color: "#000000", stroke_width: 8, uppercase: true, animation: "pop", background: null, size: 96, y: 0.66 } }, // design-check-ignore: caption colours
+  clean: { label: "Clean", category: "Minimal", description: "Calm sentence case with dimmed background", style: { font: "Poppins", color: "#FFFFFF", stroke_color: null, stroke_width: 0, uppercase: false, animation: "fade", background: "#111111B3", size: 76, y: 0.70 } }, // design-check-ignore: caption colours
+  neon: { label: "Neon", category: "Fun", description: "Cyan rounded display caps with magenta outline", style: { font: "Luckiest Guy", color: "#3DF5FF", stroke_color: "#2B0040", stroke_width: 6, uppercase: true, animation: "pop", background: null, size: 84, y: 0.66 } }, // design-check-ignore: caption colours
+  podcast_bold: { label: "Podcast Bold", category: "Podcast", description: "Heavy white caps with yellow active word", style: { font: "Montserrat 900", color: "#FFE600", stroke_color: "#000000", stroke_width: 8, uppercase: true, animation: "pop", background: null, size: 88, y: 0.68 } }, // design-check-ignore: caption colours
+  podcast_green: { label: "Podcast Green", category: "Podcast", description: "Heavy white caps with neon lime green active pop", style: { font: "Montserrat 900", color: "#39FF14", stroke_color: "#000000", stroke_width: 8, uppercase: true, animation: "pop", background: null, size: 88, y: 0.68 } }, // design-check-ignore: caption colours
+  highlight_box: { label: "Highlight Box", category: "Viral", description: "Rounded purple highlight box behind words", style: { font: "Montserrat 800", color: "#FFFFFF", stroke_color: null, stroke_width: 0, background: "#7C3AED", uppercase: true, animation: "pop", size: 80, y: 0.68 } }, // design-check-ignore: caption colours
+  green_box: { label: "Green Box", category: "Viral", description: "Lime highlight box with bold dark text", style: { font: "Montserrat 900", color: "#0B0B0B", stroke_color: "#B6FF3B", stroke_width: 4, background: "#B6FF3B", uppercase: true, animation: "pop", size: 80, y: 0.68 } }, // design-check-ignore: caption colours
+  one_word: { label: "One Word", category: "Viral", description: "Huge condensed word spring, fast and punchy", style: { font: "Anton 400", color: "#FFFFFF", stroke_color: "#000000", stroke_width: 9, uppercase: true, animation: "pop", background: null, size: 120, y: 0.58 } }, // design-check-ignore: caption colours
+  bold_pop: { label: "Bold Pop", category: "Fun", description: "Chunky rounded type, cyan pop, extra thick outline", style: { font: "Lilita One 400", color: "#00E0FF", stroke_color: "#000000", stroke_width: 10, uppercase: true, animation: "pop", background: null, size: 92, y: 0.64 } }, // design-check-ignore: caption colours
+  karaoke: { label: "Karaoke", category: "Music", description: "Words fill with bright golden yellow as sung", style: { font: "Rubik 800", color: "#FFD400", stroke_color: "#000000", stroke_width: 6, uppercase: true, animation: "pop", background: null, size: 84, y: 0.68 } }, // design-check-ignore: caption colours
+  typewriter: { label: "Typewriter", category: "Story", description: "Words reveal as spoken, building the sentence", style: { font: "Inter 700", color: "#FFFFFF", stroke_color: null, stroke_width: 0, uppercase: false, animation: "typewriter", background: null, size: 76, y: 0.70 } }, // design-check-ignore: caption colours
+  subtitle_bar: { label: "Subtitle Bar", category: "Broadcast", description: "Broadcast subtitles on a dark bar", style: { font: "Roboto 500", color: "#FFFFFF", stroke_color: null, stroke_width: 0, background: "#000000B3", uppercase: false, animation: "fade", size: 64, y: 0.80 } }, // design-check-ignore: caption colours
+  documentary: { label: "Documentary", category: "Story", description: "Elegant serif with cinematic soft shadow", style: { font: "Lora 700", color: "#FFFFFF", stroke_color: "#000000", stroke_width: 2, uppercase: false, animation: "fade", background: null, size: 76, y: 0.80 } }, // design-check-ignore: caption colours
+  neon_glow: { label: "Neon Glow", category: "Fun", description: "Tall pink caps with bright glow and white pop", style: { font: "Bebas Neue 400", color: "#FF4FD8", stroke_color: "#3A0030", stroke_width: 4, uppercase: true, animation: "pop", background: null, size: 110, y: 0.66 } }, // design-check-ignore: caption colours
+  title: { label: "Title", category: "Display", description: "Big dramatic headline style", style: { font: "Bangers", color: "#FFFFFF", stroke_color: "#000000", stroke_width: 8, uppercase: true, animation: "slide_up", background: null, size: 120 } }, // design-check-ignore: caption colours
+  subtle: { label: "Subtle", category: "Minimal", description: "Clean, unobtrusive sans-serif label", style: { font: "System", color: "#FFFFFF", stroke_color: "#000000", stroke_width: 3, uppercase: false, animation: "fade", background: null, size: 56 } }, // design-check-ignore: caption colours
 };
 
 const round = (n: number) => Math.round(n * 1000) / 1000;
@@ -266,12 +310,32 @@ export function placeAsset(timeline: Timeline, assetId: string, at: number, onTr
   return { timeline: { ...timeline, clips: [...timeline.clips, clip] }, id };
 }
 
-export function addText(timeline: Timeline, at: number, preset = "punch"): { timeline: Timeline; id: string } {
+export function addText(
+  timeline: Timeline,
+  at: number,
+  presetOrStyle: string | Partial<Text> = "punch",
+): { timeline: Timeline; id: string } {
   const id = newId(timeline, "t");
+  const custom = typeof presetOrStyle === "string" ? TEXT_PRESETS[presetOrStyle]?.style : presetOrStyle;
+  const isCaption = typeof presetOrStyle === "string" ? presetOrStyle !== "title" : true;
   const text: Text = {
-    id, text: "Your text", start: round(at), duration: 3, x: 0.5, y: 0.2, width: 0.86, size: 84, font: "Bangers",
-    color: "#FFFFFF", stroke_color: "#000000", stroke_width: 6, background: null, uppercase: false, animation: "pop", is_caption: false, // design-check-ignore: default text colour
-    ...TEXT_PRESETS[preset]?.style,
+    id,
+    text: isCaption ? "Add captions here" : "Your text",
+    start: round(at),
+    duration: 3,
+    x: 0.5,
+    y: 0.68,
+    width: 0.86,
+    size: 84,
+    font: "Bangers",
+    color: "#FFFFFF", // design-check-ignore: default text colour
+    stroke_color: "#000000", // design-check-ignore: default text colour
+    stroke_width: 6,
+    background: null,
+    uppercase: false,
+    animation: "pop",
+    is_caption: isCaption,
+    ...custom,
   };
   return { timeline: { ...timeline, texts: [...timeline.texts, text] }, id };
 }

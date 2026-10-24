@@ -98,18 +98,29 @@ export type CommandPlan = {
 };
 
 export const AGENT_LABEL: Record<AgentKind, string> = {
-  scout: "Scout",
-  producer: "Producer",
-  publisher: "Publisher",
-  command: "Planner",
+  scout: "Scout Bee",
+  producer: "Worker Bee",
+  publisher: "Honey Bee",
+  command: "Queen Bee",
 };
 
 export const AGENT_ROLE: Record<AgentKind, string> = {
-  scout: "Watches your channels for new VODs",
-  producer: "Picks, cuts and packages moments",
-  publisher: "Captions and schedules approved clips",
-  command: "Turns your request into a plan",
+  scout: "Forages your channels for fresh livestreams and VOD nectar",
+  producer: "Extracts high-energy moments, cuts vertical clips and refines them",
+  publisher: "Captions and pollinates your social feeds (TikTok, Shorts, Reels)",
+  command: "Directs the colony and turns your natural language commands into plans",
 };
+
+export const BEE_SPECIES: Record<AgentKind, string> = {
+  scout: "Stream Forager",
+  producer: "Clip Artisan",
+  publisher: "Feed Pollinator",
+  command: "Colony Sovereign",
+};
+
+export const BEE_LABEL = AGENT_LABEL;
+export const BEE_ROLE = AGENT_ROLE;
+export type BeeKind = AgentKind;
 
 export const PLATFORM_LABEL: Record<PostPlatform, string> = {
   tiktok: "TikTok",

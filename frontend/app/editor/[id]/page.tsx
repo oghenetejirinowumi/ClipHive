@@ -267,10 +267,10 @@ export default function EditorPage() {
     setSelectedId(result.id);
   }, [apply, selectedId]);
 
-  const doAddText = useCallback((preset = "punch") => {
+  const doAddText = useCallback((presetOrStyle: string | Partial<Text> = "punch") => {
     const tl = timelineRef.current;
     if (!tl) return;
-    const result = addText(tl, playhead, preset);
+    const result = addText(tl, playhead, presetOrStyle);
     apply(result.timeline);
     setSelectedId(result.id);
     setLibraryTab("properties");

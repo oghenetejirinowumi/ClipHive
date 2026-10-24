@@ -29,39 +29,13 @@ export function LoginForm({ next }: { next?: string }) {
     }
   }
 
-  async function onQuickDemo() {
-    setPending(true);
-    setError(null);
-    try {
-      await login("demo@cliphive.dev", "demo123456");
-      router.replace(safeNext(next));
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't reach the server. Try again.");
-      setPending(false);
-    }
-  }
-
   return (
     <div className="space-y-6">
-      <Button
-        type="button"
-        variant="secondary"
-        size="lg"
-        onClick={onQuickDemo}
-        loading={pending}
-        className="w-full"
-      >
-        Instant Demo Access (1-Click)
-      </Button>
-      <div className="relative flex items-center justify-center">
-        <div className="w-full border-t border-line" />
-        <span className="bg-surface px-3 text-meta text-ink-muted">or sign in with credentials</span>
-      </div>
       <GoogleSignIn next={next} />
       <form onSubmit={onSubmit}>
         <FieldsReveal className="space-y-6">
-          <Field name="email" type="email" label="Email" autoComplete="email" defaultValue="demo@cliphive.dev" required />
-          <Field name="password" type="password" label="Password" autoComplete="current-password" defaultValue="demo123456" required />
+          <Field name="email" type="email" label="Email" autoComplete="email" required />
+          <Field name="password" type="password" label="Password" autoComplete="current-password" required />
           <div aria-live="polite">{error && <p className="rounded-md bg-danger-subtle px-5 py-4 text-base text-danger">{error}</p>}</div>
           <Button type="submit" size="lg" loading={pending} className="w-full">
             Sign in

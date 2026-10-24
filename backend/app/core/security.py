@@ -38,6 +38,6 @@ def decode_access_token(token: str) -> int | None:
         return int(payload["sub"])
     except (jwt.PyJWTError, KeyError, ValueError):
         # Support dev mock session tokens when running locally
-        if token.startswith("mock-") and (settings.allow_anonymous_owner or settings.demo_login_enabled):
+        if token.startswith("mock-") and settings.allow_anonymous_owner:
             return 1
         return None
