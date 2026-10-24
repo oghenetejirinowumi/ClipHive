@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.enums import SourcePlatform, StreamStatus
 from app.schemas.common import ORMModel
@@ -23,13 +23,30 @@ class StreamerRead(ORMModel):
     username: str
     is_active: bool
     created_at: datetime
+    # Scout agent state
+    last_checked_at: datetime | None = None
+    last_seen_video_title: str | None = None
+    last_seen_video_url: str | None = None
+    last_check_error: str | None = None
     # Live status from the stream monitor (in memory; None/False until the first check).
     is_live: bool = False
     live_title: str | None = None
-    last_checked_at: datetime | None = None
-    check_error: str | None = None
+    live_checked_at: datetime | None = None
+    live_error: str | None = None
     recording: bool = False
     channel_url: str = ""
+
+    @field_validator("created_at", "last_checked_at", mode="after")
+    @classmethod
+    def _utc(cls, v):
+        return v.replace(tzinfo=UTC) if isinstance(v, datetime) and v.tzinfo is None else v
+
+
+class CheckResultRead(BaseModel):
+    streamer_id: int
+    status: str  # new_vod | no_change | first_seen | error
+    message: str
+    import_job_id: int | None = None
 
 
 # POST /streamers/{id}/latest-vod

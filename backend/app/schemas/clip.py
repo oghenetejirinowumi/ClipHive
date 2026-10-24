@@ -35,9 +35,11 @@ class ClipCreate(BaseModel):
 
 class ClipUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=255)
+    description: str | None = None
     hashtags: list[str] | None = None
     caption_style_id: int | None = None
     caption_mode: CaptionMode | None = None
+    context_json: dict | None = None
 
 
 # POST /clips/{id}/caption and POST /clips/{id}/regenerate-captions
@@ -58,12 +60,26 @@ class ClipRead(ORMModel):
     caption_mode: CaptionMode
     highlight_score: float | None
     title: str | None
+    description: str | None = None
     hashtags: list[str]
+    context_json: dict | None = None
     status: ClipStatus
+    review_status: str = "approved"
     error: str | None
+    starred: bool = False
     created_at: datetime
 
 
 class ClipDetail(ClipRead):
     raw_file_path: str | None
     transcript_json: list[TranscriptWord] | None
+
+
+class AIPackResponse(BaseModel):
+    titles: list[str] = Field(description="3 generated viral title suggestions, max 100 characters each")
+    descriptions: list[str] = Field(description="2 generated social media description suggestions")
+    hashtags: list[str] = Field(description="15 to 20 generated hashtags starting with #")
+    title: str = Field(description="First title for backward compatibility")
+    description: str | None = Field(default=None, description="First description for backward compatibility")
+    id: int | None = Field(default=None, description="Clip ID for backward compatibility")
+    context_json: dict | None = Field(default=None, description="Context metadata")

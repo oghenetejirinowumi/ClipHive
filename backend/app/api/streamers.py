@@ -1,18 +1,37 @@
 """Monitored streamers: add a channel, see if it's live, record it now, or clip its latest VOD."""
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import DbSession, Owner
 from app.models import Clip, ImportJob, ImportSource, Stream, Streamer, User
+from app.models.enums import SourcePlatform
 from app.schemas.import_job import ImportRead
-from app.schemas.streamer import LatestVodRequest, StreamerCreate, StreamerRead, StreamerUpdate, StreamRead
+from app.schemas.streamer import CheckResultRead, LatestVodRequest, StreamerCreate, StreamerRead, StreamerUpdate, StreamRead
+from app.services.agents import scout
 from app.services.ingest import monitor, pipeline
 from app.workers import ingest_worker
 
 router = APIRouter(prefix="/streamers", tags=["streamers"])
+
+SAMPLE_STREAMERS = [
+    {"platform": SourcePlatform.TWITCH, "username": "shroud"},
+    {"platform": SourcePlatform.KICK, "username": "adinross"},
+    {"platform": SourcePlatform.YOUTUBE, "username": "MrBeast"},
+]
+
+
+def seed_sample_streamers(db: Session, user_id: int):
+    """Seeds initial sample streamers for testing/demo if none exist."""
+    count = db.query(Streamer).filter(Streamer.user_id == user_id).count()
+    if count == 0:
+        for s in SAMPLE_STREAMERS:
+            db.add(Streamer(user_id=user_id, platform=s["platform"], username=s["username"], is_active=True))
+        db.commit()
 
 
 def _read(s: Streamer) -> StreamerRead:
@@ -20,8 +39,8 @@ def _read(s: Streamer) -> StreamerRead:
     return StreamerRead.model_validate(s).model_copy(update={
         "is_live": bool(live and live.is_live),
         "live_title": live.title if live else None,
-        "last_checked_at": live.checked_at if live else None,
-        "check_error": live.error if live else None,
+        "live_checked_at": live.checked_at if live else None,
+        "live_error": live.error if live else None,
         "recording": ingest_worker.is_recording(s.id),
         "channel_url": monitor.channel_url(s.platform, s.username),
     })
@@ -143,3 +162,16 @@ def list_streams(streamer_id: int, user: Owner, db: DbSession) -> list[StreamRea
     for clip_id, stream_id in db.execute(select(Clip.id, Clip.stream_id).where(Clip.stream_id.in_([r.id for r in rows]))):
         clip_ids.setdefault(stream_id, []).append(clip_id)
     return [StreamRead.model_validate(r).model_copy(update={"clip_ids": clip_ids.get(r.id, [])}) for r in rows]
+
+
+@router.post("/{streamer_id}/check-now", response_model=CheckResultRead)
+async def check_now(streamer_id: int, user: Owner, db: DbSession):
+    """Scout this channel right now. If it has a VOD we haven't clipped, start clipping it
+    (on a channel's first check, its newest VOD)."""
+    streamer = _owned(db, streamer_id, user)
+    user_id = streamer.user_id
+    db.close()  # don't hold the request's session open during the network check
+    results = await asyncio.to_thread(scout.run_scout, user_id, [streamer_id], True)
+    if not results:
+        raise HTTPException(status_code=409, detail="That channel is paused. Resume it first.")
+    return results[0].__dict__

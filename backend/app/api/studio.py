@@ -1,8 +1,10 @@
-"""Clipping Studio: scrub a project's source video, pick any range, and cut it as a clip.
+"""Clipping Studio: scrub a project's video, pick any range, and cut it as a clip.
 
-Also lets any imported clip switch layout (re-cut from the source) or drop its burned captions
-(back to the clean cut, for platforms that add their own captions). Burning captions stays with
-C2: the frontend calls POST /api/clips/{id}/caption.
+Uploads scrub the uploaded file itself. Link projects never download the full VOD: the studio
+scrubs a low-res preview (fetched on request), and creating a clip fetches only that range in
+HD. Any imported clip can also switch layout (re-cut from its saved HD section or the upload)
+or drop its burned captions (back to the clean cut). Burning captions stays with C2: the
+frontend calls POST /api/clips/{id}/caption.
 """
 from __future__ import annotations
 
@@ -14,11 +16,16 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import DbSession, Owner
 from app.core.media import public_path, storage_root
-from app.models import CaptionMode, Clip, ClipStatus, ImportJob, ImportStatus
-from app.schemas.import_job import ImportRead, LayoutRequest, Moment, StudioClip, StudioClipRequest, StudioProject
+from app.models import CaptionMode, Clip, ClipStatus, ImportJob, ImportSource, ImportStatus
+from app.schemas.import_job import (
+    ImportRead, LayoutRequest, Moment, PreviewState, StarRequest, StarResult, StudioClip, StudioClipRequest, StudioProject,
+)
 from app.services.clip.cutter import cut_vertical
-from app.services.clip.detector import energy_curve, find_highlights
-from app.services.ingest.pipeline import job_dir, source_file
+from app.services.clip.ai_rank import pick_highlights
+from app.services.clip.detector import energy_curve
+from app.services.clip.taste import starred_count, user_taste
+from app.services.ingest import pipeline
+from app.services.ingest.downloader import IngestError
 
 router = APIRouter(prefix="/studio", tags=["studio"])
 
@@ -27,16 +34,10 @@ def _job_for(db: DbSession, job_id: int, user_id: int) -> ImportJob:
     job = db.get(ImportJob, job_id)
     if job is None or job.user_id != user_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found.")
-    if job.status != ImportStatus.DONE:
+    # A project generating more clips stays open: its existing clips are usable meanwhile.
+    if job.status != ImportStatus.DONE and not job.clip_ids:
         raise HTTPException(status.HTTP_409_CONFLICT, "This project is still processing.")
     return job
-
-
-def _source_or_410(job: ImportJob) -> Path:
-    src = source_file(job.id)
-    if src is None:
-        raise HTTPException(status.HTTP_410_GONE, "The source video for this project is no longer on disk.")
-    return src
 
 
 def _public_or_none(path: str | None) -> str | None:
@@ -65,6 +66,8 @@ def _studio_clip(clip: Clip, job: ImportJob) -> StudioClip:
         caption_style_id=clip.caption_style_id,
         layout=(job.clip_layouts or {}).get(str(clip.id), job.layout or "fill"),
         highlight_score=clip.highlight_score,
+        starred=bool(clip.starred),
+        error=clip.error,
     )
 
 
@@ -75,75 +78,138 @@ def _owning_job(db: DbSession, clip_id: int, user_id: int) -> ImportJob | None:
     return None
 
 
-def _analysis(job: ImportJob, src: Path) -> dict:
-    """Energy curve + suggested moments, cached next to the source (decoding audio is the slow bit)."""
-    cache = job_dir(job.id) / "analysis.json"
+def _analysis(job: ImportJob, db: DbSession) -> dict:
+    """Energy curve + suggested moments, cached in the job folder (decoding audio is the slow bit)."""
+    cache = pipeline.job_dir(job.id) / "analysis.json"
     if cache.exists():
         return json.loads(cache.read_text(encoding="utf-8"))
+    media = pipeline.analysis_media(job) or pipeline.source_file(job.id)
+    if media is None:
+        raise HTTPException(status.HTTP_410_GONE, "This project's audio is no longer on disk.")
     duration = job.duration_s or 0
-    moments = find_highlights(src, duration, count=8, clip_seconds=job.clip_seconds or 30)
+    moments = pick_highlights(media, duration, count=8, clip_seconds=job.clip_seconds or 30, taste=user_taste(db, job.user_id))
     data = {
-        "energy": energy_curve(src, duration),
-        "moments": [{"start_s": m.start_s, "end_s": m.end_s, "score": m.score} for m in moments],
+        "energy": energy_curve(media, duration),
+        "moments": [
+            {"start_s": m.start_s, "end_s": m.end_s, "score": m.score, "reason": m.reason} for m in moments
+        ],
     }
     cache.write_text(json.dumps(data), encoding="utf-8")
     return data
 
 
+def _scrub_video(job: ImportJob) -> tuple[str | None, PreviewState]:
+    """The upload itself, or a link's preview (older link projects may still have a full source)."""
+    full = pipeline.source_file(job.id)
+    if full is not None:
+        return public_path(full), PreviewState(status="ready", progress=100)
+    preview = pipeline.preview_file(job.id)
+    state = pipeline.preview_state(job.id)
+    if preview is not None and state.get("status") == "ready":
+        return public_path(preview), PreviewState(**state)
+    return None, PreviewState(**state)
+
+
+def _cut_from_local(job: ImportJob, clip: Clip | None, start_s: float, end_s: float, out: Path, layout: str) -> bool:
+    """Cut from material already on disk: a saved HD section for this clip, or the full source."""
+    if clip is not None:
+        section = pipeline.section_file(job.id, clip.id)
+        if section.exists():
+            cut_vertical(section, 0, end_s - start_s, out, layout)
+            return True
+    full = pipeline.source_file(job.id)
+    if full is not None:
+        cut_vertical(full, start_s, end_s, out, layout)
+        return True
+    return False
+
+
 @router.get("/imports/{job_id}", response_model=StudioProject)
 def open_project(job_id: int, user: Owner, db: DbSession) -> StudioProject:
     job = _job_for(db, job_id, user.id)
-    src = _source_or_410(job)
-    analysis = _analysis(job, src)
+    analysis = _analysis(job, db)
+    source_path, preview = _scrub_video(job)
     clips = [c for cid in (job.clip_ids or []) if (c := db.get(Clip, cid)) is not None]
     return StudioProject(
         job=ImportRead.model_validate(job),
-        source_path=public_path(src),
+        source_path=source_path,
+        preview=preview,
         energy=analysis["energy"],
         moments=[Moment(**m) for m in analysis["moments"]],
         clips=[_studio_clip(c, job) for c in clips],
     )
 
 
+@router.post("/imports/{job_id}/preview", response_model=PreviewState)
+def prepare_preview(job_id: int, user: Owner, db: DbSession) -> PreviewState:
+    """Start fetching a link project's low-res scrubbing preview (safe to call repeatedly)."""
+    job = _job_for(db, job_id, user.id)
+    if job.source == ImportSource.UPLOAD or pipeline.source_file(job.id) is not None:
+        return PreviewState(status="ready", progress=100)
+    return PreviewState(**pipeline.start_preview(job.id))
+
+
 @router.post("/imports/{job_id}/clips", response_model=StudioClip, status_code=status.HTTP_201_CREATED)
 def create_clip(job_id: int, body: StudioClipRequest, user: Owner, db: DbSession) -> StudioClip:
+    """Cut a hand-picked range. Link projects fetch just that range in HD first (can take a minute)."""
     job = _job_for(db, job_id, user.id)
-    src = _source_or_410(job)
     end = min(body.end_s, job.duration_s or body.end_s)
     if end - body.start_s < 3:
         raise HTTPException(422, "Pick at least 3 seconds inside the video.")
 
-    out = storage_root() / "clips" / f"studio_{job.id}_{int(time.time() * 1000)}.mp4"
-    cut_vertical(src, body.start_s, end, out, body.layout)
+    stamp = int(time.time() * 1000)
+    out = storage_root() / "clips" / f"studio_{job.id}_{stamp}.mp4"
+    section: Path | None = None
+    if not _cut_from_local(job, None, body.start_s, end, out, body.layout):
+        try:
+            section = pipeline.cut_range_for_link(job, body.start_s, end, out, body.layout, f"studio_{stamp}")
+        except IngestError as err:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(err)) from err
+
     n = len(job.clip_ids or []) + 1
     clip = Clip(
         user_id=user.id, start_s=body.start_s, end_s=end, raw_file_path=str(out), file_path=public_path(out),
-        title=f"{job.title or 'Clip'} · Clip {n}", hashtags=[], status=ClipStatus.PROCESSING,
+        title=f"{job.title or 'Clip'} · Clip {n}", hashtags=[], status=ClipStatus.READY,
+        caption_mode=CaptionMode.PLATFORM_NATIVE,
     )
     db.add(clip)
     db.flush()
+    if section is not None:  # keep it so a layout switch needs no re-download
+        section.replace(pipeline.section_file(job.id, clip.id))
     # Reassign (not mutate) so SQLAlchemy sees the JSON columns change.
     job.clip_ids = [*(job.clip_ids or []), clip.id]
     job.clip_layouts = {**(job.clip_layouts or {}), str(clip.id): body.layout}
     db.commit()
     db.refresh(clip)
+    try:
+        from app.services.ai.ai_pack import auto_run_ai_pack
+
+        auto_run_ai_pack(clip, db)
+    except Exception as err:
+        logger.warning("Auto AI packaging skipped for studio clip %s: %s", clip.id, err)
     return _studio_clip(clip, job)
 
 
 @router.post("/clips/{clip_id}/layout", response_model=StudioClip)
 def change_layout(clip_id: int, body: LayoutRequest, user: Owner, db: DbSession) -> StudioClip:
-    """Re-cut from the source in the other layout. Burned captions are dropped (re-burn after)."""
+    """Re-cut in the other layout. Burned captions are dropped (re-burn after)."""
     clip = db.get(Clip, clip_id)
     job = _owning_job(db, clip_id, user.id) if clip else None
     if clip is None or job is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This clip wasn't cut from one of your projects.")
-    src = _source_or_410(job)
-    out = storage_root() / "clips" / f"studio_{job.id}_{clip.id}_{body.layout}_{int(time.time() * 1000)}.mp4"
-    cut_vertical(src, clip.start_s, clip.end_s, out, body.layout)
+    stamp = int(time.time() * 1000)
+    out = storage_root() / "clips" / f"studio_{job.id}_{clip.id}_{body.layout}_{stamp}.mp4"
+    if not _cut_from_local(job, clip, clip.start_s, clip.end_s, out, body.layout):
+        try:  # nothing on disk (older link clip): fetch its range again
+            section = pipeline.cut_range_for_link(job, clip.start_s, clip.end_s, out, body.layout, f"studio_{stamp}")
+            section.replace(pipeline.section_file(job.id, clip.id))
+        except IngestError as err:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(err)) from err
 
     old = Path(clip.raw_file_path) if clip.raw_file_path else None
     clip.raw_file_path, clip.file_path = str(out), public_path(out)
-    clip.caption_mode, clip.status = CaptionMode.BURNED, ClipStatus.PROCESSING
+    # The new cut is clean and ready to post; burn captions again to add them.
+    clip.caption_mode, clip.status, clip.error = CaptionMode.PLATFORM_NATIVE, ClipStatus.READY, None
     job.clip_layouts = {**(job.clip_layouts or {}), str(clip.id): body.layout}
     db.commit()
     if old and old.exists() and old.resolve().is_relative_to(storage_root() / "clips"):
@@ -163,9 +229,26 @@ def remove_captions(clip_id: int, user: Owner, db: DbSession) -> StudioClip:
         raise HTTPException(status.HTTP_410_GONE, "The clean version of this clip is missing.")
     clip.file_path = clean
     clip.caption_mode = CaptionMode.PLATFORM_NATIVE
-    clip.status = ClipStatus.READY
+    clip.status, clip.error = ClipStatus.READY, None
     db.commit()
     return _studio_clip(clip, job)
+
+
+@router.post("/clips/{clip_id}/star", response_model=StarResult)
+def star_clip(clip_id: int, body: StarRequest, user: Owner, db: DbSession) -> StarResult:
+    """Star (or unstar) a clip. Stars teach the moment picker what this user likes."""
+    clip = db.get(Clip, clip_id)
+    if clip is None or clip.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Clip not found.")
+    clip.starred = body.starred
+    db.commit()
+    return StarResult(id=clip.id, starred=clip.starred, starred_total=starred_count(db, user.id))
+
+
+@router.get("/taste")
+def taste_summary(user: Owner, db: DbSession) -> dict[str, int | bool]:
+    """How much the picker has to go on: stars so far, and whether it's leaning on them yet."""
+    return {"starred": starred_count(db, user.id), "learning": user_taste(db, user.id) is not None}
 
 
 @router.get("/clips/{clip_id}/project")

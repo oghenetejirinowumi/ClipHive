@@ -5,6 +5,7 @@ from app.schemas.caption_style import (
     CaptionStyleUpdate,
 )
 from app.schemas.clip import (
+    AIPackResponse,
     CaptionRequest,
     ClipCreate,
     ClipDetail,
@@ -27,6 +28,7 @@ from app.schemas.trend import ApplyTrendsRequest, TrendCreate, TrendRead
 from app.schemas.user import Token, UserCreate, UserLogin, UserRead
 
 __all__ = [
+    "AIPackResponse",
     "ApplyTrendsRequest",
     "CaptionColors",
     "CaptionRequest",

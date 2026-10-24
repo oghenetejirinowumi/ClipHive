@@ -48,6 +48,13 @@ type Clip = {
   raw_file_path?: string | null;
   status: string;
   caption_style_id?: number | null;
+  context_json?: {
+    summary?: string;
+    game_or_topic?: string;
+    suggested_style?: string;
+    style_rationale?: string;
+    event_type?: string;
+  } | null;
 };
 
 const SAMPLE_WORDS = [
@@ -391,9 +398,37 @@ export default function CaptionsPage() {
               )}
 
               {activeClip && (
-                <div className="flex items-center gap-3 text-lg text-ink-muted">
-                  Current status <StatusBadge status={activeClip.status} />
-                </div>
+                <>
+                  {activeClip.context_json?.suggested_style && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand/20 bg-brand-subtle p-4">
+                      <div className="min-w-0">
+                        <span className="text-meta font-semibold text-brand-strong">
+                          ⚡ Recommended Style: {activeClip.context_json.suggested_style}
+                        </span>
+                        {activeClip.context_json.style_rationale && (
+                          <p className="mt-0.5 truncate text-fine text-ink-muted">{activeClip.context_json.style_rationale}</p>
+                        )}
+                      </div>
+                      {styles.some((s) => s.name.toLowerCase() === activeClip.context_json?.suggested_style?.toLowerCase()) && (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            const target = styles.find((s) => s.name.toLowerCase() === activeClip.context_json?.suggested_style?.toLowerCase());
+                            if (target) setSelectedStyleId(target.id);
+                          }}
+                        >
+                          Use {activeClip.context_json.suggested_style}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-3 text-lg text-ink-muted">
+                    Current status <StatusBadge status={activeClip.status} />
+                  </div>
+                </>
               )}
 
               <Button size="lg" onClick={handleBurnSubtitles} loading={isPending} disabled={!selectedClipId || !selectedStyleId || isPending}>

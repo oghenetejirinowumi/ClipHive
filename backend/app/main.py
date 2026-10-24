@@ -1,20 +1,21 @@
 """ClipHive FastAPI application entrypoint."""
+
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
-from fastapi.staticfiles import StaticFiles
-
 from app.api import auth
+from app.api.agents import router as agents_router
+from app.api.inbox import router as inbox_router
 from app.api.clips import router as clips_router
 from app.api.downloads import router as downloads_router
 from app.api.editor import router as editor_router
+from app.api.hub import router as hub_router
 from app.api.imports import router as imports_router
+from app.api.live import router as live_router
 from app.api.streamers import router as streamers_router
 from app.api.studio import router as studio_router
 from app.api.styles import router as styles_router
@@ -31,6 +32,13 @@ from app.services.editor import render as editor_render
 from app.services.editor.render import FONTS_DIR as EDITOR_FONTS_DIR
 from app.services.ingest.pipeline import recover_interrupted
 from app.workers import ingest_worker
+from app.services.agents.publisher import publisher_loop
+from app.services.agents.scout import scout_loop
+from app.services.trends.scheduler import trend_scheduler
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("cliphive")
@@ -39,7 +47,9 @@ logger = logging.getLogger("cliphive")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if settings.jwt_secret == "change-me":
-        logger.warning("JWT_SECRET is the default 'change-me'. Anyone can forge sessions; set a real one in backend/.env.")
+        logger.warning(
+            "JWT_SECRET is the default 'change-me'. Anyone can forge sessions; set a real one in backend/.env."
+        )
 
     # Startup: Initialize DB and seeds
     logger.info("Initializing database...")
@@ -59,12 +69,15 @@ async def lifespan(app: FastAPI):
         ensure_demo_account(db)
         demo_user = db.query(User).order_by(User.id).first()
 
-        # Seed sample clip row if none exists
+        # Seed a sample clip for the local demo account only (never in production)
         sample_video = Path("tests/fixtures/sample_raw.mp4")
-        if sample_video.exists():
+        if settings.demo_login_enabled and demo_user is not None and sample_video.exists():
             existing_clip = db.query(Clip).first()
             if not existing_clip:
-                punch_style = next((s for s in styles if s.name == "Punch"), styles[0] if styles else None)
+                punch_style = next(
+                    (s for s in styles if s.name == "Punch"),
+                    styles[0] if styles else None,
+                )
                 sample_clip = Clip(
                     user_id=demo_user.id,
                     start_s=0.0,
@@ -82,8 +95,22 @@ async def lifespan(app: FastAPI):
                 logger.info("Seeded initial fixture clip for testing.")
 
     ingest_worker.start()
-    yield
-    ingest_worker.stop()
+    background = [asyncio.create_task(publisher_loop())]
+    if settings.trends_scheduler_enabled:
+        background.append(asyncio.create_task(trend_scheduler()))
+    if settings.scout_enabled:
+        logger.info("Scout agent: checking channels every %d min", settings.scout_interval_minutes)
+        background.append(asyncio.create_task(scout_loop()))
+    try:
+        yield
+    finally:
+        ingest_worker.stop()
+        for task in background:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 # Ensure tables exist at startup
@@ -99,8 +126,9 @@ app = FastAPI(
 # Enable CORS for frontend development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    # Bearer tokens, not cookies, so no credentials mode is needed.
+    allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()] or ["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -114,14 +142,18 @@ app.mount("/editor-fonts", StaticFiles(directory=str(EDITOR_FONTS_DIR)), name="e
 
 # Include routers (paths per docs/CONTRACT.md: everything under /api).
 app.include_router(auth.router, prefix="/api")
+app.include_router(live_router, prefix="/api")  # GET /api/streamers/status
 app.include_router(streamers_router, prefix="/api")
 app.include_router(styles_router, prefix="/api")
 app.include_router(clips_router, prefix="/api")
 app.include_router(trends_router, prefix="/api")
 app.include_router(imports_router, prefix="/api")
 app.include_router(downloads_router, prefix="/api")
+app.include_router(hub_router, prefix="/api")
 app.include_router(studio_router, prefix="/api")
 app.include_router(editor_router, prefix="/api")
+app.include_router(agents_router, prefix="/api")
+app.include_router(inbox_router, prefix="/api")
 
 
 @app.api_route("/", methods=["GET", "HEAD"])

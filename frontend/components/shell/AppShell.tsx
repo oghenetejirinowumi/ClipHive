@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, type ReactNode } from "react";
+import { NotificationBell } from "@/components/agents/NotificationBell";
 import { Button, Icon, Logo, ResizeHandle, ThemeSwitch } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
@@ -63,6 +64,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className={cn("flex min-w-0 flex-1 flex-col py-5", collapsed ? "items-center px-3" : "px-4")}>
           <div className={cn("flex items-center gap-2", collapsed ? "flex-col" : "justify-between")}>
             {collapsed ? <Logo href="/dashboard" compact /> : <Logo href="/dashboard" className="px-2" />}
+            <NotificationBell />
             <Button
               variant="ghost"
               size="xs"
@@ -135,6 +137,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-line bg-surface/95 px-4 lg:hidden">
           <Logo href="/dashboard" />
           <div className="flex items-center gap-2">
+            <NotificationBell align="right" />
             <ThemeSwitch />
             <Button variant="ghost" size="xs" onClick={signOut} aria-label="Sign out">
               <Icon name="logout" className="size-5" />

@@ -22,7 +22,10 @@
 CREATE TABLE users (
     id INTEGER PRIMARY KEY,
     email VARCHAR(320) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,  -- '' for Google-only accounts (never matches a password)
+    google_sub VARCHAR(255) UNIQUE,       -- Google account id ("Sign in with Google")
+    name VARCHAR(255),                    -- from Google, when signed in with it
+    avatar_url VARCHAR(1024),             -- from Google, when signed in with it
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
@@ -68,8 +71,10 @@ CREATE TABLE clips (
     highlight_score FLOAT,               -- Written by C1 (detection) or C2 (hook score)
     title VARCHAR(255),                  -- Written by C2 (AI Viral Studio)
     hashtags JSON DEFAULT '[]',          -- Written by C2 (Trends Studio)
-    status VARCHAR(50) NOT NULL,         -- 'processing' (C1) -> 'captioning' (C2) -> 'ready' (C4) -> 'failed'
-    error TEXT,
+    status VARCHAR(50) NOT NULL,         -- 'ready' once cut (clean, platform_native captions); 'captioning' while C2 burns; 'failed' only if no usable file
+    error TEXT,                          -- e.g. "Captions failed: ..." on a clip that is still ready (clean cut)
+    starred BOOLEAN DEFAULT 0 NOT NULL,  -- user liked it; teaches the moment picker their taste
+    moment_features JSON,                -- shape of an auto-picked moment (detector.FEATURES), used for taste
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
@@ -118,9 +123,10 @@ CREATE TABLE import_jobs (
     clip_seconds INTEGER DEFAULT 30,
     layout VARCHAR(10) DEFAULT 'fill', -- 'fill' | 'blur' for auto-cut clips
     clip_layouts JSON,                  -- {clip_id: layout} for every clip cut from this source
-    clip_ids JSON DEFAULT '[]',         -- clips rows written (status='processing', ready for C2)
+    clip_ids JSON DEFAULT '[]',         -- clips rows written (status='ready'; C2 may burn captions on them)
     status VARCHAR(50) NOT NULL,        -- 'queued' | 'downloading' | 'analyzing' | 'cutting' | 'done' | 'failed'
     progress INTEGER DEFAULT 0,         -- 0-100
+    detail VARCHAR(255),                -- current step, e.g. 'Fetching 5 clips in HD · 42%'
     error TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     finished_at TIMESTAMP
@@ -130,7 +136,7 @@ Live recordings take the same path: the stream monitor (`app/workers/ingest_work
 
 Imports analyse the whole video by default (`MAX_IMPORT_MINUTES=0`), up to 30 clips per import.
 
-Each import writes its clips as normal `clips` rows (`raw_file_path` = the 9:16 cut, `file_path` = the same file until C2 burns captions, `status='processing'`).
+Each import writes its clips as normal `clips` rows (`raw_file_path` = the 9:16 cut, `file_path` = the same file until C2 burns captions, `status='ready'`, `caption_mode='platform_native'`). Captions are optional: a cut clip is postable at once, and a failed caption burn leaves it `ready` with `error` set. A project that already has clips stays `done` if a later batch fails (its `error` says why it stopped early).
 
 ### `editor_projects` (Video editor)
 ```sql
@@ -175,9 +181,12 @@ CREATE TABLE posts (
 | `/api/auth/register` | `POST` | **C3** | User registration | `{"email", "password"}` | `{"access_token", "token_type", "user"}` |
 | `/api/auth/login` | `POST` | **C3** | User login | `{"email", "password"}` | `{"access_token", "token_type", "user"}` |
 | `/api/auth/me` | `GET` | **C3** | Current user (send `Authorization: Bearer <token>`) | — | `UserRead` |
+| `/api/auth/config` | `GET` | **C3** | Sign-in methods on this server: the Google client ID, or `null` when Google sign-in is off | — | `{"google_client_id"}` |
+| `/api/auth/google` | `POST` | **C3** | Sign in or sign up with Google. Body is the ID token from Google Identity Services; matched by Google account, else linked by verified email, else created | `{"credential"}` | `{"access_token", "token_type", "user"}` |
 | `/api/streamers` | `GET/POST`| **C1** | List / add monitored streamers (includes live status) | `{"platform", "username"}` | `StreamerRead` (+ `is_live`, `live_title`, `recording`, `last_checked_at`, `check_error`, `channel_url`) |
 | `/api/streamers/{id}` | `PATCH/DELETE` | **C1** | Pause/resume or remove a channel | `{"is_active"}` | `StreamerRead` / 204 |
 | `/api/streamers/{id}/check` | `POST` | **C1** | Check live status now | — | `StreamerRead` |
+| `/api/streamers/{id}/check-now` | `POST` | **C1** | Scout the channel now; clips a VOD it hasn't clipped yet | — | `CheckResultRead` |
 | `/api/streamers/{id}/record` | `POST` | **C1** | Start recording the live broadcast now (409 if offline or already recording) | — | `StreamRead` (202) |
 | `/api/streamers/{id}/stop` | `POST` | **C1** | Stop recording; what was recorded is still clipped (409 if not recording) | — | `StreamerRead` |
 | `/api/streamers/{id}/latest-vod` | `POST` | **C1** | Find the latest past broadcast → import job | `{"clip_count", "clip_seconds"}` | `ImportRead` (202) |
@@ -197,7 +206,10 @@ CREATE TABLE posts (
 | `/api/imports/link` | `POST` | **C1** | Paste a Twitch / Kick / YouTube link → several clips (async) | `{"url", "clip_count": 1-30, "clip_seconds": 10-90, "layout": "fill"\|"blur"}` | `ImportRead` (202) |
 | `/api/imports/upload` | `POST` | **C1** | Upload a video (camera roll) → several clips (async) | `multipart/form-data (file, clip_count, clip_seconds, layout)` | `ImportRead` (202) |
 | `/api/imports` | `GET` | **C1** | Your import projects, newest first (poll while active) | — | `list[ImportRead]` |
-| `/api/imports/{id}` | `GET` | **C1** | One import's status / progress / clip_ids | — | `ImportRead` |
+| `/api/imports/{id}` | `GET` | **C1** | One import's status / progress / detail (step text) / clip_ids | — | `ImportRead` |
+| `/api/imports/{id}/retry` | `POST` | **C1** | Re-run a failed project in place, reusing what it already downloaded | — | `ImportRead` (202) |
+| `/api/imports/{id}/more` | `POST` | **C1** | Cut `count` more clips from moments the project's clips don't cover yet, leaning toward starred clips | `{"count": 1-10, "clip_seconds"?: 10-90}` | `ImportRead` (202) |
+| `/api/imports/{id}` | `DELETE` | **C1** | Cancel (if running) and delete a project; `?clips=true` also deletes its clips | — | 204 |
 | `/api/editor/projects` | `GET/POST` | **Editor** | List / create edits (optionally from a clip or an import) | `{"title", "aspect", "clip_id"?, "import_id"?}` | `ProjectRead` (201) |
 | `/api/editor/projects/{id}` | `GET/PATCH/DELETE` | **Editor** | Load / save the timeline (send `revision`) / delete | `{"timeline"?, "title"?, "revision"?}` | `ProjectRead` |
 | `/api/editor/projects/{id}/assets` | `POST` | **Editor** | Upload a video, image or audio file | `multipart/form-data (file, place)` | `ProjectRead` (201) |
@@ -208,10 +220,15 @@ CREATE TABLE posts (
 | `/api/downloads/instagram` | `POST` | **C1** | Fetch a public Instagram post/reel as MP4 | `{"url"}` | `DownloadRead` |
 | `/api/downloads/{id}/file` | `GET` | **C1** | The fetched file, as an attachment | — | Binary MP4 file |
 | `/api/studio/imports/{id}` | `GET` | **C1** | Open a project in the Clipping Studio: source video, energy curve, suggested moments, its clips | — | `StudioProject` |
+| `/api/studio/imports/{id}/preview` | `POST` | **C1** | Start fetching a link project's low-res scrubbing preview (idempotent) | — | `PreviewState` |
 | `/api/studio/imports/{id}/clips` | `POST` | **C1** | Cut a hand-picked range as a clip | `{"start_s", "end_s", "layout"}` | `StudioClip` (201) |
 | `/api/studio/clips/{id}/layout` | `POST` | **C1** | Re-cut a clip in the other layout (drops burned captions) | `{"layout": "fill"\|"blur"}` | `StudioClip` |
 | `/api/studio/clips/{id}/remove-captions` | `POST` | **C1** | Serve the clean cut again (caption_mode=platform_native, status=ready) | — | `StudioClip` |
+| `/api/studio/clips/{id}/star` | `POST` | **C1** | Star / unstar a clip (feeds the user's taste) | `{"starred": bool}` | `{"id", "starred", "starred_total"}` |
+| `/api/studio/taste` | `GET` | **C1** | Stars so far and whether picks are leaning on them yet | — | `{"starred", "learning"}` |
 | `/api/studio/clips/{id}/project` | `GET` | **C1** | Which project a clip came from (Hub → Studio link) | — | `{"job_id"}` |
+
+**Link imports are bandwidth-first** (`backend/app/services/ingest/pipeline.py`): we fetch the low-bitrate audio, find moments in it, then fetch only those sections in HD (in parallel, stream-copied, so each clip is encoded exactly once). At most two heavy encodes (cuts + caption burns) run at a time. Interrupted projects resume on restart. The full VOD is never downloaded; the studio scrubs a low-res preview.
 
 **Layouts** (`backend/app/services/clip/cutter.py`): `fill` crops/zooms to cover 9:16; `blur` keeps the whole frame centred over a blurred copy of itself. Burning captions on a studio clip still goes through C2's `POST /api/clips/{id}/caption`.
 

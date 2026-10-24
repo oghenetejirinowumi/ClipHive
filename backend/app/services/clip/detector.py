@@ -5,12 +5,17 @@ highlights and need no GPU: decode the audio once, measure loudness per half-sec
 windows by how far they spike above the video's own baseline. Each chosen clip's start then
 snaps to a scene cut within a couple of seconds (checked only around that point, so a long VOD
 costs the same as a short one), so a clip opens on a clean frame instead of mid-transition.
+
+Each picked moment also carries a small feature vector describing its shape (peak, sustained
+level, build-up, ...). Clips a user stars teach a "taste" direction in that space, and later
+picks are nudged toward it (see app/services/clip/taste.py).
 """
 from __future__ import annotations
 
 import re
 import subprocess
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +28,8 @@ SCENE_THRESHOLD = 0.3  # ffmpeg scene score (0-1) between consecutive frames
 SNAP_S = 2.0  # move a clip's start to a scene cut at most this far away
 
 _PTS = re.compile(r"pts_time:(\d+(?:\.\d+)?)")
+FEATURES = ("peak", "level", "focus", "build", "swing")  # see _features
+TASTE_WEIGHT = 0.75  # how far a full-strength taste can move a window's score (z units)
 
 
 @dataclass
@@ -30,6 +37,8 @@ class Highlight:
     start_s: float
     end_s: float
     score: float  # 0-100, relative to the rest of this video
+    features: list[float] = field(default_factory=list)  # standardised within this video
+    reason: str | None = None  # set when an AI model ranked this moment
 
 
 def _loudness_db(path: Path, max_seconds: float) -> np.ndarray:
@@ -83,18 +92,52 @@ def _snap_start(start: float, cuts: np.ndarray, lo: float, hi: float) -> float:
     return float(near[np.argmin(np.abs(near - start))]) if near.size else start
 
 
-def find_highlights(path: Path, duration_s: float, count: int, clip_seconds: int) -> list[Highlight]:
-    """Up to `count` non-overlapping windows of `clip_seconds`, best first then sorted by time."""
+def _overlaps(a0: float, a1: float, ranges: Sequence[tuple[float, float]]) -> bool:
+    return any(a0 < b1 and b0 < a1 for b0, b1 in ranges)
+
+
+def _features(windows: np.ndarray, centre: np.ndarray, k: int) -> np.ndarray:
+    """Shape of each window: loudest-third peak, overall level, centre focus, build-up from
+    first to last third, and how much it swings. Standardised across this video's windows."""
+    third = max(1, windows.shape[1] // 3)
+    feats = np.stack([
+        np.sort(windows, axis=1)[:, -k:].mean(axis=1),
+        windows.mean(axis=1),
+        (windows @ centre) / centre.sum(),
+        windows[:, -third:].mean(axis=1) - windows[:, :third].mean(axis=1),
+        windows.std(axis=1),
+    ], axis=1)
+    return (feats - feats.mean(axis=0)) / (feats.std(axis=0) + 1e-6)
+
+
+def find_highlights(
+    path: Path,
+    duration_s: float,
+    count: int,
+    clip_seconds: int,
+    exclude: Sequence[tuple[float, float]] = (),
+    taste: np.ndarray | None = None,
+) -> list[Highlight]:
+    """Up to `count` non-overlapping windows of `clip_seconds`, best first then sorted by time.
+
+    `exclude` ranges (clips already made) are never overlapped, so asking again yields new
+    moments. `taste` is a unit vector over FEATURES scaled by confidence (0-1)."""
+    if count <= 0:
+        return []
     if duration_s <= clip_seconds + 1:
-        return [Highlight(0.0, duration_s, 100.0)]
+        return [] if exclude else [Highlight(0.0, duration_s, 100.0)]
 
     db = _loudness_db(path, duration_s)
     silent = db.size == 0 or float(db.max()) < -55  # no usable audio: fall back to even spacing
     win = max(1, int(clip_seconds / HOP_S))
 
     if silent or db.size <= win:
-        step = (duration_s - clip_seconds) / max(1, count - 1) if count > 1 else 0
-        return [Highlight(i * step, i * step + clip_seconds, 50.0) for i in range(count)]
+        starts = np.arange(0, duration_s - clip_seconds + 1e-6, clip_seconds)
+        free = [float(a) for a in starts if not _overlaps(a, a + clip_seconds, exclude)]
+        if not free:
+            return []
+        idx = np.unique(np.linspace(0, len(free) - 1, min(count, len(free))).round().astype(int))
+        return [Highlight(free[i], free[i] + clip_seconds, 50.0) for i in idx]
 
     # Spikes relative to this video's own baseline (robust z-score).
     median = np.median(db)
@@ -107,11 +150,20 @@ def find_highlights(path: Path, duration_s: float, count: int, clip_seconds: int
     windows = np.lib.stride_tricks.sliding_window_view(z, win)
     centre = np.hanning(win + 2)[1:-1]
     scores = np.sort(windows, axis=1)[:, -k:].mean(axis=1) + 0.25 * (windows @ centre) / centre.sum()
+    feats = _features(windows, centre, k)
+    if taste is not None and taste.shape == (len(FEATURES),):
+        scores = scores + TASTE_WEIGHT * (feats @ taste)
+
+    # Clips already made are off limits (their windows and anything overlapping them).
+    blocked = [(max(0, int(a / HOP_S) - win + 1), int(np.ceil(b / HOP_S))) for a, b in exclude]
 
     picked: list[int] = []
     for i in np.argsort(scores)[::-1]:
-        if all(abs(int(i) - j) >= win for j in picked):
-            picked.append(int(i))
+        i = int(i)
+        if any(lo <= i < hi for lo, hi in blocked):
+            continue
+        if all(abs(i - j) >= win for j in picked):
+            picked.append(i)
         if len(picked) == count:
             break
 
@@ -127,7 +179,12 @@ def find_highlights(path: Path, duration_s: float, count: int, clip_seconds: int
         cuts = _scene_cuts(path, i * HOP_S - SNAP_S, 2 * SNAP_S)
         start = _snap_start(i * HOP_S, cuts, lo=prev_end, hi=max(prev_end, latest))
         end = min(duration_s, start + clip_seconds)
-        highlights.append(Highlight(start_s=round(start, 2), end_s=round(end, 2), score=round(40 + 60 * (float(scores[i]) - lo) / span, 1)))
+        highlights.append(Highlight(
+            start_s=round(start, 2),
+            end_s=round(end, 2),
+            score=round(40 + 60 * (float(scores[i]) - lo) / span, 1),
+            features=[round(float(v), 3) for v in feats[i]],
+        ))
         prev_end = end
     return highlights
 

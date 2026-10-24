@@ -17,10 +17,21 @@ class UserLogin(BaseModel):
     password: str
 
 
+# POST /auth/google: the ID token ("credential") from Google Identity Services
+class GoogleLogin(BaseModel):
+    credential: str = Field(min_length=20, max_length=8192)
+
+
 class UserRead(ORMModel):
     id: int
     email: EmailStr
+    name: str | None = None
+    avatar_url: str | None = None
     created_at: datetime
+
+
+class AuthConfig(BaseModel):
+    google_client_id: str | None  # None: Google sign-in is off
 
 
 class Token(BaseModel):

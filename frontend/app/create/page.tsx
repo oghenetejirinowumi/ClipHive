@@ -2,15 +2,23 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
-import { Badge, Button, buttonClass, Em, Icon, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
-import { api, ApiError, API_URL, apiUrl } from "@/lib/api";
+import { AgentFeed } from "@/components/agents/AgentFeed";
+import { CommandBar } from "@/components/agents/CommandBar";
+import { ProjectCard } from "@/components/projects/ProjectCard";
+import { Badge, Button, Em, Icon, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
+import { api, ApiError, apiUrl } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { ACTIVE_STATUSES as ACTIVE, formatTime, projectTitle, SOURCE_LABEL, STEP_LABEL, type ImportJob, type Layout } from "@/lib/imports";
+import { ACTIVE_STATUSES as ACTIVE, SOURCE_LABEL, type ImportJob, type Layout } from "@/lib/imports";
 import { getToken } from "@/lib/session";
 
 // Mirrors backend services/ingest/sources.py, for instant feedback while typing.
 function detect(url: string): "twitch" | "kick" | "youtube" | "instagram" | null {
-  const host = url.trim().replace(/^https?:\/\//i, "").split(/[/?#]/)[0].toLowerCase().replace(/^(www\.|m\.)/, "");
+  const host = url
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .split(/[/?#]/)[0]
+    .toLowerCase()
+    .replace(/^(www\.|m\.)/, "");
   if (/(^|\.)twitch\.tv$/.test(host)) return "twitch";
   if (/(^|\.)kick\.com$/.test(host)) return "kick";
   if (/(^|\.)(youtube\.com|youtu\.be)$/.test(host)) return "youtube";
@@ -90,7 +98,12 @@ export default function CreatePage() {
     try {
       const job = await api<ImportJob>("/api/imports/link", {
         method: "POST",
-        body: { url: url.trim(), clip_count: Number(clipCount), clip_seconds: Number(clipSeconds), layout },
+        body: {
+          url: url.trim(),
+          clip_count: Number(clipCount),
+          clip_seconds: Number(clipSeconds),
+          layout,
+        },
       });
       setJobs((prev) => [job, ...prev]);
       setUrl("");
@@ -98,6 +111,29 @@ export default function CreatePage() {
       setError(err instanceof ApiError ? err.message : "Couldn't reach the server. Is the backend running?");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function deleteProject(job: ImportJob, withClips: boolean) {
+    try {
+      await api(`/api/imports/${job.id}${withClips ? "?clips=true" : ""}`, {
+        method: "DELETE",
+      });
+      setJobs((prev) => prev.filter((j) => j.id !== job.id));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't delete that project.");
+    }
+  }
+
+  async function retryProject(job: ImportJob) {
+    try {
+      // Re-runs in place, reusing whatever the failed attempt already downloaded.
+      const fresh = await api<ImportJob>(`/api/imports/${job.id}/retry`, {
+        method: "POST",
+      });
+      setJobs((prev) => prev.map((j) => (j.id === job.id ? fresh : j)));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't retry that project.");
     }
   }
 
@@ -153,7 +189,10 @@ export default function CreatePage() {
                 placeholder="Paste a Twitch, Kick or YouTube link"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                className={cn("block h-16 w-full rounded-full border border-line-strong bg-surface pl-14 text-lg text-ink transition-[border-color,box-shadow] duration-(--motion-fast) placeholder:text-ink-faint hover:border-ink-faint focus:border-brand focus:shadow-ring focus-visible:outline-none", platform ? "pr-36" : "pr-6")}
+                className={cn(
+                  "block h-16 w-full rounded-full border border-line-strong bg-surface pl-14 text-lg text-ink transition-[border-color,box-shadow] duration-(--motion-fast) placeholder:text-ink-faint hover:border-ink-faint focus:border-brand focus:shadow-ring focus-visible:outline-none",
+                  platform ? "pr-36" : "pr-6",
+                )}
               />
               {platform && (
                 <span className="absolute top-1/2 right-4 -translate-y-1/2">
@@ -196,7 +235,14 @@ export default function CreatePage() {
             uploading && "pointer-events-none",
           )}
         >
-          <input ref={fileInput} type="file" accept="video/*" className="sr-only" disabled={uploading} onChange={(e) => e.target.files?.[0] && submitFile(e.target.files[0])} />
+          <input
+            ref={fileInput}
+            type="file"
+            accept="video/*"
+            className="sr-only"
+            disabled={uploading}
+            onChange={(e) => e.target.files?.[0] && submitFile(e.target.files[0])}
+          />
           {uploading ? (
             <>
               <p className="font-display text-2xl font-semibold tracking-tight text-ink">Uploading… {Math.round((uploadProgress ?? 0) * 100)}%</p>
@@ -223,7 +269,16 @@ export default function CreatePage() {
           </div>
           <div className="space-y-2">
             <p className="text-lg font-medium text-ink">Clip length</p>
-            <Segmented label="Clip length" value={clipSeconds} onChange={setClipSeconds} options={[{ value: "15", label: "15s" }, { value: "30", label: "30s" }, { value: "60", label: "60s" }]} />
+            <Segmented
+              label="Clip length"
+              value={clipSeconds}
+              onChange={setClipSeconds}
+              options={[
+                { value: "15", label: "15s" },
+                { value: "30", label: "30s" },
+                { value: "60", label: "60s" },
+              ]}
+            />
           </div>
           <div className="space-y-2">
             <p className="text-lg font-medium text-ink">Layout</p>
@@ -250,6 +305,14 @@ export default function CreatePage() {
         )}
       </Panel>
 
+      <Panel padding="lg" className="space-y-5">
+        <div>
+          <h2 className="font-display text-3xl font-semibold tracking-tight text-ink">Or just tell the agents</h2>
+          <p className="mt-2 text-lg text-ink-muted">Say what you want in your own words. The agents find your latest stream and plan the clips; you confirm before anything runs.</p>
+        </div>
+        <CommandBar onStarted={(job) => setJobs((prev) => [job, ...prev])} />
+      </Panel>
+
       {/* Projects */}
       <section className="space-y-6">
         <div className="flex items-center gap-4">
@@ -271,60 +334,34 @@ export default function CreatePage() {
           <ul className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
             {jobs.map((job) => (
               <li key={job.id}>
-                <Panel padding="none" className="flex h-full flex-col overflow-hidden">
-                  <div className="relative aspect-video bg-brand-deep">
-                    {job.thumbnail_path ? (
-                      // eslint-disable-next-line @next/next/no-img-element -- thumbnails come from the API host
-                      <img src={`${API_URL}/${job.thumbnail_path}`} alt="" className="size-full object-cover" />
-                    ) : (
-                      <div className="grid size-full place-items-center text-on-brand/50">
-                        <Icon name="film" className="size-10" />
-                      </div>
-                    )}
-                    <span className="absolute top-3 left-3 rounded-full bg-brand-deep/85 px-3 py-1 text-meta font-semibold text-on-brand tabular-nums">
-                      {formatTime(job.duration_s)}
-                    </span>
-                    <span className="absolute top-3 right-3 rounded-full bg-brand-deep/85 px-3 py-1 text-meta font-semibold text-on-brand">{SOURCE_LABEL[job.source]}</span>
-                  </div>
-
-                  <div className="flex flex-1 flex-col gap-4 p-6">
-                    <p className="line-clamp-2 font-display text-xl leading-snug font-semibold tracking-tight text-ink">
-                      {projectTitle(job)}
-                    </p>
-
-                    {ACTIVE.has(job.status) && (
-                      <div className="space-y-2" aria-live="polite">
-                        <div className="flex items-center justify-between text-base">
-                          <span className="font-medium text-brand">{STEP_LABEL[job.status]}</span>
-                          <span className="text-ink-muted tabular-nums">{job.progress}%</span>
-                        </div>
-                        <div className="h-2.5 overflow-hidden rounded-full bg-surface-sunken" role="progressbar" aria-valuenow={job.progress} aria-valuemin={0} aria-valuemax={100}>
-                          <div className="h-full rounded-full bg-brand transition-[width] duration-(--motion-base)" style={{ width: `${Math.max(4, job.progress)}%` }} />
-                        </div>
-                      </div>
-                    )}
-
-                    {job.status === "failed" && <p className="text-base text-danger">{job.error || "This project failed."}</p>}
-
-                    <div className="mt-auto flex items-center justify-between gap-3 border-t border-line pt-4">
-                      <span className="text-base text-ink-muted">
-                        {job.status === "done"
-                          ? `${job.clip_ids.length} clip${job.clip_ids.length === 1 ? "" : "s"} · ${job.clip_seconds}s each`
-                          : `${job.clip_count} × ${job.clip_seconds}s requested`}
-                      </span>
-                      {job.status === "done" && (
-                        <Link href={`/studio/${job.id}`} className={buttonClass({ variant: "secondary", size: "sm" })}>
-                          <Icon name="film" className="size-5" /> Open in studio
-                        </Link>
-                      )}
-                    </div>
-                  </div>
-                </Panel>
+                <ProjectCard job={job} onDelete={deleteProject} onRetry={retryProject}>
+                  {(job.status === "analyzing" || job.status === "cutting") && <AgentFeed importJobId={job.id} compact />}
+                  {job.status === "done" && <WhyTheseClips jobId={job.id} />}
+                </ProjectCard>
               </li>
             ))}
           </ul>
         )}
       </section>
+    </div>
+  );
+}
+
+/** Finished projects keep the agent's reasoning one click away. */
+function WhyTheseClips({ jobId }: { jobId: number }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex min-h-11 items-center gap-2 text-base font-medium text-brand hover:text-brand-strong"
+      >
+        <Icon name="bot" className="size-5" />
+        {open ? "Hide the agent's decisions" : "Why these clips?"}
+      </button>
+      {open && <AgentFeed importJobId={jobId} compact className="mt-3" />}
     </div>
   );
 }

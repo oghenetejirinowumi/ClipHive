@@ -1,51 +1,23 @@
 """Trend fetching client for ClipHive (YouTube, TikTok, and cached evergreen fallbacks)."""
+
 from __future__ import annotations
 
 import logging
-import os
-import time
+from datetime import datetime, timezone
 from typing import Sequence
 
 import requests
-from sqlalchemy.orm import Session
-
+from app.config import settings
 from app.models.enums import PostPlatform
 from app.models.trend import Trend
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
-
-EVERGREEN_TRENDS: dict[PostPlatform, list[dict]] = {
-    PostPlatform.TIKTOK: [
-        {"hashtag": "#fyp", "topic": "For You Page", "score": 99.5},
-        {"hashtag": "#gaming", "topic": "Gaming Community", "score": 95.2},
-        {"hashtag": "#twitchstreamer", "topic": "Stream Highlights", "score": 92.0},
-        {"hashtag": "#viralclips", "topic": "Viral Moments", "score": 89.4},
-        {"hashtag": "#clutch", "topic": "Pro Gameplay", "score": 87.1},
-        {"hashtag": "#streamerhighlights", "topic": "Twitch & Kick", "score": 85.0},
-        {"hashtag": "#gamingontiktok", "topic": "TikTok Gaming", "score": 83.2},
-        {"hashtag": "#funnygaming", "topic": "Comedy Moments", "score": 80.5},
-        {"hashtag": "#esports", "topic": "Competitive", "score": 78.0},
-        {"hashtag": "#epicmoment", "topic": "Highlights", "score": 75.3},
-    ],
-    PostPlatform.YOUTUBE: [
-        {"hashtag": "#Shorts", "topic": "YouTube Shorts", "score": 98.8},
-        {"hashtag": "#Gaming", "topic": "Gaming", "score": 94.6},
-        {"hashtag": "#Livestream", "topic": "Live Highlights", "score": 91.2},
-        {"hashtag": "#TwitchClips", "topic": "Best Stream Moments", "score": 88.5},
-        {"hashtag": "#GamerMoments", "topic": "Gameplay Clips", "score": 86.0},
-        {"hashtag": "#FunnyClips", "topic": "Fails & Wins", "score": 84.1},
-        {"hashtag": "#ShortsGaming", "topic": "Short Form Gaming", "score": 82.0},
-        {"hashtag": "#ProPlay", "topic": "Esports Plays", "score": 79.5},
-    ],
-}
-
-_CACHE_EXPIRY_SECONDS = 3600  # 1 hour
-_LAST_FETCH_TIME: dict[PostPlatform, float] = {}
 
 
 def fetch_youtube_trends(api_key: str | None = None) -> list[dict]:
     """Fetches popular gaming shorts/videos from YouTube Data API v3, or returns empty list on failure."""
-    key = api_key or os.getenv("YOUTUBE_API_KEY")
+    key = api_key or settings.youtube_api_key
     if not key:
         return []
 
@@ -80,25 +52,32 @@ def fetch_youtube_trends(api_key: str | None = None) -> list[dict]:
 
 def get_or_refresh_trends(db: Session, platform: PostPlatform) -> list[Trend]:
     """
-    Returns the latest trends for a platform from DB or seeds them with evergreen fallbacks.
-    Refreshes if older than 1 hour.
+    Returns persisted trends and refreshes stale YouTube data when configured.
+    Missing providers never produce synthetic trend rows.
     """
-    now = time.time()
-    last_fetched = _LAST_FETCH_TIME.get(platform, 0)
+    existing = (
+        db.query(Trend)
+        .filter(Trend.platform == platform)
+        .order_by(Trend.score.desc())
+        .all()
+    )
+    newest = max(
+        (trend.fetched_at for trend in existing if trend.fetched_at), default=None
+    )
+    now = datetime.now(timezone.utc)
 
-    existing = db.query(Trend).filter(Trend.platform == platform).order_by(Trend.score.desc()).all()
+    if newest:
+        if newest.tzinfo is None:
+            newest = newest.replace(tzinfo=timezone.utc)
+        if (now - newest).total_seconds() < settings.trends_cache_ttl_s:
+            return existing
 
-    if existing and (now - last_fetched < _CACHE_EXPIRY_SECONDS):
+    if platform != PostPlatform.YOUTUBE or not settings.youtube_api_key:
         return existing
 
-    # Try live fetch for YouTube
-    trends_data = []
-    if platform == PostPlatform.YOUTUBE:
-        trends_data = fetch_youtube_trends()
-
-    # Fallback if no live data
+    trends_data = fetch_youtube_trends(settings.youtube_api_key)
     if not trends_data:
-        trends_data = EVERGREEN_TRENDS.get(platform, EVERGREEN_TRENDS[PostPlatform.TIKTOK])
+        return existing
 
     # Update database
     db.query(Trend).filter(Trend.platform == platform).delete()
@@ -112,6 +91,10 @@ def get_or_refresh_trends(db: Session, platform: PostPlatform) -> list[Trend]:
         db.add(t)
 
     db.commit()
-    _LAST_FETCH_TIME[platform] = now
 
-    return db.query(Trend).filter(Trend.platform == platform).order_by(Trend.score.desc()).all()
+    return (
+        db.query(Trend)
+        .filter(Trend.platform == platform)
+        .order_by(Trend.score.desc())
+        .all()
+    )

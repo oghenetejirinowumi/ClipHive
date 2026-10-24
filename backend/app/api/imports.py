@@ -1,12 +1,15 @@
 """Paste a link (Twitch / Kick / YouTube) or upload a video → several 9:16 clips."""
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from pathlib import Path
+
+from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import select
 
 from app.api.deps import DbSession, Owner
-from app.models import ImportJob, ImportSource
-from app.schemas.import_job import ImportLinkRequest, ImportRead
+from app.core.media import from_public, storage_root
+from app.models import Clip, ImportJob, ImportSource, ImportStatus
+from app.schemas.import_job import ImportLinkRequest, ImportRead, MoreClipsRequest
 from app.services.ingest import pipeline
 from app.services.ingest.downloader import IngestError
 from app.services.ingest.sources import detect_source, is_instagram, normalise
@@ -76,3 +79,66 @@ def get_import(job_id: int, user: Owner, db: DbSession) -> ImportJob:
     if job is None or job.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Import not found.")
     return job
+
+
+@router.post("/{job_id}/retry", response_model=ImportRead, status_code=status.HTTP_202_ACCEPTED)
+def retry_import(job_id: int, user: Owner, db: DbSession) -> ImportJob:
+    """Re-run a failed project in place. Whatever its last attempt finished (audio, sections,
+    clips) is reused, so a retry continues rather than starting over."""
+    job = db.get(ImportJob, job_id)
+    if job is None or job.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Import not found.")
+    if job.status != ImportStatus.FAILED:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Only a failed project can be retried.")
+    job.status, job.error, job.detail = ImportStatus.QUEUED, None, "Retrying"
+    db.commit()
+    db.refresh(job)
+    pipeline.submit(job.id)
+    return job
+
+
+@router.post("/{job_id}/more", response_model=ImportRead, status_code=status.HTTP_202_ACCEPTED)
+def more_clips(job_id: int, body: MoreClipsRequest, user: Owner, db: DbSession) -> ImportJob:
+    """Cut `count` more clips from a finished project. Moments its existing clips cover are
+    excluded, so every new clip is different, and picks lean toward clips the user starred."""
+    job = db.get(ImportJob, job_id)
+    if job is None or job.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Import not found.")
+    if job.status != ImportStatus.DONE:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This project is still processing.")
+    if pipeline.analysis_media(job) is None:
+        raise HTTPException(status.HTTP_410_GONE, "This project's audio is no longer on disk, so it can't find new moments.")
+    existing = db.query(Clip).filter(Clip.id.in_(job.clip_ids or [])).count()
+    job.clip_count = existing + body.count
+    if body.clip_seconds:
+        job.clip_seconds = body.clip_seconds
+    job.status, job.error, job.progress, job.detail = ImportStatus.QUEUED, None, 37, f"Finding {body.count} new moments"
+    db.commit()
+    db.refresh(job)
+    pipeline.submit(job.id)
+    return job
+
+
+@router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_import(job_id: int, user: Owner, db: DbSession, clips: bool = Query(False, description="Also delete the clips cut from it")) -> Response:
+    """Delete a project (cancelling it first if it's still running). Its clips stay in the Hub
+    unless clips=true."""
+    job = db.get(ImportJob, job_id)
+    if job is None or job.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Import not found.")
+    pipeline.cancel(job_id)
+
+    clip_files: list[Path] = []
+    if clips:
+        root = storage_root() / "clips"
+        for clip in db.query(Clip).filter(Clip.id.in_(job.clip_ids or []), Clip.user_id == user.id):
+            for p in {clip.raw_file_path, clip.file_path}:
+                if p:
+                    path = from_public(p)
+                    if path.resolve().is_relative_to(root):  # never touch files outside storage/clips
+                        clip_files.append(path)
+            db.delete(clip)
+    db.delete(job)
+    db.commit()
+    pipeline.remove_files(job_id, clip_files)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

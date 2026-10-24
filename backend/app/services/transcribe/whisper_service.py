@@ -198,20 +198,113 @@ def transcribe_with_assemblyai(
     raise TimeoutError("AssemblyAI transcription timed out")
 
 
+def extract_speech_audio(
+    file_path: str | Path,
+    out_path: Path,
+    start_s: float = 0.0,
+    max_seconds: float | None = None,
+) -> Path:
+    """Mono 16 kHz 32 kbps mp3: about 14 MB per hour, well under Groq's 25 MB upload cap."""
+    import subprocess
+
+    from app.core.media import ffmpeg_bin
+
+    cmd = [ffmpeg_bin(), "-hide_banner", "-loglevel", "error", "-y"]
+    if start_s > 0:
+        cmd += ["-ss", f"{start_s:.2f}"]
+    cmd += ["-i", str(file_path)]
+    if max_seconds:
+        cmd += ["-t", f"{max_seconds:.2f}"]
+    cmd += ["-vn", "-ac", "1", "-ar", "16000", "-b:a", "32k", str(out_path)]
+    result = subprocess.run(cmd, capture_output=True, timeout=1800)
+    if result.returncode != 0 or not out_path.exists():
+        raise RuntimeError("Couldn't extract audio for transcription.")
+    return out_path
+
+
+def _segment_confidence(segments: list[dict], start: float) -> float:
+    """Groq gives no per-word probability, so use the enclosing segment's average log-prob."""
+    import math
+
+    for seg in segments:
+        if seg.get("start", 0) <= start <= seg.get("end", 0) + 0.05:
+            logprob = seg.get("avg_logprob")
+            if logprob is not None:
+                return round(min(1.0, max(0.0, math.exp(float(logprob)))), 2)
+    return 0.9
+
+
+def transcribe_with_groq(
+    file_path: str | Path,
+    language: str | None = "en",
+    vocabulary: Sequence[str] = GAMING_VOCABULARY,
+    start_s: float = 0.0,
+    max_seconds: float | None = None,
+) -> list[TranscriptWord]:
+    """Transcribe with Groq-hosted Whisper. Word times are in the source file's timeline
+    (offset by `start_s` when only part of the file is sent)."""
+    import tempfile
+
+    from app.services.ai.groq_client import groq_client
+
+    client = groq_client(timeout_s=120)
+    if client is None:
+        raise ValueError("GROQ_API_KEY is not configured")
+    if not Path(file_path).exists():
+        raise FileNotFoundError(f"Media file not found: {file_path}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        audio = extract_speech_audio(file_path, Path(tmp) / "speech.mp3", start_s, max_seconds)
+        with open(audio, "rb") as f:
+            resp = client.audio.transcriptions.create(
+                file=("speech.mp3", f),
+                model=settings.groq_transcribe_model,
+                language=language or None,
+                prompt=" ".join(vocabulary)[:800] if vocabulary else None,
+                response_format="verbose_json",
+                timestamp_granularities=["word", "segment"],
+                temperature=0.0,
+            )
+
+    data = resp.model_dump() if hasattr(resp, "model_dump") else dict(resp)
+    segments = data.get("segments") or []
+    words: list[TranscriptWord] = []
+    for w in data.get("words") or []:
+        clean = (w.get("word") or "").strip()
+        if not clean:
+            continue
+        start = float(w.get("start", 0))
+        words.append(
+            TranscriptWord(
+                word=clean,
+                start=round(start + start_s, 3),
+                end=round(float(w.get("end", start)) + start_s, 3),
+                confidence=_segment_confidence(segments, start),
+            )
+        )
+    return words
+
+
 def transcribe_video(
     file_path: str | Path,
-    provider: str = "faster-whisper",
+    provider: str = "auto",
     language: str | None = "en",
 ) -> list[TranscriptWord]:
     """
     Main transcription entrypoint.
-    Prefers faster-whisper by default for instant local execution,
-    or AssemblyAI if requested and configured.
+    "auto" uses Groq when GROQ_API_KEY is set (fast, large-v3 accuracy), otherwise local
+    faster-whisper. "assemblyai" uses AssemblyAI if configured. Every cloud path falls back
+    to faster-whisper on error.
     """
     if provider == "assemblyai" and settings.assemblyai_api_key:
         try:
             return transcribe_with_assemblyai(file_path)
         except Exception as e:
             logger.warning(f"AssemblyAI failed ({e}), falling back to faster-whisper")
+    elif provider in ("auto", "groq") and settings.groq_api_key:
+        try:
+            return transcribe_with_groq(file_path, language=language)
+        except Exception as e:
+            logger.warning(f"Groq transcription failed ({e}), falling back to faster-whisper")
 
     return transcribe_with_faster_whisper(file_path, language=language)
