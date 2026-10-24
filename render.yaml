@@ -1,3 +1,4 @@
+# NOT USED: the live API runs on AWS EC2 + Vercel (see docs/DEPLOYMENT.md). Kept as an alternative.
 # Render Blueprint for the ClipHive API (FastAPI). Render > New > Blueprint > pick this repo.
 # The frontend deploys separately on Vercel (Root Directory: frontend).
 #

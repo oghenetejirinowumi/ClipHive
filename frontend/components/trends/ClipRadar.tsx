@@ -436,8 +436,8 @@ export function ClipRadar() {
                           // eslint-disable-next-line @next/next/no-img-element -- thumbnails come from Kick / Twitch
                           <img src={c.thumbnail_url} alt="" referrerPolicy="no-referrer" loading="lazy" className="size-full object-cover" />
                         )}
-                        <span className="absolute bottom-2 left-2 rounded-md bg-black/70 px-2 py-0.5 text-meta font-medium text-white">{compact(c.views)} views</span>
-                        {duration(c.duration_s) && <span className="absolute right-2 bottom-2 rounded-md bg-black/70 px-2 py-0.5 text-meta font-medium text-white">{duration(c.duration_s)}</span>}
+                        <span className="absolute bottom-2 left-2 rounded-full bg-brand-deep/85 px-2 py-0.5 text-meta font-semibold text-on-brand tabular-nums">{compact(c.views)} views</span>
+                        {duration(c.duration_s) && <span className="absolute right-2 bottom-2 rounded-full bg-brand-deep/85 px-2 py-0.5 text-meta font-semibold text-on-brand tabular-nums">{duration(c.duration_s)}</span>}
                       </div>
                       <div className="space-y-1 p-4">
                         <p className={cn("line-clamp-2 font-semibold text-ink group-hover:text-brand", !c.title && "text-ink-muted")}>{c.title || "Untitled"}</p>

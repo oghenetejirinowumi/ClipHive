@@ -135,7 +135,7 @@ export function VideoPicker({ streamer, onClipped, onClose }: Props) {
                       </div>
                     )}
                     {v.duration_s ? (
-                      <span className="absolute bottom-2 right-2 rounded-md bg-black/75 px-1.5 py-0.5 text-sm font-medium text-white">{formatTime(v.duration_s)}</span>
+                      <span className="absolute right-2 bottom-2 rounded-full bg-brand-deep/85 px-2 py-0.5 text-meta font-semibold text-on-brand tabular-nums">{formatTime(v.duration_s)}</span>
                     ) : null}
                     {selected && (
                       <span className="absolute left-2 top-2 grid size-8 place-items-center rounded-full bg-brand text-on-brand">
@@ -145,7 +145,7 @@ export function VideoPicker({ streamer, onClipped, onClose }: Props) {
                   </div>
                   <div className="p-3">
                     <p className="line-clamp-2 text-base font-medium text-ink">{v.title}</p>
-                    {v.published_at && <p className="mt-1 text-sm text-ink-muted">{timeAgo(v.published_at)}</p>}
+                    {v.published_at && <p className="mt-1 text-meta text-ink-muted">{timeAgo(v.published_at)}</p>}
                   </div>
                 </button>
               </li>
@@ -158,11 +158,11 @@ export function VideoPicker({ streamer, onClipped, onClose }: Props) {
         <div className="flex flex-wrap items-end justify-between gap-4 border-t border-line pt-5">
           <div className="flex flex-wrap gap-4">
             <div className="space-y-1">
-              <p className="text-sm font-medium text-ink-muted">Clips</p>
+              <p className="text-meta font-medium text-ink-muted">Clips</p>
               <Segmented label="Number of clips" compact value={count} onChange={setCount} options={COUNTS.map((n) => ({ value: String(n), label: String(n) }))} />
             </div>
             <div className="space-y-1">
-              <p className="text-sm font-medium text-ink-muted">Length</p>
+              <p className="text-meta font-medium text-ink-muted">Length</p>
               <Segmented label="Clip length" compact value={seconds} onChange={setSeconds} options={LENGTHS.map((n) => ({ value: String(n), label: `${n}s` }))} />
             </div>
           </div>
