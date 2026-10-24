@@ -13,6 +13,7 @@ export function SkyHeader({
   description,
   actions,
   size = "md",
+  decoration,
   className,
 }: {
   eyebrow?: ReactNode;
@@ -20,6 +21,8 @@ export function SkyHeader({
   description?: ReactNode;
   actions?: ReactNode;
   size?: "md" | "lg";
+  /** Extra background layers drawn over the sky, behind the text (e.g. a bee swarm). */
+  decoration?: ReactNode;
   className?: string;
 }) {
   return (
@@ -31,6 +34,7 @@ export function SkyHeader({
       )}
     >
       <SkyBackground className="fx-sky-compact" />
+      {decoration}
       {eyebrow && <SectionLabel inverse>{eyebrow}</SectionLabel>}
       <h1
         className={cn(

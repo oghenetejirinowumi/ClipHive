@@ -105,10 +105,10 @@ export const AGENT_LABEL: Record<AgentKind, string> = {
 };
 
 export const AGENT_ROLE: Record<AgentKind, string> = {
-  scout: "Forages your channels for fresh livestreams and VOD nectar",
-  producer: "Extracts high-energy moments, cuts vertical clips and refines them",
-  publisher: "Captions and pollinates your social feeds (TikTok, Shorts, Reels)",
-  command: "Directs the colony and turns your natural language commands into plans",
+  scout: "Checks your channels for new streams",
+  producer: "Picks the best moments and cuts them into clips",
+  publisher: "Captions clips and schedules the posts",
+  command: "Turns your requests into a plan",
 };
 
 export const BEE_SPECIES: Record<AgentKind, string> = {

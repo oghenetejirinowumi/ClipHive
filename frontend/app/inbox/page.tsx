@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Bee, BeeLoader, BeeSwarm, HoneyDrip, HoneycombLattice } from "@/components/hive";
 import { Badge, Button, buttonClass, Checkbox, Em, Icon, Notice, Panel, SectionLabel, SkyHeader } from "@/components/ui";
 import { api, API_URL, ApiError } from "@/lib/api";
 import { formatSlot, PLATFORM_LABEL, tzOffsetMinutes, type InboxClip, type PostPlatform, type ScheduledPost } from "@/lib/agents";
@@ -125,7 +126,13 @@ export default function InboxPage() {
             Your bees harvested <Em>{clips?.length ?? "…"}</Em> clip{clips?.length === 1 ? "" : "s"}
           </>
         }
-        description="Nothing posts without you. Approve a clip and the Honey Bee burns its captions and schedules it; reject it and the bees learn from your reason."
+        description="Approve to schedule. Reject to teach the bees."
+        decoration={
+          <>
+            <HoneycombLattice tone="inverse" fade="right" />
+            <BeeSwarm count={5} tone="inverse" interactive pollen className="-z-10" />
+          </>
+        }
       />
 
       <Panel padding="md" className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
@@ -137,7 +144,7 @@ export default function InboxPage() {
             ))}
           </div>
         </div>
-        <p className="text-base text-ink-muted">
+        <p className="hidden text-base text-ink-muted lg:block">
           Keys: <kbd className="font-mono font-semibold text-ink">A</kbd> approve · <kbd className="font-mono font-semibold text-ink">R</kbd> reject ·{" "}
           <kbd className="font-mono font-semibold text-ink">E</kbd> edit · <kbd className="font-mono font-semibold text-ink">J</kbd>/<kbd className="font-mono font-semibold text-ink">K</kbd> move
         </p>
@@ -165,14 +172,12 @@ export default function InboxPage() {
       )}
 
       {clips === null ? (
-        <p className="text-lg text-ink-muted">Loading your inbox…</p>
+        <BeeLoader label="Loading clips…" />
       ) : clips.length === 0 ? (
         <Panel tone="sunken" padding="lg" className="flex flex-col items-center py-16 text-center">
-          <span className="grid size-16 place-items-center rounded-full bg-success-subtle text-success">
-            <Icon name="check" />
-          </span>
+          <Bee variant="honey" size={64} className="bee-hover" />
           <p className="mt-6 font-display text-3xl font-semibold tracking-tight text-ink">Inbox zero</p>
-          <p className="mt-2 max-w-xl text-lg text-ink-muted">New clips land here when the Worker Bee finishes. Paste a link, command the Queen Bee, or let the Scout Bee find your next stream.</p>
+          <p className="mt-2 max-w-xl text-lg text-ink-muted">New clips show up here when the bees finish.</p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
             <Link href="/create" className={buttonClass()}>
               <Icon name="plus" className="size-5" /> Start a project
@@ -184,19 +189,21 @@ export default function InboxPage() {
         </Panel>
       ) : (
         <section className="space-y-6">
-          <SectionLabel>Waiting for you</SectionLabel>
+          <SectionLabel>To review</SectionLabel>
           <ul className="grid gap-8 sm:grid-cols-2 xl:grid-cols-3">
             {clips.map((clip, i) => {
               const active = i === selected;
               return (
-                <li key={clip.id}>
+                <li key={clip.id} className="min-w-0">
                   <Panel
                     as="article"
                     padding="none"
                     onClick={() => setSelected(i)}
                     aria-current={active || undefined}
-                    className={cn("flex h-full flex-col overflow-hidden transition-shadow duration-(--motion-fast)", active && "shadow-ring")}
+                    className={cn("relative flex h-full flex-col overflow-hidden transition-shadow duration-(--motion-fast)", active && "shadow-ring")}
                   >
+                    {/* The clip you're on gets honey running over its top edge. */}
+                    {active && <HoneyDrip className="z-10" />}
                     <div className="relative aspect-[9/16] max-h-[28rem] w-full bg-brand-deep">
                       {clip.file_path && <video src={`${API_URL}/${clip.file_path}`} controls playsInline preload="metadata" className="size-full object-contain" />}
                       <span className="absolute top-3 left-3 rounded-full bg-brand-deep/85 px-3 py-1 text-meta font-semibold text-on-brand tabular-nums">
@@ -212,7 +219,7 @@ export default function InboxPage() {
 
                       {clip.reason && (
                         <p className="flex gap-2 rounded-md bg-brand-subtle px-4 py-3 text-base text-brand-strong">
-                          <Icon name="bot" className="mt-0.5 size-5 shrink-0" />
+                          <Icon name="bee" className="mt-0.5 size-5 shrink-0" />
                           <span>
                             <span className="font-semibold">Why: </span>
                             {clip.reason}
@@ -239,7 +246,7 @@ export default function InboxPage() {
                           }}
                         >
                           <label htmlFor={`reason-${clip.id}`} className="block text-base font-medium text-ink">
-                            Why not? (optional, it teaches the bees)
+                            Why not? (optional)
                           </label>
                           <div className="flex flex-wrap gap-2">
                             {QUICK_REASONS.map((r) => (
