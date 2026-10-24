@@ -160,7 +160,8 @@ function EditorIndex() {
           {open && <EditDialog key={open.id} project={open} onClose={() => setOpenId(null)} onDelete={() => removeProject(open.id)} />}
         </section>
 
-        <aside className="lg:col-span-5">
+        {/* min-w-0: without it the clip strip's full width stretches this column off-screen instead of scrolling */}
+        <aside className="min-w-0 lg:col-span-5">
           <Panel padding="lg" className="lg:sticky lg:top-8">
             <h2 className="font-display text-3xl font-semibold tracking-tight text-ink">New edit</h2>
             <form onSubmit={submit} className="mt-6 space-y-7">
@@ -200,7 +201,8 @@ function EditorIndex() {
                 <p className="text-meta text-ink-muted">{SHAPES.find((s) => s.value === aspect)?.hint}</p>
               </fieldset>
 
-              <fieldset className="space-y-3">
+              {/* A fieldset is min-content wide by default; min-w-0 lets the clip strip scroll inside it */}
+              <fieldset className="min-w-0 space-y-3">
                 <legend className="mb-3 text-lg font-medium text-ink">Start from</legend>
                 <div className="grid grid-cols-3 gap-2">
                   {STARTS.map((s) => {
