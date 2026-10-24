@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_owner
+from app.api.deps import Owner, get_owner
 from app.core.media import MediaError, from_public
 from app.db import get_db
 from app.models.caption_style import CaptionStyle
@@ -121,14 +121,19 @@ async def upload_font(file: UploadFile):
 
 # ---------- library ----------
 @router.get("", response_model=list[CaptionStyleRead])
-def list_styles(db: Session = Depends(get_db)):
+def list_styles(user: Owner, db: Session = Depends(get_db)):
     """Presets (library order) then custom styles, newest first."""
     global _fonts_queued
     presets = seed_preset_styles(db)
     if not _fonts_queued:
         _fonts_queued = True
         fonts.install_in_background(PRESET_FONTS)
-    custom = db.query(CaptionStyle).filter(CaptionStyle.is_preset.is_(False)).order_by(CaptionStyle.id.desc()).all()
+    custom = (
+        db.query(CaptionStyle)
+        .filter(CaptionStyle.is_preset.is_(False), (CaptionStyle.user_id.is_(None)) | (CaptionStyle.user_id == user.id))
+        .order_by(CaptionStyle.id.desc())
+        .all()
+    )
     return [to_read(s) for s in [*presets, *custom]]
 
 
@@ -150,7 +155,7 @@ async def preview(body: RenderPreviewRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/import-ass", response_model=list[CaptionStyleRead], status_code=status.HTTP_201_CREATED)
-async def import_ass(file: UploadFile, db: Session = Depends(get_db), user: User = Depends(get_owner)):
+async def import_ass(file: UploadFile, user: Owner, db: Session = Depends(get_db)):
     """Create styles from an .ass/.ssa subtitle file."""
     if not (file.filename or "").lower().endswith((".ass", ".ssa")):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Upload an .ass or .ssa subtitle file.")
@@ -188,7 +193,7 @@ def _create(db: Session, payload: CaptionStyleCreate, user: User | None) -> Capt
 
 
 @router.post("", response_model=CaptionStyleRead, status_code=status.HTTP_201_CREATED)
-def create_style(payload: CaptionStyleCreate, db: Session = Depends(get_db), user: User = Depends(get_owner)):
+def create_style(payload: CaptionStyleCreate, user: Owner, db: Session = Depends(get_db)):
     return to_read(_create(db, payload, user))
 
 

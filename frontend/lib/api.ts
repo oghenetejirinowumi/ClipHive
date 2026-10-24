@@ -18,7 +18,7 @@ export class ApiError extends Error {
 type ApiInit = Omit<RequestInit, "body"> & {
   /** Plain objects/arrays are sent as JSON; FormData, Blob, strings etc. go as-is. */
   body?: BodyInit | Record<string, unknown> | unknown[] | null;
-  /** Attach the signed-in user's bearer token (default true). */
+  /** Deprecated, ignored: the signed-in user's token is always attached when there is one. */
   auth?: boolean;
   /** On 401, send the user to /login (default true). The session is cleared either way. */
   redirectOn401?: boolean;
@@ -40,9 +40,10 @@ const isPlainJson = (body: unknown): body is Record<string, unknown> | unknown[]
  */
 export async function api<T = unknown>(
   path: string,
-  { body, auth = true, redirectOn401 = true, headers, ...init }: ApiInit = {},
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- `auth` kept so existing calls compile
+  { body, auth, redirectOn401 = true, headers, ...init }: ApiInit = {},
 ): Promise<T> {
-  const token = auth ? getToken() : null;
+  const token = getToken();
   const json = isPlainJson(body);
 
   const res = await fetch(apiUrl(path), {

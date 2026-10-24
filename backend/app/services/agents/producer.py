@@ -273,6 +273,13 @@ def make_clip(
         except Exception as err:
             logger.warning("Context packaging skipped for clip %s: %s", clip.id, err)
 
+        try:
+            from app.services.ai.ai_pack import auto_run_ai_pack
+
+            auto_run_ai_pack(clip, db)
+        except Exception as err:
+            logger.warning("Auto AI packaging skipped for clip %s: %s", clip.id, err)
+
         from app.models.caption_style import CaptionStyle
 
         wanted_style = (job.brief.get("style") or "").strip()

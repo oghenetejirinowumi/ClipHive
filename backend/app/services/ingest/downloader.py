@@ -26,8 +26,8 @@ from pathlib import Path
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, download_range_func
 
-from app.config import settings
 from app.core.media import ffmpeg_bin
+from app.services.ingest import youtube_guard
 
 # ≤1080p, H.264 + AAC first so cuts are a cheap decode; anything else as a fallback.
 HD_VIDEO = "bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b"
@@ -124,11 +124,12 @@ def _base_opts(*, browser_cookies: bool = False) -> dict:
     runtimes = _js_runtimes()
     if runtimes:  # YouTube's signature challenge needs a JS runtime, or downloads crawl / fail
         opts["js_runtimes"] = runtimes
+    opts.update(youtube_guard.opts())  # polite retries, optional proxy and cookies
     # A cookies file is cheap and explicit, so use it from the start. Browser cookies are
     # only a fallback: they need a Keychain prompt and tie downloads to that account.
     if settings.ytdlp_cookies_file:
         opts["cookiefile"] = settings.ytdlp_cookies_file
-    elif browser_cookies and settings.ytdlp_cookies_from_browser:
+    elif browser_cookies and settings.ytdlp_cookies_from_browser and not opts.get("cookiefile"):
         opts.update(_browser_cookie_opts())
     return opts
 
@@ -157,8 +158,22 @@ def _is_youtube(info: dict) -> bool:
     return str(info.get("extractor_key") or info.get("extractor") or "").lower().startswith("youtube")
 
 
+def _guard(url: str | None) -> None:
+    """Before touching YouTube: fail fast during a cooldown, else keep requests spaced out."""
+    if youtube_guard.is_youtube(url):
+        try:
+            youtube_guard.pace()
+        except youtube_guard.YouTubeCoolingDown as err:
+            raise IngestError(str(err)) from err
+
+
+def _info_url(info: dict) -> str | None:
+    return info.get("webpage_url") or info.get("original_url") or info.get("url")
+
+
 def probe_url(url: str) -> dict:
     """Metadata only (title, duration, formats). Refuses playlists and live streams."""
+    _guard(url)
     info = _probe(url)
     # On a bot-walled network YouTube sometimes answers with only combined video streams.
     # Without an audio-only stream, the analysis download is a whole video, so ask again.
@@ -179,6 +194,7 @@ def _probe(url: str, *, browser_cookies: bool = False) -> dict:
     try:
         info = _extract(url, _base_opts(browser_cookies=browser_cookies))
     except DownloadError as err:
+        youtube_guard.report(err)
         text = str(err).lower()
         needs_login = _is_bot_wall(text) or "login" in text or "cookies" in text
         if not (needs_login and settings.ytdlp_cookies_from_browser and not settings.ytdlp_cookies_file):
@@ -187,6 +203,7 @@ def _probe(url: str, *, browser_cookies: bool = False) -> dict:
         try:
             info = _extract(url, _base_opts(browser_cookies=True))
         except DownloadError as retry_err:
+            youtube_guard.report(retry_err)
             raise IngestError(_friendly(retry_err)) from retry_err
         info[BROWSER_COOKIES_KEY] = True
     if info.get("_type") == "playlist":
@@ -297,6 +314,7 @@ def _fetch(
     if max_bytes:
         opts["max_filesize"] = max_bytes
 
+    _guard(_info_url(info))
     try:
         with watch, YoutubeDL(opts) as ydl:
             # Reuse the probed info: no second extraction round-trip per download.
@@ -306,6 +324,7 @@ def _fetch(
             raise IngestError("The download stalled (no data for 2 minutes). Check your connection and retry.") from err
         if watch.reason == "cancelled" or (cancel is not None and cancel.is_set()):
             raise Cancelled() from err
+        youtube_guard.report(err)
         raise IngestError(_friendly(err)) from err
     if cancel is not None and cancel.is_set():
         raise Cancelled()

@@ -201,13 +201,39 @@ export default function CaptionsPage() {
     }
   }
 
+  function updatePosition(pos: number) {
+    if (!previewStyle) return;
+    if (!draft) {
+      const base = draftOf(selected);
+      const d: StyleDraft = {
+        ...base,
+        id: selected.is_preset ? undefined : selected.id,
+        name: selected.is_preset ? `${selected.name} (my version)` : selected.name,
+        is_preset: false,
+        options: { ...base.options, position_y: pos },
+      };
+      setDraft(d);
+      setSaved(selected.is_preset ? null : base);
+    } else {
+      setDraft((cur) => cur && { ...cur, options: { ...cur.options, position_y: pos } });
+    }
+  }
+
   async function burn() {
     const styleId = draft?.id ?? selected?.id;
     if (!clipId || !styleId) return;
     setBurning(true);
     setMsg({ tone: "brand", text: "Transcribing and burning captions…" });
     try {
-      const updated = await api<Clip>(`/api/clips/${clipId}/regenerate-captions`, { method: "POST", body: { style_id: styleId, caption_mode: "burned" }, auth: false });
+      const updated = await api<Clip>(`/api/clips/${clipId}/regenerate-captions`, {
+        method: "POST",
+        body: {
+          style_id: styleId,
+          caption_mode: "burned",
+          position_y: previewStyle?.options.position_y,
+        },
+        auth: false,
+      });
       setClips((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
       setExactUrl(updated.file_path ? `${API_URL}/${updated.file_path}` : null);
       setView("exact");
@@ -410,8 +436,28 @@ export default function CaptionsPage() {
               {view === "exact" && exactUrl ? (
                 <video key={exactUrl} src={exactUrl} autoPlay loop muted playsInline controls className="size-full object-cover" />
               ) : (
-                <div className="@container relative size-full">
+                <div
+                  className="@container relative size-full cursor-ns-resize"
+                  onPointerDown={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const update = (clientY: number) => {
+                      const pct = Math.max(12, Math.min(86, Math.round(((clientY - rect.top) / rect.height) * 100)));
+                      updatePosition(pct);
+                    };
+                    update(e.clientY);
+                    const move = (ev: PointerEvent) => update(ev.clientY);
+                    const up = () => {
+                      window.removeEventListener("pointermove", move);
+                      window.removeEventListener("pointerup", up);
+                    };
+                    window.addEventListener("pointermove", move);
+                    window.addEventListener("pointerup", up);
+                  }}
+                >
                   <CaptionPreview style={previewStyle ?? undefined} words={words} activeIndex={active} frame />
+                  <div aria-hidden className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-brand-deep/80 px-2.5 py-0.5 text-meta text-on-brand/60">
+                    drag up / down to move
+                  </div>
                   {rendering && (
                     <div className="absolute inset-x-0 top-10 flex justify-center">
                       <span className="rounded-full bg-brand-deep/85 px-4 py-2 text-meta font-semibold text-on-brand">Rendering exactly…</span>
@@ -420,6 +466,35 @@ export default function CaptionsPage() {
                 </div>
               )}
             </PhoneFrame>
+
+            {/* Quick Caption Position Selector */}
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-line bg-surface-sunken p-2.5">
+              <div className="flex items-center gap-1.5">
+                <Icon name="captions" className="size-5 text-brand" />
+                <span className="text-meta font-medium text-ink">Position:</span>
+                <span className="font-mono text-meta font-semibold text-brand-strong">{previewStyle?.options.position_y ?? 68}%</span>
+              </div>
+              <div className="flex items-center gap-1">
+                {[
+                  { label: "Top", pos: 20 },
+                  { label: "Center", pos: 50 },
+                  { label: "Bottom", pos: 68 },
+                ].map((p) => (
+                  <button
+                    key={p.pos}
+                    type="button"
+                    onClick={() => updatePosition(p.pos)}
+                    className={`rounded px-2.5 py-1 text-meta font-semibold transition-colors ${
+                      (previewStyle?.options.position_y ?? 68) === p.pos
+                        ? "bg-brand text-on-brand shadow-sm"
+                        : "border border-line bg-surface text-ink-muted hover:text-ink"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <div className="space-y-3">
               <label htmlFor="sample-text" className="block text-base font-medium text-ink">

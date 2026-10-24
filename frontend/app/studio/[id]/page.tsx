@@ -480,7 +480,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                     key={s}
                     type="button"
                     onClick={() => changeSpeed(s)}
-                    className={`rounded py-1 text-center font-mono text-xs font-semibold transition-colors ${
+                    className={`rounded py-1 text-center font-mono text-meta font-semibold transition-colors ${
                       speed === s ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/40"
                     }`}
                   >
@@ -502,7 +502,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                     key={f.value}
                     type="button"
                     onClick={() => setColorFilter(f.value)}
-                    className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                    className={`rounded-full px-3 py-1 text-meta font-medium transition-colors ${
                       colorFilter === f.value ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/40"
                     }`}
                   >
@@ -531,7 +531,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                     key={v.val}
                     type="button"
                     onClick={() => setVolume(v.val)}
-                    className={`rounded py-1 text-center text-xs font-medium transition-colors ${
+                    className={`rounded py-1 text-center text-meta font-medium transition-colors ${
                       volume === v.val ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/40"
                     }`}
                   >
@@ -583,7 +583,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                           key={p.pos}
                           type="button"
                           onClick={() => setCaptionPosition(p.pos)}
-                          className={`rounded py-1 text-xs font-medium transition-colors ${
+                          className={`rounded py-1 text-meta font-medium transition-colors ${
                             captionPosition === p.pos ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/40"
                           }`}
                         >
@@ -599,7 +599,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                       onChange={(e) => setCaptionPosition(Number(e.target.value))}
                       className="w-full accent-brand"
                     />
-                    <p className="text-[11px] text-ink-muted">Drag directly on the phone preview above to position.</p>
+                    <p className="text-meta text-ink-muted">Drag directly on the phone preview above to position.</p>
                   </div>
                 </div>
               ) : (
@@ -629,7 +629,8 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
             <p className="text-lg text-ink-muted">Pick a range on the timeline and create your first clip.</p>
           </Panel>
         ) : (
-          <ul className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+          <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-6">
+            {/* Columns come from the space actually available (not the window width), so a card never gets squeezed. */}
             {project.clips.map((clip) => (
               <li key={clip.id}>
                 <Panel padding="none" className="flex h-full flex-col overflow-hidden">
@@ -638,7 +639,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                     <StarButton clipId={clip.id} starred={clip.starred} className="absolute top-3 right-3" />
                   </div>
                   <div className="flex flex-1 flex-col gap-4 p-5">
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="font-mono text-meta whitespace-nowrap text-ink-muted tabular-nums">
                         {formatTime(clip.start_s)}–{formatTime(clip.end_s)}
                       </span>
@@ -664,7 +665,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                     />
                     <div className="mt-auto grid gap-2">
                       <Button variant="secondary" size="sm" onClick={() => setEditingClip(clip)}>
-                        <Icon name="sparkles" className="size-4" /> Edit & Polish
+                        <Icon name="sparkles" className="size-5" /> Edit & Polish
                       </Button>
                       {clip.captioned ? (
                         <Button variant="secondary" size="sm" loading={busyClip === clip.id} onClick={() => clipAction(clip, "remove")}>

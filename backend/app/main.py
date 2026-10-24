@@ -63,9 +63,9 @@ async def lifespan(app: FastAPI):
         ensure_demo_account(db)
         demo_user = db.query(User).order_by(User.id).first()
 
-        # Seed sample clip row if none exists
+        # Seed a sample clip for the local demo account only (never in production)
         sample_video = Path("tests/fixtures/sample_raw.mp4")
-        if sample_video.exists():
+        if settings.demo_login_enabled and demo_user is not None and sample_video.exists():
             existing_clip = db.query(Clip).first()
             if not existing_clip:
                 punch_style = next(
@@ -118,8 +118,9 @@ app = FastAPI(
 # Enable CORS for frontend development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    # Bearer tokens, not cookies, so no credentials mode is needed.
+    allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()] or ["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -22,7 +22,10 @@
 CREATE TABLE users (
     id INTEGER PRIMARY KEY,
     email VARCHAR(320) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,  -- '' for Google-only accounts (never matches a password)
+    google_sub VARCHAR(255) UNIQUE,       -- Google account id ("Sign in with Google")
+    name VARCHAR(255),                    -- from Google, when signed in with it
+    avatar_url VARCHAR(1024),             -- from Google, when signed in with it
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
@@ -152,6 +155,8 @@ CREATE TABLE posts (
 | `/api/auth/register` | `POST` | **C3** | User registration | `{"email", "password"}` | `{"access_token", "token_type", "user"}` |
 | `/api/auth/login` | `POST` | **C3** | User login | `{"email", "password"}` | `{"access_token", "token_type", "user"}` |
 | `/api/auth/me` | `GET` | **C3** | Current user (send `Authorization: Bearer <token>`) | — | `UserRead` |
+| `/api/auth/config` | `GET` | **C3** | Sign-in methods on this server: the Google client ID, or `null` when Google sign-in is off | — | `{"google_client_id"}` |
+| `/api/auth/google` | `POST` | **C3** | Sign in or sign up with Google. Body is the ID token from Google Identity Services; matched by Google account, else linked by verified email, else created | `{"credential"}` | `{"access_token", "token_type", "user"}` |
 | `/api/streamers` | `GET/POST`| **C1** | Manage monitored streamers | `{"platform", "channel_name"}` | `StreamerRead` |
 | `/api/clips` | `GET` | **C2/C4** | List clips (filter by `?status=ready`) | Query: `?status=ready` | `list[ClipRead]` |
 | `/api/clips/{id}` | `GET` | **C2** | Fetch single clip details | — | `ClipRead` |

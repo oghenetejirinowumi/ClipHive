@@ -31,6 +31,7 @@ ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "starred": "BOOLEAN DEFAULT 0",
         "moment_features": "JSON",
         "context_json": "JSON DEFAULT '{}'",
+        "description": "TEXT",
     },
     "streamers": {
         "last_checked_at": "DATETIME",
@@ -48,6 +49,7 @@ ADDED_COLUMNS: dict[str, dict[str, str]] = {
     },
     "caption_styles": {"options_json": "JSON", "category": "VARCHAR(40)", "description": "VARCHAR(200)"},
     "trend_scores": {"source": "VARCHAR(32) DEFAULT 'youtube_data_api'"},
+    "users": {"google_sub": "VARCHAR(255)", "name": "VARCHAR(255)", "avatar_url": "VARCHAR(1024)"},
 }
 
 
@@ -66,6 +68,9 @@ def ensure_added_columns(bind=None) -> None:
                 if name in existing:
                     continue
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+                if (table, name) == ("users", "google_sub"):
+                    # One ClipHive account per Google account (NULLs, i.e. password users, don't clash).
+                    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_google_sub ON users (google_sub)"))
                 if (table, name) == ("clips", "review_status"):
                     # Clips made before the inbox existed are already in the Hub; don't flood the inbox.
                     conn.execute(text("UPDATE clips SET review_status = 'approved'"))

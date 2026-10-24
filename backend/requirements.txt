@@ -9,6 +9,7 @@ requests>=2.31.0
 pytest>=8.3.0
 python-multipart>=0.0.9
 pyjwt>=2.9
+google-auth>=2.30
 bcrypt>=4.2
 yt-dlp[default]>=2026.10.21  # [default] adds yt-dlp-ejs, the YouTube challenge solver
 deno>=2.0  # JS runtime yt-dlp-ejs runs on (YouTube throttles/blocks without it)

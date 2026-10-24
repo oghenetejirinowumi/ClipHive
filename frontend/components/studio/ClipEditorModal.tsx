@@ -56,7 +56,7 @@ export function ClipEditorModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs">
-      <Panel tone="raised" padding="lg" className="relative w-full max-w-lg space-y-6 shadow-2xl">
+      <Panel tone="surface" padding="lg" className="relative w-full max-w-lg space-y-6 shadow-2xl">
         <div className="flex items-center justify-between border-b border-line pb-4">
           <div>
             <h3 className="font-display text-2xl font-semibold tracking-tight text-ink">Edit & Polish Clip</h3>
@@ -86,7 +86,7 @@ export function ClipEditorModal({
                   key={s}
                   type="button"
                   onClick={() => setSpeed(s)}
-                  className={`rounded-md py-1.5 text-center font-mono text-xs font-semibold transition-colors ${
+                  className={`rounded-md py-1.5 text-center font-mono text-meta font-semibold transition-colors ${
                     speed === s ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/50"
                   }`}
                 >
@@ -118,7 +118,7 @@ export function ClipEditorModal({
                   key={v.val}
                   type="button"
                   onClick={() => setVolume(v.val)}
-                  className={`rounded-md py-1.5 text-center text-xs font-medium transition-colors ${
+                  className={`rounded-md py-1.5 text-center text-meta font-medium transition-colors ${
                     volume === v.val ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/50"
                   }`}
                 >
@@ -137,7 +137,7 @@ export function ClipEditorModal({
                   key={f.value}
                   type="button"
                   onClick={() => setColorFilter(f.value)}
-                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                  className={`rounded-full px-3 py-1 text-meta font-medium transition-colors ${
                     colorFilter === f.value ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/50"
                   }`}
                 >
@@ -178,7 +178,7 @@ export function ClipEditorModal({
                   key={p.pos}
                   type="button"
                   onClick={() => setCaptionPosition(p.pos)}
-                  className={`rounded-md py-1.5 text-xs font-medium transition-colors ${
+                  className={`rounded-md py-1.5 text-meta font-medium transition-colors ${
                     captionPosition === p.pos ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/50"
                   }`}
                 >
@@ -212,7 +212,7 @@ export function ClipEditorModal({
               Cancel
             </Button>
             <Button type="submit" loading={saving}>
-              <Icon name="sparkles" className="size-4" /> Apply & Recut
+              <Icon name="sparkles" className="size-5" /> Apply & Recut
             </Button>
           </div>
         </form>

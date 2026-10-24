@@ -57,6 +57,7 @@ class DownloadRead(BaseModel):
 
 
 Layout = Literal["fill", "blur"]
+ColorFilter = Literal["none", "vibrant", "warm", "cool", "dramatic"]
 
 
 # POST /api/studio/imports/{id}/clips
@@ -66,7 +67,7 @@ class StudioClipRequest(BaseModel):
     layout: Layout = "fill"
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
     volume: float = Field(default=1.0, ge=0.0, le=3.0)
-    color_filter: str = Field(default="none")
+    color_filter: ColorFilter = "none"
     caption_position_y: int | None = Field(default=None, ge=8, le=92)
 
     @model_validator(mode="after")
@@ -89,7 +90,7 @@ class ClipEditRequest(BaseModel):
     layout: Layout | None = None
     speed: float | None = Field(default=None, ge=0.5, le=2.0)
     volume: float | None = Field(default=None, ge=0.0, le=3.0)
-    color_filter: str | None = None
+    color_filter: ColorFilter | None = None
     caption_position_y: int | None = Field(default=None, ge=8, le=92)
     style_id: int | None = None
 
