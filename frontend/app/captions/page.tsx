@@ -151,7 +151,8 @@ function CaptionsInner() {
       setEmojis([]);
       return;
     }
-    const [text, words_per_group, amount, motion, placement] = JSON.parse(emojiKey);
+    const [rawText, words_per_group, amount, motion, placement] = JSON.parse(emojiKey);
+    const text = String(rawText || "").slice(0, 2000);
     const t = setTimeout(() => {
       api<PreviewEmoji[]>("/api/styles/emoji-plan", { method: "POST", body: { text, words_per_group, word_s: 0.42, amount, motion, placement } })
         .then(setEmojis)
@@ -258,7 +259,7 @@ function CaptionsInner() {
     try {
       const res = await api<{ url: string; font_found: boolean }>("/api/styles/render-preview", {
         method: "POST",
-        body: { style: stylePayload(previewStyle), text: sampleText, clip_id: clipId },
+        body: { style: stylePayload(previewStyle), text: sampleText.slice(0, 2000), clip_id: clipId },
         auth: false,
       });
       setExactUrl(`${API_URL}/${res.url}`);
@@ -562,7 +563,7 @@ function CaptionsInner() {
                 <input
                   id="sample-text"
                   value={sampleText}
-                  maxLength={300}
+                  maxLength={2000}
                   onChange={(e) => {
                     setSampleText(e.target.value);
                     setActive(0);

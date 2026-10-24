@@ -192,3 +192,21 @@ def test_no_two_words_overlap_at_any_moment(mode):
             for b in on[i + 1 :]:
                 same_line = abs(a[4] - b[4]) < 1
                 assert not (same_line and a[2] < b[3] and b[2] < a[3]), f"{a[5]} and {b[5]} overlap at {t:.2f}s"
+
+
+def test_preview_and_emoji_request_accept_long_transcripts():
+    from app.schemas.caption_style import EmojiPlanRequest, RenderPreviewRequest
+
+    long_transcript = "This is a real stream dialogue " * 30  # ~900 chars
+    req = RenderPreviewRequest(
+        style=CaptionStyleBase(
+            name="Test",
+            font_name="Bangers",
+            font_size=72,
+        ),
+        text=long_transcript,
+    )
+    assert req.text == long_transcript
+
+    emoji_req = EmojiPlanRequest(text=long_transcript)
+    assert emoji_req.text == long_transcript

@@ -166,7 +166,7 @@ class CaptionStyleRead(ORMModel):
 
 class RenderPreviewRequest(BaseModel):
     style: CaptionStyleBase
-    text: str = Field(default="Bro you cannot miss that shot, that was insane", max_length=200)
+    text: str = Field(default="Bro you cannot miss that shot, that was insane", max_length=5000)
     clip_id: int | None = None  # use a frame of this clip as the background
 
 
@@ -178,7 +178,7 @@ class GoogleFontInstall(BaseModel):
 class EmojiPlanRequest(BaseModel):
     """Which sample words get an emoji, for the style editor's live preview (rules only)."""
 
-    text: str = Field(max_length=400)
+    text: str = Field(max_length=5000)
     words_per_group: int = Field(default=6, ge=1, le=24)
     word_s: float = Field(default=0.42, gt=0, le=3)  # the preview's pace
     amount: Literal["few", "normal", "lots"] = "normal"

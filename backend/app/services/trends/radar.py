@@ -359,8 +359,6 @@ def _build() -> Radar:
         except (requests.RequestException, ValueError, KeyError) as err:
             logger.info("Twitch radar failed: %s", err)
             sources.append(Source("Twitch", False, "not available right now. Try again later."))
-    else:
-        sources.append(Source("Twitch", False, "coming soon."))
 
     # Topics: merge categories across platforms.
     topics: dict[str, Topic] = {}

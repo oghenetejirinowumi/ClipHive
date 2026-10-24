@@ -171,7 +171,7 @@ export function ClipRadar() {
     }
   }
 
-  const down = radar?.sources.filter((s) => !s.ok) ?? [];
+  const down = radar?.sources.filter((s) => !s.ok && s.name.toLowerCase() !== "twitch" && !s.note.toLowerCase().includes("coming soon")) ?? [];
   const maxScore = Math.max(1, ...(radar?.topics.map((t) => t.score) ?? [1]));
   const ins = radar?.insights;
 
