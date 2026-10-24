@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 
 from app.config import settings
+from app.api.deps import Owner
+from app.core.media import public_path, storage_root
 from app.db import SessionLocal, get_db
 from app.models.caption_style import CaptionStyle
 from app.models.clip import Clip
@@ -32,7 +34,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/clips", tags=["clips"])
 
-STORAGE_DIR = Path("storage")
+# Under STORAGE_DIR (served at /storage), so it lands on the persistent disk in production.
+STORAGE_DIR = storage_root()
 STORAGE_CLIPS_DIR = STORAGE_DIR / "clips"
 STORAGE_SUBS_DIR = STORAGE_DIR / "subtitles"
 
@@ -41,18 +44,18 @@ STORAGE_SUBS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @router.get("", response_model=list[ClipRead])
-def list_clips(status: ClipStatus | None = None, db: Session = Depends(get_db)):
+def list_clips(user: Owner, status: ClipStatus | None = None, db: Session = Depends(get_db)):
     """Lists clips, optionally filtered by status (e.g. ?status=ready)."""
-    query = db.query(Clip)
+    query = db.query(Clip).filter(Clip.user_id == user.id)
     if status:
         query = query.filter(Clip.status == status)
     return query.order_by(Clip.created_at.desc()).all()
 
 
 @router.get("/{clip_id}", response_model=ClipRead)
-def get_clip(clip_id: int, db: Session = Depends(get_db)):
+def get_clip(clip_id: int, user: Owner, db: Session = Depends(get_db)):
     """Returns a single clip by ID."""
-    clip = db.query(Clip).filter(Clip.id == clip_id).first()
+    clip = db.query(Clip).filter(Clip.id == clip_id, Clip.user_id == user.id).first()
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
     return clip
@@ -60,12 +63,13 @@ def get_clip(clip_id: int, db: Session = Depends(get_db)):
 
 @router.get("/{clip_id}/trend-match")
 def get_clip_trend_matches(
+    user: Owner,
     clip_id: int,
     platform: PostPlatform = Query(default=PostPlatform.YOUTUBE),
     region: str = Query(default="NG", pattern="^(NG|US)$"),
     db: Session = Depends(get_db),
 ):
-    clip = db.query(Clip).filter(Clip.id == clip_id).first()
+    clip = db.query(Clip).filter(Clip.id == clip_id, Clip.user_id == user.id).first()
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
     return {
@@ -77,9 +81,9 @@ def get_clip_trend_matches(
 
 
 @router.patch("/{clip_id}", response_model=ClipRead)
-def update_clip(clip_id: int, payload: ClipUpdate, db: Session = Depends(get_db)):
+def update_clip(clip_id: int, payload: ClipUpdate, user: Owner, db: Session = Depends(get_db)):
     """Updates clip metadata like title and hashtags."""
-    clip = db.query(Clip).filter(Clip.id == clip_id).first()
+    clip = db.query(Clip).filter(Clip.id == clip_id, Clip.user_id == user.id).first()
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
 
@@ -116,12 +120,13 @@ def _style_feedback(db: Session, old_id: int | None, new_id: int) -> tuple[str, 
 
 @router.get("/{clip_id}/context")
 def get_clip_context_endpoint(
+    user: Owner,
     clip_id: int,
     platform: str = "tiktok",
     db: Session = Depends(get_db),
 ):
     """Returns the extracted context (game/topic, mood, event type, rationale, matched hashtags)."""
-    clip = db.query(Clip).filter(Clip.id == clip_id).first()
+    clip = db.query(Clip).filter(Clip.id == clip_id, Clip.user_id == user.id).first()
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
 
@@ -135,6 +140,7 @@ def get_clip_context_endpoint(
 
 @router.get("/{clip_id}/social-trends")
 def get_clip_social_trends(
+    user: Owner,
     clip_id: int,
     platform: str = Query(default="tiktok", pattern="^(tiktok|youtube)$"),
     refresh: bool = False,
@@ -151,7 +157,7 @@ def get_clip_social_trends(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Similar-video search is off. It scrapes YouTube search, so it is a research prototype; set SOCIAL_SEARCH_ENABLED=true to try it.",
         )
-    clip = db.query(Clip).filter(Clip.id == clip_id).first()
+    clip = db.query(Clip).filter(Clip.id == clip_id, Clip.user_id == user.id).first()
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
 
@@ -204,6 +210,7 @@ def _social_response(clip: Clip, context: dict, trends: dict) -> dict:
 @router.post("/{clip_id}/ai-pack", response_model=ClipRead)
 @router.post("/{clip_id}/analyze-context", response_model=ClipRead)
 def generate_ai_metadata(
+    user: Owner,
     clip_id: int,
     platform: str = "tiktok",
     db: Session = Depends(get_db),
@@ -214,7 +221,7 @@ def generate_ai_metadata(
     - Context-matched hashtags blending game niche, creator, moment, and live trends
     - High-CTR viral title
     """
-    clip = db.query(Clip).filter(Clip.id == clip_id).first()
+    clip = db.query(Clip).filter(Clip.id == clip_id, Clip.user_id == user.id).first()
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
 
@@ -270,7 +277,7 @@ def process_clip_captioning(clip_id: int, style_id: int, caption_mode: CaptionMo
 
             # 3. Clean platform-native vs Burned
             if caption_mode == CaptionMode.PLATFORM_NATIVE:
-                clip.file_path = clip.raw_file_path
+                clip.file_path = public_path(Path(clip.raw_file_path))
                 clip.caption_mode = CaptionMode.PLATFORM_NATIVE
                 clip.caption_style_id = style.id
                 clip.status = ClipStatus.READY
@@ -301,7 +308,7 @@ def process_clip_captioning(clip_id: int, style_id: int, caption_mode: CaptionMo
                 fonts_dir="backend/assets/fonts",
             )
 
-            clip.file_path = str(final_mp4)
+            clip.file_path = public_path(final_mp4)
             clip.caption_style_id = style.id
             clip.caption_mode = CaptionMode.BURNED
             clip.status = ClipStatus.READY
@@ -324,6 +331,7 @@ def process_clip_captioning(clip_id: int, style_id: int, caption_mode: CaptionMo
 @router.post("/{clip_id}/caption", response_model=ClipRead)
 @router.post("/{clip_id}/regenerate-captions", response_model=ClipRead)
 def caption_clip(
+    user: Owner,
     clip_id: int,
     payload: CaptionRequest,
     background_tasks: BackgroundTasks,
@@ -337,7 +345,7 @@ def caption_clip(
     Transcribes (with gaming vocabulary), proofreads with AI, generates viral title & hashtags,
     styles ASS subtitles with karaoke word-pop and hype animations, burns into 9:16 portrait video.
     """
-    clip = db.query(Clip).filter(Clip.id == clip_id).first()
+    clip = db.query(Clip).filter(Clip.id == clip_id, Clip.user_id == user.id).first()
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
 

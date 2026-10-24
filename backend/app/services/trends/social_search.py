@@ -263,8 +263,15 @@ def ytdlp_search(query: str, limit: int = RESULTS_PER_QUERY) -> list[ScrapedVide
     else:
         target = f"ytsearch{limit}:{query}"
 
-    with YoutubeDL(_ytdlp_opts(extract_flat="in_playlist", playlistend=limit)) as ydl:
-        info = ydl.extract_info(target, download=False) or {}
+    from app.services.ingest import youtube_guard
+
+    youtube_guard.pace()  # spaced out, and refused outright while YouTube has us flagged
+    try:
+        with YoutubeDL({**_ytdlp_opts(extract_flat="in_playlist", playlistend=limit), **youtube_guard.opts()}) as ydl:
+            info = ydl.extract_info(target, download=False) or {}
+    except Exception as err:
+        youtube_guard.report(err)
+        raise
 
     videos = []
     for entry in list(info.get("entries") or [])[:limit]:
@@ -288,8 +295,15 @@ def ytdlp_details(video: ScrapedVideo) -> tuple[str, list[str]]:
     """Full description and tags for one video, without resolving formats."""
     from yt_dlp import YoutubeDL
 
-    with YoutubeDL(_ytdlp_opts()) as ydl:
-        info = ydl.extract_info(video.url, download=False, process=False) or {}
+    from app.services.ingest import youtube_guard
+
+    youtube_guard.pace()
+    try:
+        with YoutubeDL({**_ytdlp_opts(), **youtube_guard.opts()}) as ydl:
+            info = ydl.extract_info(video.url, download=False, process=False) or {}
+    except Exception as err:
+        youtube_guard.report(err)
+        raise
     return str(info.get("description") or ""), [str(t) for t in info.get("tags") or []]
 
 

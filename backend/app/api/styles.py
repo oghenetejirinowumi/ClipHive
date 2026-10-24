@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
+from app.api.deps import Owner
 from app.db import get_db
 from app.models.caption_style import CaptionStyle
 from app.schemas.caption_style import CaptionStyleCreate, CaptionStyleRead
@@ -20,28 +21,27 @@ FONTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @router.get("", response_model=list[CaptionStyleRead])
-def list_styles(db: Session = Depends(get_db)):
-    """Returns all available caption styles (presets and custom)."""
-    # Ensure preset styles exist
-    seed_preset_styles(db)
-    return db.query(CaptionStyle).all()
+def list_styles(user: Owner, db: Session = Depends(get_db)):
+    """The presets plus your own custom styles."""
+    seed_preset_styles(db)  # ensure presets exist
+    return db.query(CaptionStyle).filter((CaptionStyle.user_id.is_(None)) | (CaptionStyle.user_id == user.id)).all()
 
 
 @router.get("/{style_id}", response_model=CaptionStyleRead)
-def get_style(style_id: int, db: Session = Depends(get_db)):
-    """Returns a single caption style by ID."""
-    style = db.query(CaptionStyle).filter(CaptionStyle.id == style_id).first()
+def get_style(style_id: int, user: Owner, db: Session = Depends(get_db)):
+    """Returns a single caption style by ID (a preset or one of yours)."""
+    style = db.query(CaptionStyle).filter(CaptionStyle.id == style_id, (CaptionStyle.user_id.is_(None)) | (CaptionStyle.user_id == user.id)).first()
     if not style:
         raise HTTPException(status_code=404, detail="Caption style not found")
     return style
 
 
 @router.post("", response_model=CaptionStyleRead, status_code=status.HTTP_201_CREATED)
-def create_style(payload: CaptionStyleCreate, db: Session = Depends(get_db)):
-    """Creates a new custom caption style."""
+def create_style(payload: CaptionStyleCreate, user: Owner, db: Session = Depends(get_db)):
+    """Creates a new custom caption style (yours only)."""
     colors = payload.colors_json.model_dump() if payload.colors_json else {}
     style = CaptionStyle(
-        user_id=None,
+        user_id=user.id,
         name=payload.name,
         font_name=payload.font_name,
         font_size=payload.font_size,
@@ -57,7 +57,7 @@ def create_style(payload: CaptionStyleCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/upload-font")
-async def upload_font(file: UploadFile):
+async def upload_font(file: UploadFile, user: Owner):
     """Uploads a custom .ttf or .otf font file to backend/assets/fonts/."""
     if not file.filename or not (file.filename.lower().endswith(".ttf") or file.filename.lower().endswith(".otf")):
         raise HTTPException(

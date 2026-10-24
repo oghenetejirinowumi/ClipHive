@@ -400,7 +400,8 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
             <p className="text-lg text-ink-muted">Pick a range on the timeline and create your first clip.</p>
           </Panel>
         ) : (
-          <ul className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+          <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-6">
+            {/* Columns come from the space actually available (not the window width), so a card never gets squeezed. */}
             {project.clips.map((clip) => (
               <li key={clip.id}>
                 <Panel padding="none" className="flex h-full flex-col overflow-hidden">
@@ -409,16 +410,15 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                     <StarButton clipId={clip.id} starred={clip.starred} className="absolute top-3 right-3" />
                   </div>
                   <div className="flex flex-1 flex-col gap-4 p-5">
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="font-mono text-meta whitespace-nowrap text-ink-muted tabular-nums">
                         {formatTime(clip.start_s)}–{formatTime(clip.end_s)}
                       </span>
                       <StatusBadge status={clip.status} />
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Badge tone="brand">{LAYOUT_LABEL[clip.layout]}</Badge>
-                      <Badge tone="neutral">{clip.captioned ? "Captions burned" : "No captions"}</Badge>
-                    </div>
+                    <Badge tone="neutral" className="self-start">
+                      {clip.captioned ? "Captions burned" : "No captions"}
+                    </Badge>
                     {clip.error && <p className="text-base text-danger">{clip.error}</p>}
                     <Segmented
                       label={`Layout for clip ${clip.id}`}

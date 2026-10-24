@@ -66,8 +66,9 @@ def list_latest(platform: SourcePlatform | str, username: str, limit: int = 3) -
     """Newest videos on a channel, newest first. Raises RuntimeError with a readable message."""
     platform = SourcePlatform(platform)
     opts = {"quiet": True, "no_warnings": True, "extract_flat": "in_playlist", "playlistend": limit, "skip_download": True}
-    if settings.ytdlp_cookies_file:
-        opts["cookiefile"] = settings.ytdlp_cookies_file
+    from app.services.ingest import youtube_guard
+
+    opts.update(youtube_guard.opts())  # polite retries, optional proxy and cookies
     urls = [channel_url(platform, username)]
     if platform == SourcePlatform.YOUTUBE:
         urls.append(_youtube_videos_url(username))  # channels without past streams
@@ -75,9 +76,14 @@ def list_latest(platform: SourcePlatform | str, username: str, limit: int = 3) -
     last_error = "No videos found on that channel."
     for url in urls:
         try:
+            if youtube_guard.is_youtube(url):
+                youtube_guard.pace()
             with YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=False)
+        except youtube_guard.YouTubeCoolingDown as err:
+            raise RuntimeError(str(err)) from err
         except Exception as err:
+            youtube_guard.report(err)
             text = str(err).lower()
             if "unsupported url" in text:
                 last_error = f"{platform.value.title()} channel listing isn't supported yet."

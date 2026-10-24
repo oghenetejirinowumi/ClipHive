@@ -1,6 +1,6 @@
 import { SESSION_COOKIE } from "./routes";
 
-export type User = { id: string | number; email: string };
+export type User = { id: string | number; email: string; name?: string | null; avatar_url?: string | null };
 
 const USER_KEY = "ch_user";
 const MAX_AGE_S = 60 * 60 * 24 * 7;

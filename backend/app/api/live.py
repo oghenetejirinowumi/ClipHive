@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from app.api.deps import DbSession
+from app.api.deps import DbSession, Owner
 from app.models.streamer import Streamer
 from app.services.ingest import live
 
@@ -25,8 +25,7 @@ class StreamerStatus(BaseModel):
 
 
 @router.get("/status", response_model=list[StreamerStatus])
-def streamer_status(db: DbSession, refresh: bool = Query(False, description="Bypass the cache")) -> list[StreamerStatus]:
-    # Same scope as GET /api/streamers (C1's list isn't per-user yet).
-    streamers = db.query(Streamer).order_by(Streamer.id).all()
+def streamer_status(user: Owner, db: DbSession, refresh: bool = Query(False, description="Bypass the cache")) -> list[StreamerStatus]:
+    streamers = db.query(Streamer).filter(Streamer.user_id == user.id).order_by(Streamer.id).all()
     results = live.check_many([(s.platform, s.username) for s in streamers], refresh=refresh)
     return [StreamerStatus(streamer_id=s.id, **r.as_dict()) for s, r in zip(streamers, results)]

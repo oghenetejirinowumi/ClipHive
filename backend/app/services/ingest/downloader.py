@@ -18,8 +18,8 @@ from pathlib import Path
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, download_range_func
 
-from app.config import settings
 from app.core.media import ffmpeg_bin
+from app.services.ingest import youtube_guard
 
 # ≤1080p, H.264 + AAC first so cuts are a cheap decode; anything else as a fallback.
 HD_VIDEO = "bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b"
@@ -81,13 +81,26 @@ def _base_opts() -> dict:
     deno = _deno()
     if deno:  # YouTube's signature challenge needs a JS runtime, or downloads crawl / fail
         opts["js_runtimes"] = {"deno": {"path": deno}}
-    if settings.ytdlp_cookies_file:
-        opts["cookiefile"] = settings.ytdlp_cookies_file
+    opts.update(youtube_guard.opts())  # polite retries, optional proxy and cookies
     return opts
+
+
+def _guard(url: str | None) -> None:
+    """Before touching YouTube: fail fast during a cooldown, else keep requests spaced out."""
+    if youtube_guard.is_youtube(url):
+        try:
+            youtube_guard.pace()
+        except youtube_guard.YouTubeCoolingDown as err:
+            raise IngestError(str(err)) from err
+
+
+def _info_url(info: dict) -> str | None:
+    return info.get("webpage_url") or info.get("original_url") or info.get("url")
 
 
 def probe_url(url: str) -> dict:
     """Metadata only (title, duration, formats). Refuses playlists and live streams."""
+    _guard(url)
     try:
         with YoutubeDL(_base_opts()) as ydl:
             # process=False: keep the raw format list. A processed result carries the default
@@ -98,6 +111,7 @@ def probe_url(url: str) -> dict:
                     break
                 info = ydl.extract_info(info["url"], download=False, process=False)
     except DownloadError as err:
+        youtube_guard.report(err)
         raise IngestError(_friendly(err)) from err
     if info.get("_type") == "playlist":
         raise IngestError("That's a playlist or channel link. Paste a link to a single video or VOD.")
@@ -205,6 +219,7 @@ def _fetch(
     if max_bytes:
         opts["max_filesize"] = max_bytes
 
+    _guard(_info_url(info))
     try:
         with watch, YoutubeDL(opts) as ydl:
             # Reuse the probed info: no second extraction round-trip per download.
@@ -214,6 +229,7 @@ def _fetch(
             raise IngestError("The download stalled (no data for 2 minutes). Check your connection and retry.") from err
         if watch.reason == "cancelled" or (cancel is not None and cancel.is_set()):
             raise Cancelled() from err
+        youtube_guard.report(err)
         raise IngestError(_friendly(err)) from err
     if cancel is not None and cancel.is_set():
         raise Cancelled()

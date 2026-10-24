@@ -15,6 +15,8 @@ from datetime import UTC, datetime
 
 import requests
 from yt_dlp import YoutubeDL
+
+from app.services.ingest import youtube_guard
 from yt_dlp.utils import DownloadError
 
 from app.config import settings
@@ -61,10 +63,18 @@ def channel_url(platform: SourcePlatform, username: str) -> str:
 def _ytdlp(url: str) -> LiveStatus:
     from app.services.ingest.downloader import _base_opts
 
+    youtube = youtube_guard.is_youtube(url)
+    if youtube:
+        try:
+            youtube_guard.pace()
+        except youtube_guard.YouTubeCoolingDown as err:
+            return LiveStatus(live=None, url=url, source="yt-dlp", error=str(err))
     try:
         with YoutubeDL({**_base_opts(), "skip_download": True}) as ydl:
             info = ydl.extract_info(url, download=False, process=False)
     except DownloadError as err:
+        if youtube:
+            youtube_guard.report(err)
         text = str(err).lower()
         if "not currently live" in text or "is offline" in text or "will begin" in text or "premieres in" in text:
             return LiveStatus(live=False, url=url, source="yt-dlp")
@@ -152,7 +162,10 @@ def check(platform: SourcePlatform, username: str, *, refresh: bool = False) -> 
     key = (str(platform), username.lower())
     with _lock:
         hit = _cache.get(key)
-    if hit and not refresh and time.time() - hit[0] < settings.live_poll_interval_s:
+    max_age = settings.youtube_live_poll_s if platform == SourcePlatform.YOUTUBE else settings.live_poll_interval_s
+    if refresh:  # a manual refresh still won't re-ask YouTube within a minute
+        max_age = 60 if platform == SourcePlatform.YOUTUBE else 0
+    if hit and time.time() - hit[0] < max_age:
         return hit[1]
     status = _check_uncached(platform, username)
     with _lock:

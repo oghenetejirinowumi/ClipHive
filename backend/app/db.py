@@ -36,6 +36,7 @@ ADDED_COLUMNS: dict[str, dict[str, str]] = {
     },
     "posts": {"scheduled_for": "DATETIME", "caption_text": "TEXT", "schedule_reason": "VARCHAR(300)"},
     "import_jobs": {"agent_brief": "JSON"},
+    "users": {"google_sub": "VARCHAR(255)", "name": "VARCHAR(255)", "avatar_url": "VARCHAR(1024)"},
 }
 
 
@@ -54,6 +55,9 @@ def ensure_added_columns(bind=None) -> None:
                 if name in existing:
                     continue
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+                if (table, name) == ("users", "google_sub"):
+                    # One ClipHive account per Google account (NULLs, i.e. password users, don't clash).
+                    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_google_sub ON users (google_sub)"))
                 if (table, name) == ("clips", "review_status"):
                     # Clips made before the inbox existed are already in the Hub; don't flood the inbox.
                     conn.execute(text("UPDATE clips SET review_status = 'approved'"))

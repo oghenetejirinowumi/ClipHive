@@ -1,0 +1,53 @@
+# Render Blueprint for the ClipHive API (FastAPI). Render > New > Blueprint > pick this repo.
+# The frontend deploys separately on Vercel (Root Directory: frontend).
+#
+# Why a paid plan with a disk: videos, the SQLite database and model caches must survive
+# deploys and restarts (a free instance's filesystem is wiped), and cutting 1080x1920 video with
+# ffmpeg needs more than the free tier's 512 MB of memory.
+services:
+  - type: web
+    name: cliphive-api
+    runtime: python
+    plan: standard            # 2 GB RAM: comfortable for ffmpeg cuts and caption burns
+    region: frankfurt         # closest Render region to West Africa
+    autoDeploy: true
+    # Run from the repo root: some paths (backend/assets/fonts) are relative to it.
+    buildCommand: pip install --upgrade pip && pip install -r backend/requirements.txt
+    startCommand: uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips="*"
+    healthCheckPath: /health
+    disk:
+      name: cliphive-data
+      mountPath: /var/data
+      sizeGB: 20
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      # Everything stateful lives on the disk.
+      - key: DATABASE_URL
+        value: sqlite:////var/data/cliphive.db
+      - key: STORAGE_DIR
+        value: /var/data/storage
+      - key: HF_HOME
+        value: /var/data/cache/huggingface
+      - key: XDG_CACHE_HOME
+        value: /var/data/cache
+      - key: DENO_DIR
+        value: /var/data/cache/deno
+      # Security
+      - key: JWT_SECRET
+        generateValue: true   # Render creates a strong random secret once
+      - key: DEMO_LOGIN_ENABLED
+        value: "false"        # no shared demo account in production
+      - key: ALLOW_ANONYMOUS_OWNER
+        value: "false"
+      # Set in the dashboard (sync: false = Render asks you for the value)
+      - key: CORS_ORIGINS
+        sync: false           # your Vercel URL, e.g. https://cliphive.vercel.app
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: IMPORT_WORKERS
+        value: "1"            # one import at a time on a single-CPU instance

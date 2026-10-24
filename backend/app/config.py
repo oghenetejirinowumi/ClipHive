@@ -39,9 +39,23 @@ class Settings(BaseSettings):
     # Netscape cookies.txt exported from a logged-in browser. Instagram (and some YouTube
     # videos) refuse anonymous downloads; with this set, yt-dlp downloads as that account.
     ytdlp_cookies_file: str = ""
+    # "Sign in with Google": the OAuth 2.0 Web client ID from Google Cloud Console (public, not a
+    # secret). Empty hides the Google button. The frontend reads it from GET /api/auth/config.
+    google_client_id: str = ""
+    # Optional proxy for yt-dlp only (e.g. socks5://127.0.0.1:1080 from a VPN/proxy app), so
+    # platform downloads can leave from another IP without routing the whole machine.
+    ytdlp_proxy: str = ""
+    # YouTube flags IPs that ask too often: check YouTube channels' live status at most this often.
+    youtube_live_poll_s: int = 300
 
     # One-click demo login (app/core/demo.py). Disable for anything public.
     demo_login_enabled: bool = True
+    # Local-dev escape hatch: treat requests without a valid token as the first user. Never in
+    # production (anyone could act as that account).
+    allow_anonymous_owner: bool = False
+    # Browser origins allowed to call the API, comma-separated (e.g. https://cliphive.vercel.app).
+    # "*" allows any origin; fine locally, set the real frontend URL in production.
+    cors_origins: str = "*"
 
     # AI & Speech APIs (all optional, with robust offline/free fallbacks)
     openai_api_key: str = ""
