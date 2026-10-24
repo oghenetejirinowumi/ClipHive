@@ -39,7 +39,7 @@ from app.services.trends.scheduler import trend_scheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from app.core.static_cache import CachedStaticFiles
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("cliphive")
@@ -139,9 +139,9 @@ app.add_middleware(
 # Mount local storage directory for preview and download
 storage_dir = Path(settings.storage_dir)  # same folder the import pipeline writes to
 storage_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/storage", StaticFiles(directory=str(storage_dir)), name="storage")
+app.mount("/storage", CachedStaticFiles(directory=str(storage_dir)), name="storage")
 # Caption fonts for the video editor preview (the composition loads them by URL).
-app.mount("/editor-fonts", StaticFiles(directory=str(EDITOR_FONTS_DIR)), name="editor-fonts")
+app.mount("/editor-fonts", CachedStaticFiles(directory=str(EDITOR_FONTS_DIR), max_age=86400), name="editor-fonts")
 
 # Include routers (paths per docs/CONTRACT.md: everything under /api).
 app.include_router(auth.router, prefix="/api")

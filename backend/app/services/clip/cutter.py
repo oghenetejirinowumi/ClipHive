@@ -28,11 +28,15 @@ FILL_FILTER = (
     "pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1"
 )
 
-# The background is blurred at quarter size (much cheaper than blurring 1080×1920) then scaled up.
+# Big sources (4K phone video) are shrunk to fit 1080×1920 once, up front, so neither branch
+# below rescales full 4K frames (that alone made a 30 s cut take ~40% longer). The background
+# is blurred at quarter size (much cheaper than blurring 1080×1920) then scaled up; it's blurred,
+# so it uses the fastest scaler.
 BLUR_FILTER = (
+    "scale='min(iw,1080)':'min(ih,1920)':force_original_aspect_ratio=decrease:flags=bilinear,"
     "split=2[bg][fg];"
-    "[bg]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=12:3,"
-    "scale=1080:1920,eq=brightness=-0.12:saturation=1.15[bgb];"
+    "[bg]scale=270:480:force_original_aspect_ratio=increase:flags=fast_bilinear,crop=270:480,boxblur=12:3,"
+    "scale=1080:1920:flags=fast_bilinear,eq=brightness=-0.12:saturation=1.15[bgb];"
     "[fg]scale=1080:1920:force_original_aspect_ratio=decrease[fgs];"
     "[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1"
 )

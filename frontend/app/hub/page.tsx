@@ -353,7 +353,7 @@ function HubClipDialog({
           ) : (
             <span />
           )}
-          <Link href={`/studio?clip=${clip.id}`} className={buttonClass({ variant: "ghost", size: "sm" })}>
+          <Link href={`/editor?clip=${clip.id}`} className={buttonClass({ variant: "ghost", size: "sm" })}>
             <Icon name="film" className="size-5" /> Edit
           </Link>
         </div>
