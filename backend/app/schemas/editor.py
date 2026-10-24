@@ -21,8 +21,20 @@ MAX_SECONDS = 4 * 3600
 
 AssetKind = Literal["video", "image", "audio"]
 Fit = Literal["cover", "contain"]
-TextAnimation = Literal["none", "fade", "pop", "slide_up", "typewriter"]
-Font = Literal["Bangers", "Luckiest Guy", "Poppins", "System"]
+TextAnimation = Literal[
+    "none",
+    "fade",
+    "pop",
+    "slide_up",
+    "typewriter",
+    "highlight_box",
+    "karaoke",
+    "reveal",
+    "line",
+    "single_word",
+    "word_pop",
+]
+Font = str
 # Visual effects on the picture (video/image tracks; text stays steady). See services/editor/effects.py.
 EffectKind = Literal["punch_zoom", "slow_zoom", "shake", "flash", "glitch", "vignette", "color_pop", "black_white"]
 

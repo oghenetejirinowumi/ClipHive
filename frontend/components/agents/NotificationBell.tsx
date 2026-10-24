@@ -79,7 +79,7 @@ export function NotificationBell({ align = "left", side = "bottom" }: { align?: 
         >
           <p className="px-3 pt-2 pb-3 font-display text-xl font-semibold tracking-tight text-ink">While you were away</p>
           {items.length === 0 ? (
-            <p className="px-3 pb-3 text-base text-ink-muted">Nothing yet. The agents will tell you when clips are ready.</p>
+            <p className="px-3 pb-3 text-base text-ink-muted">Nothing yet. The bees will notify you when clips are ready.</p>
           ) : (
             <ul className="max-h-96 space-y-1 overflow-y-auto">
               {items.map((n) => {

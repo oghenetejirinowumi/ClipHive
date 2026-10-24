@@ -26,6 +26,7 @@ from pathlib import Path
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, download_range_func
 
+from app.config import settings
 from app.core.media import ffmpeg_bin
 from app.services.ingest import youtube_guard
 

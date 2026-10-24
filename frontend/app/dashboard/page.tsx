@@ -17,7 +17,7 @@ export default function DashboardPage() {
         size="lg"
         eyebrow="Dashboard"
         title={<Greeting />}
-        description="Your agents watch your channels, pick and cut the best moments, and schedule what you approve. You just review."
+        description="Your bees watch your channels, harvest and craft the best moments, and schedule what you approve. You just review."
         actions={
           <>
             <Button href="/inbox" variant="inverse" size="lg">
@@ -32,9 +32,9 @@ export default function DashboardPage() {
 
       <section className="space-y-8">
         <div className="flex items-center justify-between gap-4">
-          <SectionLabel>Your agents</SectionLabel>
-          <Link href="/agents" className={buttonClass({ variant: "ghost", size: "sm" })}>
-            See their work <Icon name="arrowRight" className="size-5" />
+          <SectionLabel>The Hive</SectionLabel>
+          <Link href="/hive" className={buttonClass({ variant: "ghost", size: "sm" })}>
+            See the colony <Icon name="arrowRight" className="size-5" />
           </Link>
         </div>
         <AgentStatsStrip />

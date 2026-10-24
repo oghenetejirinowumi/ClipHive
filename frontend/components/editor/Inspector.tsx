@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Button, Checkbox, compactInputClass, Icon, Segmented } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import {
@@ -23,12 +23,32 @@ type Props = {
 };
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
-const FONTS: Font[] = ["Bangers", "Luckiest Guy", "Poppins", "System"];
+const FONTS: Font[] = [
+  "Bangers",
+  "Poppins",
+  "Luckiest Guy",
+  "Montserrat 900",
+  "Montserrat 800",
+  "Rubik 800",
+  "Inter 700",
+  "Anton 400",
+  "Lilita One 400",
+  "Roboto 500",
+  "Lora 700",
+  "Bebas Neue 400",
+  "System",
+];
 const ANIMATIONS: { value: TextAnimation; label: string }[] = [
   { value: "pop", label: "Pop" },
+  { value: "word_pop", label: "Word Pop" },
+  { value: "highlight_box", label: "Highlight Box" },
+  { value: "single_word", label: "Single Word" },
+  { value: "karaoke", label: "Karaoke" },
+  { value: "typewriter", label: "Typewriter" },
+  { value: "reveal", label: "Reveal" },
   { value: "fade", label: "Fade" },
   { value: "slide_up", label: "Slide up" },
-  { value: "typewriter", label: "Typewriter" },
+  { value: "line", label: "Line" },
   { value: "none", label: "None" },
 ];
 
@@ -92,6 +112,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 export function Inspector({ timeline, selectedId, playhead, onPatch, onProject, onSplit, onDuplicate, onDelete }: Props) {
+  const [styleCategory, setStyleCategory] = useState("All");
   const found = selectedId ? find(timeline, selectedId) : null;
 
   if (!found) {
@@ -195,18 +216,69 @@ export function Inspector({ timeline, selectedId, playhead, onPatch, onProject, 
         {isVideo && (
           <Section title="Speed & sound">
             <Row label="Speed">
-              <select className={control} value={clip.speed} onChange={(e) => set("speed", { speed: Number(e.target.value) })}>
-                {SPEEDS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}×{s === 1 ? " (normal)" : ""}
-                  </option>
-                ))}
-              </select>
+              <div className="space-y-2">
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { label: "0.5× Slow", speed: 0.5 },
+                    { label: "0.75×", speed: 0.75 },
+                    { label: "1× Normal", speed: 1 },
+                    { label: "1.25×", speed: 1.25 },
+                    { label: "1.5× Fast", speed: 1.5 },
+                    { label: "2×", speed: 2 },
+                  ].map((s) => (
+                    <button
+                      key={s.label}
+                      type="button"
+                      className={cn(
+                        "rounded px-2.5 py-1 text-meta font-medium transition",
+                        clip.speed === s.speed
+                          ? "bg-brand text-on-brand"
+                          : "bg-surface-elevated text-ink hover:bg-surface-sunken"
+                      )}
+                      onClick={() => set("speed", { speed: s.speed })}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+                <select className={control} value={clip.speed} onChange={(e) => set("speed", { speed: Number(e.target.value) })}>
+                  {SPEEDS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}×{s === 1 ? " (normal)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </Row>
             {asset?.has_audio ? (
               <>
                 <Row label="Volume" hint={`${Math.round(clip.volume * 100)}%`}>
-                  <Range value={clip.volume} min={0} max={2} step={0.05} onChange={(volume) => set("volume", { volume })} />
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { label: "Mute", vol: 0 },
+                        { label: "50%", vol: 0.5 },
+                        { label: "100%", vol: 1 },
+                        { label: "150%", vol: 1.5 },
+                        { label: "200%", vol: 2 },
+                      ].map((v) => (
+                        <button
+                          key={v.label}
+                          type="button"
+                          className={cn(
+                            "rounded px-2 py-0.5 text-meta font-medium transition",
+                            Math.abs(clip.volume - v.vol) < 0.05
+                              ? "bg-brand text-on-brand"
+                              : "bg-surface-elevated text-ink hover:bg-surface-sunken"
+                          )}
+                          onClick={() => set("volume", { volume: v.vol, muted: v.vol === 0 })}
+                        >
+                          {v.label}
+                        </button>
+                      ))}
+                    </div>
+                    <Range value={clip.volume} min={0} max={2} step={0.05} onChange={(volume) => set("volume", { volume })} />
+                  </div>
                 </Row>
                 <Check label="Mute this clip" checked={clip.muted} onChange={(muted) => set("muted", { muted })} />
               </>
@@ -229,13 +301,57 @@ export function Inspector({ timeline, selectedId, playhead, onPatch, onProject, 
           </Row>
           {actions}
         </div>
-        <Section title="Style">
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(TEXT_PRESETS).map(([key, preset]) => (
-              <Button key={key} size="xs" variant="secondary" onClick={() => onPatch(id, preset.style, `${id}:preset`)}>
-                {preset.label}
-              </Button>
-            ))}
+        <Section title="Caption Style">
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-1">
+              {["All", "Gaming", "Viral", "Podcast", "Fun", "Story", "Broadcast", "Minimal"].map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  className={cn(
+                    "rounded px-2 py-0.5 text-fine font-medium transition",
+                    styleCategory === cat ? "bg-brand text-on-brand" : "bg-surface-elevated text-ink hover:bg-surface-sunken"
+                  )}
+                  onClick={() => setStyleCategory(cat)}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto rounded-md border border-line p-1">
+              {Object.entries(TEXT_PRESETS)
+                .filter(([, p]) => styleCategory === "All" || p.category === styleCategory)
+                .map(([key, preset]) => {
+                  const isActive = text.font === preset.style.font && text.color === preset.style.color;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => onPatch(id, preset.style, `${id}:preset`)}
+                      className={cn(
+                        "flex items-center gap-2 rounded px-2 py-1.5 text-left transition",
+                        isActive ? "bg-brand-subtle border border-brand" : "bg-surface hover:bg-surface-sunken border border-line"
+                      )}
+                    >
+                      <span
+                        className="grid size-7 shrink-0 place-items-center rounded text-meta font-bold"
+                        style={{
+                          color: preset.style.color,
+                          background: preset.style.background ?? "#111111", // design-check-ignore: caption colours
+                          WebkitTextStroke: preset.style.stroke_color ? `1px ${preset.style.stroke_color}` : undefined,
+                          textTransform: preset.style.uppercase ? "uppercase" : undefined,
+                        }}
+                      >
+                        Aa
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate text-meta font-medium text-ink">{preset.label}</span>
+                        <span className="block truncate text-fine text-ink-muted">{preset.category}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Row label="Font">
@@ -277,7 +393,31 @@ export function Inspector({ timeline, selectedId, playhead, onPatch, onProject, 
           <Check label="ALL CAPS" checked={text.uppercase} onChange={(uppercase) => set("uppercase", { uppercase })} />
         </Section>
         <Section title="Position">
-          <p className="text-base text-ink-muted">Or drag the handle on the preview.</p>
+          <div className="space-y-1.5">
+            <span className="block text-meta font-medium text-ink">Presets</span>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { label: "Top (18%)", y: 0.18, x: 0.5 },
+                { label: "Center (50%)", y: 0.5, x: 0.5 },
+                { label: "Bottom (80%)", y: 0.8, x: 0.5 },
+              ].map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  className={cn(
+                    "rounded px-2.5 py-1 text-meta font-medium transition",
+                    Math.abs(text.y - p.y) < 0.05
+                      ? "bg-brand text-on-brand"
+                      : "bg-surface-elevated text-ink hover:bg-surface-sunken"
+                  )}
+                  onClick={() => onPatch(id, { y: p.y, x: p.x }, `${id}:pos-preset`)}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="text-base text-ink-muted">Or drag the handle directly on the video preview.</p>
           <Row label="Across" hint={`${Math.round(text.x * 100)}%`}>
             <Range value={text.x} min={0} max={1} step={0.01} onChange={(x) => set("x", { x })} />
           </Row>

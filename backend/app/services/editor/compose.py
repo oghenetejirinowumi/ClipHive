@@ -25,8 +25,25 @@ from app.schemas.editor import Asset, AudioTrack, Clip, Effect, Text, Timeline
 GSAP_URL = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"
 
 # Fonts shipped in backend/assets/fonts. "System" uses the generic sans-serif stack.
-FONT_FILES = {"Bangers": "Bangers-Regular.ttf", "Luckiest Guy": "LuckiestGuy-Regular.ttf", "Poppins": "Poppins-SemiBold.ttf"}
+FONT_FILES = {
+    "Bangers": "Bangers-Regular.ttf",
+    "Luckiest Guy": "LuckiestGuy-Regular.ttf",
+    "Poppins": "Poppins-SemiBold.ttf",
+}
 FONT_STACK = {"Bangers": "'Bangers'", "Luckiest Guy": "'Luckiest Guy'", "Poppins": "'Poppins'", "System": "system-ui"}
+
+
+def _font_filename(font_name: str) -> str | None:
+    if font_name in FONT_FILES:
+        return FONT_FILES[font_name]
+    try:
+        from app.services.caption import fonts
+        info = fonts.get_font(font_name)
+        if info:
+            return info.file.name
+    except Exception:
+        pass
+    return None
 
 TEXT_IN_S = 0.3
 TEXT_OUT_S = 0.2
@@ -101,7 +118,8 @@ def _text_html(text: Text, width: int, height: int, z: int) -> str:
     outer = (
         f"left: {_n(text.x * width)}px; top: {_n(text.y * height)}px; width: {_n(text.width * width)}px; z-index: {z}"
     )
-    inner = f"font-family: {FONT_STACK[text.font]}, system-ui, sans-serif; font-size: {text.size}px; color: {text.color}; {stroke} {box}"
+    font_fam = FONT_STACK.get(text.font, f"'{text.font}'" if text.font != "System" else "system-ui")
+    inner = f"font-family: {font_fam}, system-ui, sans-serif; font-size: {text.size}px; color: {text.color}; {stroke} {box}"
     return (
         f'<div id="t-{text.id}" class="clip text" data-start="{_n(text.start)}" data-duration="{_n(text.duration)}" '
         f'data-track-index="5" style="{outer}"><span id="ts-{text.id}" class="text-inner" style="{inner}">{escape(content)}</span></div>'
@@ -115,9 +133,18 @@ def _text_tweens(text: Text) -> list[str]:
     out_s = min(TEXT_OUT_S, dur / 4)
     tweens = {
         "fade": f"tl.fromTo({sel}, {{opacity: 0}}, {{opacity: 1, duration: {_n(in_s)}, ease: 'power1.out'}}, {_n(start)});",
-        "pop": f"tl.fromTo({sel}, {{opacity: 0, scale: 0.6}}, {{opacity: 1, scale: 1, duration: {_n(in_s)}, ease: 'back.out(2.2)'}}, {_n(start)});",
+        "line": f"tl.fromTo({sel}, {{opacity: 0, y: 15}}, {{opacity: 1, y: 0, duration: {_n(in_s)}, ease: 'power1.out'}}, {_n(start)});",
+        "pop": f"tl.fromTo({sel}, {{opacity: 0, scale: 0.6}}, {{opacity: 1, scale: 1, duration: {_n(in_s)}, ease: 'back.out(2.2)'}}, {_n(start)});\n      tl.to({sel}, {{scale: 1.08, duration: 0.12, yoyo: true, repeat: 1}}, {_n(start + in_s)});",
+        "word_pop": f"tl.fromTo({sel}, {{opacity: 0, scale: 0.6}}, {{opacity: 1, scale: 1, duration: {_n(in_s)}, ease: 'back.out(2.2)'}}, {_n(start)});\n      tl.to({sel}, {{scale: 1.12, duration: 0.12, yoyo: true, repeat: 1}}, {_n(start + in_s)});",
+        "single_word": f"tl.fromTo({sel}, {{opacity: 0, scale: 0.4}}, {{opacity: 1, scale: 1, duration: {_n(in_s)}, ease: 'back.out(2.5)'}}, {_n(start)});",
+        "highlight_box": f"tl.fromTo({sel}, {{opacity: 0, scale: 0.85}}, {{opacity: 1, scale: 1, duration: {_n(in_s)}, ease: 'back.out(1.8)'}}, {_n(start)});",
+        "karaoke": f"tl.fromTo({sel}, {{opacity: 0, scale: 0.9}}, {{opacity: 1, scale: 1, duration: {_n(in_s)}, ease: 'power2.out'}}, {_n(start)});\n      tl.to({sel}, {{filter: 'drop-shadow(0 0 10px gold)', duration: 0.2}}, {_n(start + 0.1)});",
         "slide_up": f"tl.fromTo({sel}, {{opacity: 0, yPercent: 60}}, {{opacity: 1, yPercent: 0, duration: {_n(in_s)}, ease: 'power3.out'}}, {_n(start)});",
         "typewriter": (
+            f"tl.fromTo({sel}, {{clipPath: 'inset(0 100% 0 0)'}}, {{clipPath: 'inset(0 0% 0 0)', "
+            f"duration: {_n(min(1.2, dur * 0.6))}, ease: 'steps({max(2, min(40, len(text.text)))})'}}, {_n(start)});"
+        ),
+        "reveal": (
             f"tl.fromTo({sel}, {{clipPath: 'inset(0 100% 0 0)'}}, {{clipPath: 'inset(0 0% 0 0)', "
             f"duration: {_n(min(1.2, dur * 0.6))}, ease: 'steps({max(2, min(40, len(text.text)))})'}}, {_n(start)});"
         ),
@@ -208,11 +235,13 @@ def compose(timeline: Timeline, *, media_url: Callable[[Asset], str], font_url: 
     width, height = timeline.size
     duration = max(timeline.duration, 0.5)
 
-    used_fonts = sorted({t.font for t in timeline.texts if t.font in FONT_FILES})
-    font_faces = "\n".join(
-        f"      @font-face {{ font-family: '{name}'; src: url('{_attr(font_url(FONT_FILES[name]))}'); font-display: block; }}"
-        for name in used_fonts
-    )
+    used_fonts = sorted({t.font for t in timeline.texts if t.font != "System"})
+    faces = []
+    for name in used_fonts:
+        fname = _font_filename(name)
+        if fname:
+            faces.append(f"      @font-face {{ font-family: '{name}'; src: url('{_attr(font_url(fname))}'); font-display: block; }}")
+    font_faces = "\n".join(faces)
 
     body: list[str] = []
     picture: list[str] = []

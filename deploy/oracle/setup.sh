@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-time setup of the ClipHive API on a fresh Ubuntu 24.04 server
-# (Oracle Cloud "Always Free" Ampere/ARM or any x86 VM).
+# (AWS EC2, Oracle Cloud "Always Free", or any ARM/x86 VM).
 #
 #   curl -fsSL https://raw.githubusercontent.com/oghenetejirinowumi/ClipHive/main/deploy/oracle/setup.sh \
 #     | bash -s -- <api-domain> <frontend-url>
@@ -21,8 +21,29 @@ ENV_FILE=/etc/cliphive/cliphive.env
 
 say() { printf '\n\033[1;32m==> %s\033[0m\n' "$*"; }
 
+FREE_GB=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
+if [ "$FREE_GB" -lt 12 ]; then
+  printf '
+[1;31mOnly %s GB free on this server'"'"'s disk; ClipHive needs at least 12 GB.[0m
+' "$FREE_GB"
+  printf 'Grow the disk to 30 GB (EC2 > Volumes > Modify volume), then run:
+'
+  printf '  sudo growpart /dev/nvme0n1 1 && sudo resize2fs "$(findmnt -no SOURCE /)"
+'
+  exit 1
+fi
+
+if [ ! -f /swapfile ] && [ "$(awk '/MemTotal/ {print $2}' /proc/meminfo)" -lt 4000000 ]; then
+  say "Adding 2 GB of swap (small server: keeps installs and video encodes from running out of memory)"
+  sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+fi
+
 say "Installing system packages (Python, ffmpeg, Caddy)"
+# Finish any install an earlier attempt left half-done (e.g. after running out of disk).
+sudo DEBIAN_FRONTEND=noninteractive dpkg --configure -a || true
 sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get -f install -y
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   git python3-venv python3-dev build-essential ffmpeg caddy iptables-persistent curl openssl
 

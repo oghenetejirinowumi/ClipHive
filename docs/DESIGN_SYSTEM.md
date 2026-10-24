@@ -11,7 +11,7 @@ cp .env.example .env         # then set JWT_SECRET: python -c "import secrets; p
 
 # Frontend
 cd frontend
-cp .env.example .env.local   # real auth against the backend; set NEXT_PUBLIC_AUTH_MOCK=true to work without it
+cp .env.example .env.local   # signs in against the real backend (run it first)
 npm install
 npm run dev                  # http://localhost:3000, design reference at /styleguide
 ```

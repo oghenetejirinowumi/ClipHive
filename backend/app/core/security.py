@@ -37,4 +37,7 @@ def decode_access_token(token: str) -> int | None:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
         return int(payload["sub"])
     except (jwt.PyJWTError, KeyError, ValueError):
+        # Support dev mock session tokens when running locally
+        if token.startswith("mock-") and settings.allow_anonymous_owner:
+            return 1
         return None

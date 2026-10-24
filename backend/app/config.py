@@ -66,8 +66,8 @@ class Settings(BaseSettings):
     hyperframes_version: str = "0.8.189"
     editor_render_quality: str = "looks"  # draft | looks | delivery
 
-    # One-click demo login (app/core/demo.py). Disable for anything public.
-    demo_login_enabled: bool = True
+    # Local demo account (app/core/demo.py). Off by default; never enable on a public server.
+    demo_login_enabled: bool = False
     # Local-dev escape hatch: treat requests without a valid token as the first user. Never in
     # production (anyone could act as that account).
     allow_anonymous_owner: bool = False

@@ -44,6 +44,12 @@ export const NAV_GROUPS: NavGroup[] = [
         description: "Clips the agents made, waiting for your OK. Approve to schedule, reject to teach.",
       },
       {
+        href: "/hive",
+        label: "The Hive",
+        icon: "hive",
+        description: "Your colony of autonomous bees: Scout Bee, Worker Bee, Honey Bee & Queen Bee.",
+      },
+      {
         href: "/agents",
         label: "Activity",
         icon: "bot",
@@ -122,7 +128,7 @@ export const AUTH_ROUTES = ["/login", "/register"];
 const matches = (pathname: string, href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
 export function isAppRoute(pathname: string): boolean {
-  return APP_NAV.some((item) => matches(pathname, item.href));
+  return APP_NAV.some((item) => matches(pathname, item.href)) || matches(pathname, "/agents");
 }
 
 export function isActive(pathname: string, href: string): boolean {
