@@ -451,3 +451,521 @@
 *::-webkit-scrollbar {
   display: none;
 }
+
+/* ---------- The Ultraviolet Hive (components/hive) ----------
+   Bees see in ultraviolet, so the hive lives in the brand hue: purple bees on paper, light
+   bees with deep stripes on the brand sky. Transform + opacity only; every loop pauses
+   offscreen (data-fx-paused) and stops under reduced motion. */
+/* In the components layer so Tailwind utilities (sm:hidden, mx-auto…) still win. */
+@layer components {
+  .bee {
+    --bee-body: var(--brand);
+    --bee-stripe: var(--brand-deep);
+    --bee-accent: var(--brand-soft);
+    --bee-wing: color-mix(in oklab, var(--brand-soft) 45%, transparent);
+    --bee-wing-line: color-mix(in oklab, var(--brand) 50%, transparent);
+    overflow: visible;
+    flex-shrink: 0;
+  }
+  .bee-inverse {
+    --bee-body: var(--on-brand);
+    --bee-stripe: var(--brand-deep);
+    --bee-accent: var(--on-brand);
+    --bee-wing: color-mix(in oklab, var(--on-brand) 40%, transparent);
+    --bee-wing-line: color-mix(in oklab, var(--on-brand) 70%, transparent);
+    filter: drop-shadow(0 0 6px color-mix(in oklab, var(--on-brand) 45%, transparent));
+  }
+  .bee-body { fill: var(--bee-body); }
+  .bee-stripe-fill { fill: var(--bee-stripe); }
+  .bee-line { fill: none; stroke: var(--bee-stripe); stroke-width: 2; stroke-linecap: round; }
+  .bee-wing { fill: var(--bee-wing); stroke: var(--bee-wing-line); stroke-width: 1; }
+  .bee-flap { transform-box: fill-box; transform-origin: 50% 100%; }
+  .bee-flying .bee-flap { animation: bee-flap 90ms linear infinite alternate; }
+  .bee-flying .bee-flap-back { animation-delay: -45ms; }
+  @keyframes bee-flap {
+    from { transform: scaleY(1); }
+    to { transform: scaleY(0.35); }
+  }
+  .bee-pollen circle { fill: var(--bee-accent); stroke: var(--bee-stripe); stroke-width: 1; }
+  .bee-crown { fill: var(--bee-accent); stroke: var(--bee-stripe); stroke-width: 1.2; stroke-linejoin: round; }
+  .bee-drip { fill: var(--bee-accent); stroke: var(--bee-stripe); stroke-width: 1; transform-box: fill-box; transform-origin: 50% 0; }
+  .bee-flying .bee-drip { animation: bee-drip 2.4s var(--motion-ease-in-out) infinite; }
+  @keyframes bee-drip {
+    0%, 20% { transform: translateY(0) scale(0.6); opacity: 0; }
+    40% { transform: translateY(0) scale(1); opacity: 1; }
+    85% { transform: translateY(5px) scale(1); opacity: 1; }
+    100% { transform: translateY(9px) scale(0.8); opacity: 0; }
+  }
+  .bee-ping path { fill: none; stroke: var(--bee-body); stroke-width: 2; stroke-linecap: round; opacity: 0.5; }
+  .bee-flying .bee-ping path { animation: bee-ping 1.8s var(--motion-ease-out) infinite; }
+  .bee-flying .bee-ping path:last-child { animation-delay: 0.3s; }
+  @keyframes bee-ping {
+    0% { opacity: 0; }
+    30% { opacity: 0.9; }
+    100% { opacity: 0; }
+  }
+
+  /* A gentle hover-in-place bob for bees that aren't travelling. */
+  .bee-hover,
+  .swarm-bob {
+    display: block;
+    animation: bee-bob 1.5s var(--motion-ease-in-out) infinite alternate;
+    animation-delay: var(--delay, 0s);
+  }
+  .bee-hover { animation-duration: 2.2s; }
+  @keyframes bee-bob {
+    from { transform: translateY(-3px); }
+    to { transform: translateY(3px); }
+  }
+
+  /* Swarm: BeeSwarm writes each bee's transform every frame; they fade in once flying. */
+  .swarm-bee {
+    position: absolute;
+    left: 0;
+    top: 0;
+    opacity: 0;
+    transition: opacity 700ms var(--motion-ease-out);
+    will-change: transform;
+  }
+  .swarm-bee[data-live] { opacity: 1; }
+
+  /* Pollen specks rising through a swarm. */
+  .pollen {
+    position: absolute;
+    left: var(--x);
+    bottom: -12px;
+    width: var(--size);
+    height: var(--size);
+    border-radius: 9999px;
+    background: color-mix(in oklab, var(--brand) 45%, transparent);
+    animation: pollen-rise var(--dur) linear infinite;
+    animation-delay: var(--delay);
+    will-change: transform;
+  }
+  .pollen-inverse {
+    background: color-mix(in oklab, var(--on-brand) 55%, transparent);
+    box-shadow: 0 0 6px color-mix(in oklab, var(--on-brand) 50%, transparent);
+  }
+  @keyframes pollen-rise {
+    0% { transform: translate3d(0, 0, 0); opacity: 0; }
+    10% { opacity: 0.9; }
+    50% { transform: translate3d(18px, -380px, 0); }
+    90% { opacity: 0.6; }
+    100% { transform: translate3d(-10px, -760px, 0); opacity: 0; }
+  }
+
+  /* The waggle dance mark left where you tap: a figure-eight drawn in, then fading. */
+  .waggle-mark {
+    position: absolute;
+    width: 120px;
+    height: 60px;
+    overflow: visible;
+    animation: waggle-fade 1.8s var(--motion-ease-out) forwards;
+  }
+  .waggle-mark path {
+    fill: none;
+    stroke: var(--brand);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-dasharray: 100;
+    stroke-dashoffset: 100;
+    animation: waggle-draw 1s var(--motion-ease-out) forwards;
+  }
+  .waggle-mark-inverse path { stroke: var(--on-brand); }
+  @keyframes waggle-draw { to { stroke-dashoffset: 0; } }
+  @keyframes waggle-fade {
+    0%, 55% { opacity: 0.9; }
+    100% { opacity: 0; }
+  }
+
+  /* Honeycomb lattice */
+  .hex-lattice-line { fill: none; stroke: color-mix(in oklab, var(--brand) 16%, transparent); stroke-width: 1; }
+  .hex-lattice-inverse .hex-lattice-line { stroke: color-mix(in oklab, var(--on-brand) 14%, transparent); }
+  .hex-fade-bottom { -webkit-mask-image: linear-gradient(to top, black, transparent 75%); mask-image: linear-gradient(to top, black, transparent 75%); }
+  .hex-fade-top { -webkit-mask-image: linear-gradient(to bottom, black, transparent 70%); mask-image: linear-gradient(to bottom, black, transparent 70%); }
+  .hex-fade-right { -webkit-mask-image: linear-gradient(to left, black, transparent 70%); mask-image: linear-gradient(to left, black, transparent 70%); }
+  .hex-fade-radial { -webkit-mask-image: radial-gradient(closest-side, black, transparent); mask-image: radial-gradient(closest-side, black, transparent); }
+  .hex-glint {
+    fill: color-mix(in oklab, var(--brand) 22%, transparent);
+    opacity: 0;
+    animation: hex-glint 6.5s var(--motion-ease-in-out) infinite;
+    animation-delay: var(--delay);
+  }
+  .hex-lattice-inverse .hex-glint { fill: color-mix(in oklab, var(--on-brand) 20%, transparent); }
+  @keyframes hex-glint {
+    0%, 62%, 100% { opacity: 0; }
+    76% { opacity: 1; }
+  }
+
+  /* Comb that fills with honey (CombFill) */
+  .comb-cell { fill: var(--surface-sunken); stroke: var(--line-strong); stroke-width: 2; }
+  .comb-pour {
+    transform-box: fill-box;
+    transform: translateY(100%);
+    transition: transform 900ms var(--motion-ease-out) var(--d);
+  }
+  .comb-honey { fill: var(--brand); }
+  .comb-sheen { fill: color-mix(in oklab, var(--on-brand) 16%, transparent); }
+  .comb-play {
+    fill: var(--on-brand);
+    opacity: 0;
+    transform-box: fill-box;
+    transform-origin: center;
+    transform: scale(0.3);
+    transition: opacity 300ms var(--motion-ease-out), transform 420ms cubic-bezier(0.34, 1.6, 0.64, 1);
+    transition-delay: calc(var(--d) + 650ms);
+  }
+  .comb-star {
+    fill: none;
+    stroke: var(--brand);
+    stroke-width: 3;
+    opacity: 0;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .comb[data-filled] .comb-pour { transform: none; }
+  .comb[data-filled] .comb-play { opacity: 1; transform: none; }
+  .comb[data-filled] .comb-star { animation: comb-star 2.6s var(--motion-ease-in-out) infinite; animation-delay: calc(var(--d) + 1200ms); }
+  @keyframes comb-star {
+    0%, 100% { opacity: 0; transform: scale(1); }
+    45% { opacity: 0.9; transform: scale(1.06); }
+  }
+
+  /* Bee vision (BeeVision) */
+  .uv-panel { background: var(--surface); transition: border-color 700ms var(--motion-ease-out); }
+  .uv-panel[data-vision="bee"] { border-color: color-mix(in oklab, var(--brand) 60%, transparent); }
+  .uv-wash {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: radial-gradient(ellipse 90% 80% at 50% 0%, color-mix(in oklab, var(--brand) 75%, var(--brand-deep)), var(--brand-deep) 75%);
+    opacity: 0;
+    transition: opacity 800ms var(--motion-ease-out);
+  }
+  [data-vision="bee"] .uv-wash { opacity: 1; }
+  .uv-bar {
+    background: var(--line-strong);
+    transition: height 700ms var(--motion-ease-out), background-color 600ms var(--motion-ease-out), box-shadow 600ms var(--motion-ease-out);
+    transition-delay: calc(var(--i) * 7ms);
+  }
+  [data-vision="bee"] .uv-bar { background: color-mix(in oklab, var(--on-brand) 24%, transparent); }
+  [data-vision="bee"] .uv-bar-hot {
+    background: var(--on-brand);
+    box-shadow: 0 0 14px color-mix(in oklab, var(--on-brand) 70%, transparent);
+  }
+  .uv-axis { transition: color 600ms var(--motion-ease-out); }
+  [data-vision="bee"] .uv-axis { color: color-mix(in oklab, var(--on-brand) 65%, transparent); }
+  .uv-pin {
+    opacity: 0;
+    transform: translateY(-12px);
+    transition: opacity 400ms var(--motion-ease-out), transform 600ms cubic-bezier(0.34, 1.5, 0.64, 1);
+    transition-delay: 0ms;
+  }
+  [data-vision="bee"] .uv-pin {
+    opacity: 1;
+    transform: none;
+    transition-delay: calc(650ms + var(--i) * 180ms);
+  }
+  .uv-pin-bee { animation: bee-bob 1.3s var(--motion-ease-in-out) infinite alternate; }
+
+  /* Colony flight (ColonyFlight) */
+  .flight-path {
+    fill: none;
+    stroke: color-mix(in oklab, var(--brand) 45%, transparent);
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-dasharray: 0.01 1.6;
+    vector-effect: non-scaling-stroke;
+  }
+  .station {
+    opacity: 0;
+    transform: translateY(var(--motion-reveal-distance));
+    transition: opacity var(--motion-slow) var(--motion-ease-out), transform var(--motion-slow) var(--motion-ease-out);
+    transition-delay: calc(var(--i) * 140ms);
+  }
+  .station-in { opacity: 1; transform: none; }
+
+  /* Hexagonal badge: a brand-tinted rim around a pale cell. */
+  .hex-badge {
+    --hex: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+    display: inline-grid;
+    flex-shrink: 0;
+    aspect-ratio: 0.866;
+    padding: 2px;
+    clip-path: var(--hex);
+    background: color-mix(in oklab, var(--brand) 40%, transparent);
+  }
+  .hex-badge-inner {
+    display: grid;
+    place-items: center;
+    clip-path: var(--hex);
+    background: var(--brand-subtle);
+  }
+  .hex-badge-sm { width: 3rem; }
+  .hex-badge-md { width: 3.75rem; }
+  .hex-badge-lg { width: 5rem; }
+  @media (min-width: 1024px) {
+    .hex-badge-md { width: 6rem; }
+    .hex-badge-lg { width: 6.5rem; }
+  }
+  .hex-badge-glow { animation: hex-breathe 1.4s var(--motion-ease-in-out) infinite alternate; }
+  @keyframes hex-breathe {
+    from { background-color: color-mix(in oklab, var(--brand) 35%, transparent); }
+    to { background-color: var(--brand); }
+  }
+
+  /* Live comb of bee jobs (HiveComb) */
+  .comb-run {
+    --hex: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+    position: absolute;
+    display: grid;
+    padding: 2px;
+    clip-path: var(--hex);
+    background: var(--line-strong);
+    animation: comb-pop 520ms cubic-bezier(0.34, 1.5, 0.64, 1) both;
+    animation-delay: calc(min(var(--i), 20) * 28ms);
+  }
+  .comb-run:focus-visible { outline: none; background: var(--ink); }
+  .comb-run-face {
+    display: grid;
+    place-items: center;
+    clip-path: var(--hex);
+    background: var(--surface);
+  }
+  .comb-run-done { background: color-mix(in oklab, var(--brand) 55%, transparent); }
+  .comb-run-done .comb-run-face { background: var(--brand-subtle); }
+  .comb-run-running { background: var(--brand); animation: comb-pop 520ms cubic-bezier(0.34, 1.5, 0.64, 1) both, hex-breathe 1.2s var(--motion-ease-in-out) infinite alternate; }
+  .comb-run-running .comb-run-face { background: radial-gradient(circle at 50% 35%, var(--brand), var(--brand-deep)); }
+  .comb-run-failed { background: var(--danger); }
+  .comb-run-failed .comb-run-face { background: var(--danger-subtle); }
+  .comb-crack { fill: none; stroke: var(--danger); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .comb-run-active { background: var(--ink); }
+  .comb-run-bee { opacity: 0.85; }
+  @keyframes comb-pop {
+    from { scale: 0.5; opacity: 0; }
+    to { scale: 1; opacity: 1; }
+  }
+  .comb-key {
+    display: inline-block;
+    width: 14px;
+    height: 16px;
+    clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  }
+  .comb-key-running { background: var(--brand); }
+  .comb-key-done { background: var(--brand-soft); }
+  .comb-key-failed { background: var(--danger); }
+
+  /* Loading and empty states (HiveStates) */
+  .bee-loader { position: relative; display: inline-block; width: 64px; height: 40px; flex-shrink: 0; }
+  .bee-loader-path {
+    position: absolute;
+    left: 0;
+    top: 0;
+    offset-path: path("M32 20 C 22 4, 4 4, 4 20 S 22 36, 32 20 S 60 4, 60 20 S 42 36, 32 20");
+    offset-rotate: 0deg;
+    animation: bee-loop 2.2s linear infinite;
+  }
+  @keyframes bee-loop { to { offset-distance: 100%; } }
+  .sleeping-bee { position: relative; display: inline-block; padding: 1.25rem 1.5rem 0 0; }
+  .sleeping-bee > svg { animation: bee-sleep 3.2s var(--motion-ease-in-out) infinite; transform-origin: 50% 100%; }
+  @keyframes bee-sleep {
+    0%, 100% { transform: scale(1, 1); }
+    50% { transform: scale(1.03, 0.96); }
+  }
+  .sleeping-z {
+    position: absolute;
+    right: 0;
+    top: 0;
+    font-family: var(--typeface-mono);
+    font-weight: 600;
+    font-size: var(--type-meta);
+    color: var(--brand);
+    opacity: 0;
+    animation: bee-z 3s var(--motion-ease-out) infinite;
+  }
+  .sleeping-z-2 { animation-delay: 1s; }
+  .sleeping-z-3 { animation-delay: 2s; }
+  @keyframes bee-z {
+    0% { opacity: 0; transform: translate(-10px, 18px) scale(0.7); }
+    25% { opacity: 1; }
+    100% { opacity: 0; transform: translate(6px, -6px) scale(1.15); }
+  }
+
+
+  [data-fx-paused] :is(.bee-flap, .bee-drip, .bee-ping path, .bee-hover, .swarm-bob, .pollen, .hex-glint, .uv-pin-bee, .comb-star, .comb-run-running, .hex-badge-glow) {
+    animation-play-state: paused;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bee-flap,
+    .bee-drip,
+    .bee-ping path,
+    .bee-hover,
+    .swarm-bob,
+    .pollen,
+    .hex-glint,
+    .waggle-mark,
+    .waggle-mark path,
+    .uv-pin-bee,
+    .comb-star,
+    .comb-run,
+    .hex-badge-glow,
+    .bee-loader-path,
+    .sleeping-bee > svg,
+    .sleeping-z {
+      animation: none !important;
+    }
+    .waggle-mark { display: none; }
+    .comb-pour, .comb-play, .uv-bar, .uv-pin, .uv-wash, .station { transition: none !important; }
+    .station { opacity: 1; transform: none; }
+    .sleeping-z-1 { opacity: 1; }
+  }
+
+  /* "Bees buzzing now" dot on the Hive header. */
+  .hive-pulse {
+    position: relative;
+    width: 10px;
+    height: 10px;
+    border-radius: 9999px;
+    background: color-mix(in oklab, var(--on-brand) 45%, transparent);
+  }
+  .hive-pulse-on { background: var(--on-brand); }
+  .hive-pulse-on::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    border: 2px solid var(--on-brand);
+    animation: hive-ping 1.6s var(--motion-ease-out) infinite;
+  }
+  @keyframes hive-ping {
+    from { transform: scale(1); opacity: 0.9; }
+    to { transform: scale(2.6); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hive-pulse-on::after { animation: none; display: none; }
+  }
+
+  /* Channel profile pictures (ChannelAvatar) */
+  .channel-avatar { position: relative; display: inline-grid; place-items: center; flex-shrink: 0; border-radius: 9999px; }
+  .channel-avatar-face {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    border-radius: inherit;
+    background: var(--brand);
+    color: var(--on-brand);
+    box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--line-strong);
+    transition: box-shadow 300ms var(--motion-ease-out), filter 300ms var(--motion-ease-out), opacity 300ms var(--motion-ease-out);
+  }
+  .channel-avatar-live .channel-avatar-face { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--success); }
+  .channel-avatar-recording .channel-avatar-face { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--danger); }
+  .channel-avatar-recording::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border-radius: inherit;
+    border: 2px solid var(--danger);
+    animation: hive-ping 1.8s var(--motion-ease-out) infinite;
+  }
+  .channel-avatar-paused .channel-avatar-face { filter: grayscale(1); opacity: 0.55; }
+  /* Checking: an arc spinning round the picture. */
+  .channel-avatar-busy::before {
+    content: "";
+    position: absolute;
+    inset: -6px;
+    border-radius: inherit;
+    background: conic-gradient(from 0deg, transparent 0 55%, var(--brand) 100%);
+    mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+    animation: channel-spin 0.9s linear infinite;
+  }
+  @keyframes channel-spin { to { rotate: 1turn; } }
+  .channel-avatar-tag {
+    position: absolute;
+    bottom: -6px;
+    left: 50%;
+    translate: -50% 0;
+    padding: 0 6px;
+    border-radius: 4px;
+    background: var(--success);
+    color: var(--surface);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 16px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    box-shadow: 0 0 0 2px var(--surface);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .channel-avatar-busy::before { animation-duration: 3s; }
+    .channel-avatar-recording::after { animation: none; display: none; }
+  }
+
+  /* Channel flowers (Flower) */
+  .flower { position: relative; display: inline-grid; place-items: center; flex-shrink: 0; }
+  .flower-art { overflow: visible; transition: transform 700ms var(--motion-ease-out); }
+  .flower-petals { transform-box: view-box; transform-origin: 32px 32px; }
+  .flower-petal {
+    fill: var(--brand-soft);
+    stroke: color-mix(in oklab, var(--brand) 45%, transparent);
+    stroke-width: 1.2;
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    transition: transform 700ms cubic-bezier(0.34, 1.4, 0.64, 1), fill 500ms var(--motion-ease-out);
+    animation: petal-open 800ms cubic-bezier(0.34, 1.4, 0.64, 1) both;
+  }
+  @keyframes petal-open { from { transform: scale(0); } }
+  .flower-heart { fill: var(--brand); transition: fill 500ms var(--motion-ease-out); }
+  .flower-letter { fill: var(--on-brand); font-family: var(--typeface-display); font-weight: 700; font-size: 15px; }
+  .flower-bud .flower-petal { transform: scale(0.5, 0.62); fill: var(--brand-subtle); stroke: var(--line-strong); }
+  .flower-bloom .flower-petals { animation: flower-turn 26s linear infinite; }
+  .flower-bloom .flower-art { filter: drop-shadow(0 0 8px color-mix(in oklab, var(--brand) 45%, transparent)); }
+  @keyframes flower-turn { to { rotate: 1turn; } }
+  .flower-wilt .flower-art { transform: rotate(16deg) translateY(2px); }
+  .flower-wilt .flower-petal { transform: scale(0.85, 0.72); fill: var(--surface-sunken); stroke: var(--line-strong); }
+  .flower-wilt .flower-heart { fill: var(--ink-faint); }
+  .flower-scout {
+    position: absolute;
+    right: -32%;
+    top: -30%;
+    animation: bee-bob 1.4s var(--motion-ease-in-out) infinite alternate;
+  }
+  .flower-scout-busy {
+    right: auto;
+    top: 22%;
+    left: 22%;
+    animation: flower-orbit 2.6s linear infinite;
+  }
+  @keyframes flower-orbit {
+    from { transform: rotate(0deg) translateX(34px) rotate(0deg); }
+    to { transform: rotate(360deg) translateX(34px) rotate(-360deg); }
+  }
+
+  /* Honey running over a card's top edge (HoneyDrip) */
+  .honey-drip-band { fill: var(--brand); transform-box: fill-box; transform-origin: 50% 0; animation: drip-stretch 3.6s var(--motion-ease-in-out) infinite alternate; }
+  @keyframes drip-stretch { to { transform: scaleY(1.14); } }
+  .honey-drop-fall {
+    fill: var(--brand);
+    opacity: 0;
+    transform-box: fill-box;
+    transform-origin: 50% 0;
+    animation: drip-fall 5s ease-in infinite;
+  }
+  @keyframes drip-fall {
+    0% { opacity: 0; transform: translateY(-6px) scaleY(0.5); }
+    25% { opacity: 1; transform: translateY(0) scaleY(1); }
+    60% { opacity: 1; transform: translateY(3px) scaleY(1.35); }
+    74% { opacity: 1; transform: translateY(26px) scaleY(1); }
+    78%, 100% { opacity: 0; transform: translateY(30px) scaleY(1); }
+  }
+
+  [data-fx-paused] :is(.flower-petals, .flower-scout, .honey-drip-band, .honey-drop-fall) { animation-play-state: paused; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .flower-petal, .flower-bloom .flower-petals, .flower-scout, .honey-drip-band, .honey-drop-fall { animation: none !important; }
+    .honey-drop-fall { display: none; }
+    .flower-petal, .flower-art { transition: none !important; }
+  }
+}

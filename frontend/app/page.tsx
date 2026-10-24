@@ -1,4 +1,5 @@
 import { AuroraBackground, FeatureCloud, HalftoneHorizon, RevealOnScroll, RuleWall, SkyBackground, Tape } from "@/components/effects";
+import { BeeSwarm, HoneycombLattice } from "@/components/hive";
 import { FanOut } from "@/components/marketing/FanOut";
 import { StyleShowcase } from "@/components/marketing/StyleShowcase";
 import {
@@ -46,25 +47,31 @@ export default function LandingPage() {
   return (
     <div className="bg-paper">
       {/* Hero: the brand sky, night at the top dissolving into the page. */}
-      <section className="relative isolate overflow-hidden">
+      <section data-swarm-host className="relative isolate overflow-hidden">
         <SkyBackground />
+        {/* The night sky is where the bees fly: kept to the dark upper part, where they show. */}
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 bottom-[38%] -z-10">
+          <HoneycombLattice tone="inverse" fade="top" />
+          <BeeSwarm count={8} tone="inverse" interactive pollen />
+        </div>
         <header className={`${COLUMN} flex items-center justify-between gap-4 py-6`}>
           <Logo inverse />
           <nav className="flex items-center gap-2 sm:gap-3">
             <ThemeSwitch />
-            <Button href="/captions" variant="ghostInverse" className="hidden md:inline-flex">
+            <Button href="/captions" variant="ghostInverse" className="max-md:hidden">
               Captions
             </Button>
-            <Button href="/trends" variant="ghostInverse" className="hidden md:inline-flex">
+            <Button href="/trends" variant="ghostInverse" className="max-md:hidden">
               Trends
             </Button>
-            <Button href="/dashboard" variant="ghostInverse" className="hidden sm:inline-flex">
+            <Button href="/dashboard" variant="ghostInverse" className="max-sm:hidden">
               Dashboard
             </Button>
-            <Button href="/login" variant="ghostInverse">
+            {/* Phones: the hero's "I have an account" covers signing in, so the bar keeps one button. */}
+            <Button href="/login" variant="ghostInverse" className="max-sm:hidden">
               Sign in
             </Button>
-            <Button href="/register" variant="inverse">
+            <Button href="/register" variant="inverse" className="max-sm:h-12 max-sm:px-5 max-sm:text-base">
               Get started
             </Button>
           </nav>
@@ -91,6 +98,10 @@ export default function LandingPage() {
               I have an account
             </Button>
           </div>
+          <p className="fx-rise mt-8 inline-flex items-center gap-2 text-meta text-on-brand/75" style={{ animationDelay: "280ms" }}>
+            <Icon name="bee" className="size-5" />
+            Tap the sky. The bees will come to you.
+          </p>
         </div>
 
         <div className={`${COLUMN} pt-16 pb-20 lg:pt-28`}>
