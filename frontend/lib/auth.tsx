@@ -21,15 +21,6 @@ type AuthContextValue = {
   logout: () => void;
 };
 
-/** Lets the whole frontend run before the backend's /auth routes exist. */
-const AUTH_MOCK = process.env.NEXT_PUBLIC_AUTH_MOCK === "true";
-
-const mockAuth = (email: string): AuthResponse => ({
-  access_token: `mock-${Date.now()}`,
-  token_type: "bearer",
-  user: { id: "mock-user", email },
-});
-
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -40,7 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const session = readSession();
     setUser(session?.user ?? null);
     setStatus(session ? "authenticated" : "anonymous");
-    if (!session || AUTH_MOCK) return;
+    if (!session) return;
 
     // Restore instantly from storage, then confirm the token with the backend.
     // A 401 means it expired or was revoked; a network error keeps the session (backend may be restarting).
@@ -62,7 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const authenticate = useCallback(
     async (path: "/api/auth/login" | "/api/auth/register", email: string, password: string) =>
-      start(AUTH_MOCK ? mockAuth(email) : await api<AuthResponse>(path, { method: "POST", body: { email, password }, auth: false })),
+      start(await api<AuthResponse>(path, { method: "POST", body: { email, password }, auth: false })),
     [start],
   );
 
