@@ -9,6 +9,14 @@ export const API_URL = (
 /** What users see whenever something fails for a technical reason (offline, server crash, timeout). */
 export const GENERIC_ERROR = "Something went wrong. Please try again.";
 
+// Reads like it was written for developers: env var names, stack traces, tool and server names.
+const TECHNICAL = /\b[A-Z]{3,}_[A-Z_]{3,}\b|traceback|exception|errno|\bserver\b|backend|localhost|ffmpeg|yt-dlp|\bapi\b|\.py\b|\bnull\b|\bundefined\b|\bNaN\b|\[object/i;
+
+/** Any message headed for the screen: kept if it reads like plain words, else GENERIC_ERROR. */
+export function friendly(text: string | null | undefined): string {
+  return !text || TECHNICAL.test(text) ? GENERIC_ERROR : text;
+}
+
 /**
  * The message to show for an error: the backend's own wording when it's a deliberate, user-facing
  * message (4xx, or a 502/503 like "That video is private"), otherwise GENERIC_ERROR. Technical
@@ -17,7 +25,8 @@ export const GENERIC_ERROR = "Something went wrong. Please try again.";
 export function userMessage(status: number, detail: string | null | undefined): string {
   if (!detail || status === 0 || status === 500 || status === 504 || status >= 505) return GENERIC_ERROR;
   // FastAPI/Pydantic validation text ("Value error, ...", "Field required") -> plain words
-  return detail.replace(/^Value error,s*/i, "").replace(/^Field required$/i, "Please fill in all the fields.");
+  const text = detail.replace(/^Value error,\s*/i, "").replace(/^Field required$/i, "Please fill in all the fields.");
+  return friendly(text);
 }
 
 export class ApiError extends Error {

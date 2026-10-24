@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState, useTransition } from "react";
 import { AgentFeed } from "@/components/agents/AgentFeed";
 import { Bee, BeeSwarm, Flower, HoneycombLattice } from "@/components/hive";
 import { Badge, Button, buttonClass, ChannelAvatar, Em, Field, Icon, Input, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, friendly } from "@/lib/api";
 import { timeAgo, type AgentRun } from "@/lib/agents";
 import { cn } from "@/lib/cn";
 
@@ -55,7 +55,7 @@ function ago(iso: string | null): string {
 function statusLine(s: Streamer): { text: string; tone: "ok" | "idle" | "error" | "paused" } {
   if (!s.is_active) return { text: "Paused", tone: "paused" };
   if (s.recording) return { text: "Recording the stream · clips arrive as it goes", tone: "ok" };
-  if (s.last_check_error) return { text: `Last check failed: ${s.last_check_error}`, tone: "error" };
+  if (s.last_check_error) return { text: `Last check failed: ${friendly(s.last_check_error)}`, tone: "error" };
   if (!s.last_checked_at) return { text: "Not checked yet", tone: "idle" };
   return { text: `Checked ${timeAgo(s.last_checked_at)}`, tone: "ok" };
 }

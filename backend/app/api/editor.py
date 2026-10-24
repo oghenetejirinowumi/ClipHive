@@ -281,7 +281,7 @@ def auto_sfx(project_id: int, body: AutoSfxRequest, user: Owner, db: DbSession) 
     _snapshot(db, project, f"Auto SFX ({body.intensity})")
     db.commit()
     db.refresh(project)
-    how = "picked by AI" if result.used_ai else "placed by the built-in rules (set OPENAI_API_KEY or GROQ_API_KEY for AI picks)"
+    how = "picked by AI" if result.used_ai else "placed automatically"
     return _read(db, project).model_copy(update={"notice": f"{result.summary}, {how}."})
 
 

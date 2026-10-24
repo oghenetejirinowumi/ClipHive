@@ -101,7 +101,7 @@ def get_ai_client() -> tuple[Any, str]:
         if g_client:
             return g_client, settings.groq_chat_model or "openai/gpt-oss-20b"
 
-    raise RuntimeError("No LLM client configured. Set OPENAI_API_KEY or GROQ_API_KEY.")
+    raise RuntimeError("AI titles and hashtags aren't available right now.")
 
 
 def _clean_json_text(text: str) -> str:

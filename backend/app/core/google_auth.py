@@ -35,7 +35,7 @@ def enabled() -> bool:
 
 def verify(credential: str) -> GoogleIdentity:
     if not enabled():
-        raise GoogleAuthError("Google sign-in isn't set up on this server.")
+        raise GoogleAuthError("Google sign-in isn't available right now. Please sign in with your email instead.")
     try:
         claims = id_token.verify_oauth2_token(credential, _transport, audience=settings.google_client_id, clock_skew_in_seconds=10)
     except ValueError as err:  # bad signature, wrong audience/issuer, expired, malformed

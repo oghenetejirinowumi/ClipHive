@@ -220,7 +220,7 @@ def _state(timeline: Timeline, playhead: float, selected_id: str | None) -> str:
 
 def _client():
     if not settings.openai_api_key:
-        raise AssistantUnavailable("The AI editor needs an OpenAI key. Set OPENAI_API_KEY in backend/.env and restart the server.")
+        raise AssistantUnavailable("The AI editor isn't available right now.")
     import openai
 
     return openai.OpenAI(api_key=settings.openai_api_key, max_retries=2, timeout=90)

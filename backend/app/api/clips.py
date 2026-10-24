@@ -370,8 +370,7 @@ def process_clip_captioning(
             # The clean cut is still a finished clip: keep it postable and record why captions failed.
             usable = bool(clip.file_path or clip.raw_file_path) and Path(clip.raw_file_path).exists()
             clip.status = ClipStatus.READY if usable else ClipStatus.FAILED
-            reason = "the video encoder ran out of memory, try again" if "FFmpeg" in str(e) else str(e)
-            clip.error = f"Captions failed: {reason}"[:500]
+            clip.error = "Adding captions didn't work. Please try again."
             db.commit()
             if clip.status == ClipStatus.READY:
                 from app.services.ai.ai_pack import auto_run_ai_pack

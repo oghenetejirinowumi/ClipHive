@@ -15,6 +15,7 @@ with the clips it already has excluded, so every new clip is a moment it hasn't 
 from __future__ import annotations
 
 import json
+import re
 import logging
 import shutil
 import threading
@@ -109,8 +110,8 @@ def repair_clip_states() -> None:
             if clip.raw_file_path and Path(clip.raw_file_path).exists():
                 if clip.status == ClipStatus.PROCESSING:
                     clip.caption_mode = CaptionMode.PLATFORM_NATIVE
-                elif not (clip.error or "").startswith("Captions failed"):
-                    clip.error = "Captions failed: the video encoder ran out of memory, try again"
+                elif clip.error != "Adding captions didn't work. Please try again.":
+                    clip.error = "Adding captions didn't work. Please try again."
                 clip.status = ClipStatus.READY
                 fixed += 1
         if fixed:
@@ -123,6 +124,14 @@ def recover_interrupted() -> None:
     off: downloaded audio, fetched sections and already-cut clips are reused, not redone."""
     ensure_columns()
     repair_clip_states()
+    # Failure messages saved before they were made user-friendly (env var names, "server", ...)
+    with SessionLocal() as db:
+        technical = re.compile(r"[A-Z]{3,}_[A-Z_]{3,}|server|backend|ffmpeg|yt-dlp|Traceback", re.IGNORECASE)
+        old = [j for j in db.query(ImportJob).filter(ImportJob.error.isnot(None)) if technical.search(j.error or "")]
+        for job in old:
+            job.error = "We couldn't import this video. Please try again, or upload the video file instead."
+        if old:
+            db.commit()
     # A preview that was downloading died with the server; let the studio start it again.
     for state_file in (storage_root() / "imports").glob("*/preview.json"):
         try:

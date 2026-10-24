@@ -9,7 +9,7 @@ import { LayoutPreview } from "@/components/studio/LayoutPreview";
 import { Scrubber } from "@/components/studio/Scrubber";
 import { SocialTrendsPanel } from "@/components/studio/SocialTrendsPanel";
 import { Badge, Button, buttonClass, Em, Field, Icon, Notice, Panel, SectionLabel, Segmented, Select, StatusBadge } from "@/components/ui";
-import { api, ApiError, API_URL, GENERIC_ERROR } from "@/lib/api";
+import { api, ApiError, API_URL, GENERIC_ERROR, friendly } from "@/lib/api";
 import {
   FILTER_OPTIONS,
   formatTime,
@@ -652,7 +652,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                       {clip.color_filter && clip.color_filter !== "none" && <Badge tone="neutral">{clip.color_filter}</Badge>}
                       {clip.caption_position_y && <Badge tone="neutral">Pos: {clip.caption_position_y}%</Badge>}
                     </div>
-                    {clip.error && <p className="text-base text-danger">{clip.error}</p>}
+                    {clip.error && <p className="text-base text-danger">{friendly(clip.error)}</p>}
                     <Segmented
                       label={`Layout for clip ${clip.id}`}
                       value={clip.layout}
