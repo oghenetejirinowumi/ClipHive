@@ -110,7 +110,7 @@ export const AUTH_ROUTES = ["/login", "/register"];
 const matches = (pathname: string, href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
 export function isAppRoute(pathname: string): boolean {
-  return APP_NAV.some((item) => matches(pathname, item.href)) || matches(pathname, "/agents");
+  return APP_NAV.some((item) => matches(pathname, item.href)) || matches(pathname, "/agents") || matches(pathname, "/radar");
 }
 
 export function isActive(pathname: string, href: string): boolean {

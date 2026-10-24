@@ -21,7 +21,7 @@ from app.api.live import router as live_router
 from app.api.streamers import router as streamers_router
 from app.api.studio import router as studio_router
 from app.api.styles import router as styles_router
-from app.api.trends import router as trends_router
+from app.api.trends import radar_router, router as trends_router
 from app.config import settings
 from app.core.demo import ensure_demo_account
 from app.core.media import ffmpeg_bin
@@ -174,6 +174,7 @@ app.include_router(streamers_router, prefix="/api")
 app.include_router(styles_router, prefix="/api")
 app.include_router(clips_router, prefix="/api")
 app.include_router(trends_router, prefix="/api")
+app.include_router(radar_router, prefix="/api")
 app.include_router(imports_router, prefix="/api")
 app.include_router(downloads_router, prefix="/api")
 app.include_router(hub_router, prefix="/api")
@@ -186,6 +187,11 @@ app.include_router(inbox_router, prefix="/api")
 @app.api_route("/", methods=["GET", "HEAD"])
 def root():
     return RedirectResponse(url="/docs")
+
+
+@app.api_route("/radar", methods=["GET", "HEAD"])
+def radar_root():
+    return RedirectResponse(url="/api/trends/radar", status_code=307)
 
 
 def _code_version() -> str:

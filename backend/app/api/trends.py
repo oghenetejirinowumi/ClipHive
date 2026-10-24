@@ -38,6 +38,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/trends", tags=["trends"])
+radar_router = APIRouter(prefix="/radar", tags=["radar"])
 
 
 @router.get("", response_model=list[TrendRead])
@@ -52,12 +53,14 @@ def get_trends(
     return [score_item(score, hashtag) for score, hashtag in rows]
 
 
+@radar_router.get("")
 @router.get("/radar")
 def get_radar(user: CurrentUser, refresh: bool = Query(default=False)):
     """What clippers are posting right now: hot topics, top clips and clippers (Kick, Twitch)."""
     return clip_radar.get_radar(refresh=refresh).as_dict()
 
 
+@radar_router.get("/suggestions")
 @router.get("/radar/suggestions")
 def get_radar_suggestions(user: CurrentUser, db: Session = Depends(get_db)):
     """What this creator should clip next, from the radar plus their channels and taste."""
