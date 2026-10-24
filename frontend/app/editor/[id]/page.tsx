@@ -10,7 +10,7 @@ import { MomentsTab } from "@/components/editor/MomentsTab";
 import { LibraryPanel, loadSfxLibrary, type EmojiPlacement, type LibraryTab, type SfxIntensity } from "@/components/editor/LibraryPanel";
 import { Preview, type PreviewHandle } from "@/components/editor/Preview";
 import { Timeline } from "@/components/editor/Timeline";
-import { Badge, Button, buttonClass, Icon, Panel, ResizeHandle, Select } from "@/components/ui";
+import { Badge, Button, buttonClass, Icon, Panel, ResizeHandle, Select, type IconName } from "@/components/ui";
 import { api, ApiError, API_URL, friendly } from "@/lib/api";
 import type { EmojiAmount, EmojiMotion } from "@/lib/captions";
 import { cn } from "@/lib/cn";
@@ -66,6 +66,8 @@ export default function EditorPage() {
   const [playing, setPlaying] = useState(false);
   const [pxPerSec, setPxPerSec] = useState(40);
   const [libraryTab, setLibraryTab] = useState<LibraryTab>("media");
+  // Phones: the library and the AI editor open as sheets over the bottom of the screen.
+  const [sheet, setSheet] = useState<"library" | "agent" | null>(null);
   const [libraryWidth, setLibraryWidth] = usePersistentState("ch_editor_library", LIBRARY_DEFAULT);
   const [agentWidth, setAgentWidth] = usePersistentState("ch_editor_agent", AGENT_DEFAULT);
   const [showLibrary, setShowLibrary] = usePersistentState("ch_editor_show_library", true);
@@ -475,11 +477,24 @@ export default function EditorPage() {
         seek(Math.max(0, playhead + (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 1 : 1 / 30)));
       } else if (e.key === "Escape") {
         setSelectedId(null);
+        setSheet(null);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [undo, redo, doDuplicate, togglePlay, doSplit, doDelete, seek, playhead]);
+
+  // Phones: the editor covers the whole screen, so the page behind it shouldn't scroll.
+  useEffect(() => {
+    const phone = window.matchMedia("(max-width: 1023.98px)");
+    const sync = () => (document.documentElement.style.overflow = phone.matches ? "hidden" : "");
+    sync();
+    phone.addEventListener("change", sync);
+    return () => {
+      phone.removeEventListener("change", sync);
+      document.documentElement.style.overflow = "";
+    };
+  }, []);
 
   // --- render ----------------------------------------------------------------------------
   if (loadError) {
@@ -506,12 +521,23 @@ export default function EditorPage() {
     { label: "SFX", count: sfxCount },
     { label: "Effects", count: timeline.effects?.length ?? 0 },
   ];
+  const openLibrary = (tab: LibraryTab) => {
+    setLibraryTab(tab);
+    setSheet("library");
+  };
 
   return (
-    <div className="flex flex-col gap-3 lg:h-[calc(100dvh-2.5rem)]">
+    <div
+      className={cn(
+        "flex flex-col gap-3 lg:h-[calc(100dvh-2.5rem)]",
+        // Phones: the editor takes the whole screen (over the app's header and tabs), so the
+        // preview, its controls and the timeline are on screen together and nothing scrolls.
+        "max-lg:fixed max-lg:inset-0 max-lg:z-30 max-lg:gap-2 max-lg:bg-paper max-lg:px-2 max-lg:pt-2 max-lg:pb-[max(0.5rem,env(safe-area-inset-bottom))]",
+      )}
+    >
       {/* Top bar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex min-w-0 basis-full items-center gap-1 sm:flex-1 sm:basis-auto">
+      <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-1">
           <Link href="/editor" className={buttonClass({ variant: "ghost", size: "xs" })} aria-label="Back to projects">
             <Icon name="arrowRight" className="size-5 rotate-180" />
           </Link>
@@ -526,7 +552,7 @@ export default function EditorPage() {
           />
         </div>
         <SaveBadge state={saveState} version={project.version} onReload={() => window.location.reload()} />
-        <div className="flex">
+        <div className="flex max-lg:hidden">
           <Button size="xs" variant="ghost" onClick={undo} disabled={!undoStack.current.length} aria-label="Undo" title="Undo (Ctrl+Z)">
             <Icon name="undo" className="size-5" />
           </Button>
@@ -578,12 +604,21 @@ export default function EditorPage() {
       <div className="flex min-h-0 flex-1 flex-col">
         {/* Library | preview | agent */}
         <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row lg:gap-0">
-          {showLibrary && (
+          {(showLibrary || sheet === "library") && (
             <>
               <aside
-                className="order-2 flex max-h-[70vh] min-h-80 flex-col overflow-hidden rounded-lg border border-line bg-surface lg:order-none lg:max-h-none lg:min-h-0 lg:w-(--library) lg:shrink-0"
+                aria-label="Library"
+                className={cn(
+                  "flex flex-col overflow-hidden border border-line bg-surface",
+                  // phones: a sheet over the bottom of the screen; desktop: a resizable side panel
+                  "max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-50 max-lg:h-[min(72dvh,40rem)] max-lg:rounded-t-xl max-lg:pb-[env(safe-area-inset-bottom)] max-lg:shadow-glow-strong",
+                  "lg:min-h-0 lg:w-(--library) lg:shrink-0 lg:rounded-lg",
+                  !showLibrary && "lg:hidden",
+                  sheet !== "library" && "max-lg:hidden",
+                )}
                 style={{ "--library": `${clamp(libraryWidth, LIBRARY_MIN, LIBRARY_MAX)}px` } as React.CSSProperties}
               >
+                <SheetHeader title="Library" onClose={() => setSheet(null)} />
                 <LibraryPanel
                   tab={libraryTab}
                   onTab={setLibraryTab}
@@ -634,13 +669,15 @@ export default function EditorPage() {
                   }
                 />
               </aside>
-              <ResizeHandle
-                axis="x"
-                label="Resize library panel"
-                className="hidden lg:block"
-                onResize={(d) => setLibraryWidth((w) => clamp(w + d, LIBRARY_MIN, LIBRARY_MAX))}
-                onDoubleClick={() => setLibraryWidth(LIBRARY_DEFAULT)}
-              />
+              {showLibrary && (
+                <ResizeHandle
+                  axis="x"
+                  label="Resize library panel"
+                  className="hidden lg:block"
+                  onResize={(d) => setLibraryWidth((w) => clamp(w + d, LIBRARY_MIN, LIBRARY_MAX))}
+                  onDoubleClick={() => setLibraryWidth(LIBRARY_DEFAULT)}
+                />
+              )}
             </>
           )}
 
@@ -649,7 +686,7 @@ export default function EditorPage() {
               <span className="font-mono text-base text-ink tabular-nums" title="Hours:minutes:seconds:frames">
                 {timecode(playhead)}
               </span>
-              <span className="text-fine font-medium text-ink-faint">{FPS}FPS</span>
+              <span className="text-fine font-medium text-ink-faint max-sm:hidden">{FPS}FPS</span>
               <div className="flex-1" />
               <Select compact aria-label="Frame" value={timeline.aspect} onChange={(e) => apply({ ...timeline, aspect: e.target.value as Aspect })} className="w-auto">
                 {FRAMES.map((f) => (
@@ -659,7 +696,7 @@ export default function EditorPage() {
                 ))}
               </Select>
             </div>
-            <div className="h-[46vh] min-h-64 p-3 lg:h-auto lg:min-h-0 lg:flex-1">
+            <div className="min-h-0 flex-1 p-2 lg:p-3">
               <Preview
                 ref={preview}
                 html={html}
@@ -683,22 +720,43 @@ export default function EditorPage() {
                 }}
               />
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-3 py-1">
-              <div className="flex items-center gap-1">
-                <Button size="xs" variant="ghost" onClick={() => seek(0)} aria-label="Go to start" title="Go to start">
+            <div className="flex items-center justify-between gap-2 border-t border-line px-2 py-1 lg:flex-wrap lg:px-3">
+              <div className="flex min-w-0 items-center gap-1">
+                <Button size="xs" variant="ghost" onClick={() => seek(0)} aria-label="Go to start" title="Go to start" className="max-lg:hidden">
                   <Icon name="undo" className="size-5" />
                 </Button>
                 <Button size="xs" onClick={togglePlay} aria-label={playing ? "Pause" : "Play"} title="Play / pause (Space)">
                   <Icon name={playing ? "pause" : "play"} className="size-5" />
                 </Button>
-                <span className="px-1 font-mono text-meta text-ink-muted tabular-nums">
-                  {formatTime(playhead, true)} / {formatTime(total, true)}
+                <span className="px-1 font-mono text-meta whitespace-nowrap text-ink-muted tabular-nums">
+                  <span className="max-lg:hidden">
+                    {formatTime(playhead, true)} / {formatTime(total, true)}
+                  </span>
+                  {/* phones: whole seconds, so the controls beside it have room */}
+                  <span className="lg:hidden">
+                    {formatTime(playhead)} / {formatTime(total)}
+                  </span>
                 </span>
-                <Button size="xs" variant="ghost" onClick={doSplit} title="Split at playhead (S)">
+                <Button size="xs" variant="ghost" onClick={doSplit} title="Split at playhead (S)" className="max-lg:hidden">
                   <Icon name="scissors" className="size-5" /> Split
                 </Button>
               </div>
-              <ul className="flex flex-wrap gap-x-3 text-meta text-ink-muted" aria-label="Layers">
+              {/* Phones: zoom and undo right under the preview (the timeline's own row is hidden) */}
+              <div className="flex shrink-0 items-center lg:hidden">
+                <Button size="xs" variant="ghost" onClick={() => setPxPerSec((z) => Math.max(4, z / 1.5))} aria-label="Zoom out">
+                  <Icon name="zoomOut" className="size-5" />
+                </Button>
+                <Button size="xs" variant="ghost" onClick={() => setPxPerSec((z) => Math.min(300, z * 1.5))} aria-label="Zoom in">
+                  <Icon name="zoomIn" className="size-5" />
+                </Button>
+                <Button size="xs" variant="ghost" onClick={undo} disabled={!undoStack.current.length} aria-label="Undo">
+                  <Icon name="undo" className="size-5" />
+                </Button>
+                <Button size="xs" variant="ghost" onClick={redo} disabled={!redoStack.current.length} aria-label="Redo">
+                  <Icon name="redo" className="size-5" />
+                </Button>
+              </div>
+              <ul className="flex flex-wrap gap-x-3 text-meta text-ink-muted max-lg:hidden" aria-label="Layers">
                 {layers.map((l) => (
                   <li key={l.label}>
                     {l.label} <span className="font-medium text-ink tabular-nums">{l.count}</span>
@@ -708,19 +766,29 @@ export default function EditorPage() {
             </div>
           </section>
 
-          {showAgent && (
+          {(showAgent || sheet === "agent") && (
             <>
-              <ResizeHandle
-                axis="x"
-                label="Resize agent panel"
-                className="hidden lg:block"
-                onResize={(d) => setAgentWidth((w) => clamp(w - d, AGENT_MIN, AGENT_MAX))}
-                onDoubleClick={() => setAgentWidth(AGENT_DEFAULT)}
-              />
+              {showAgent && (
+                <ResizeHandle
+                  axis="x"
+                  label="Resize agent panel"
+                  className="hidden lg:block"
+                  onResize={(d) => setAgentWidth((w) => clamp(w - d, AGENT_MIN, AGENT_MAX))}
+                  onDoubleClick={() => setAgentWidth(AGENT_DEFAULT)}
+                />
+              )}
               <aside
-                className="order-3 flex max-h-[80vh] min-h-96 flex-col overflow-hidden rounded-lg border border-line bg-surface lg:order-none lg:max-h-none lg:min-h-0 lg:w-(--agent) lg:shrink-0"
+                aria-label="AI editor"
+                className={cn(
+                  "flex flex-col overflow-hidden border border-line bg-surface",
+                  "max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-50 max-lg:h-[min(72dvh,40rem)] max-lg:rounded-t-xl max-lg:pb-[env(safe-area-inset-bottom)] max-lg:shadow-glow-strong",
+                  "lg:min-h-0 lg:w-(--agent) lg:shrink-0 lg:rounded-lg",
+                  !showAgent && "lg:hidden",
+                  sheet !== "agent" && "max-lg:hidden",
+                )}
                 style={{ "--agent": `${clamp(agentWidth, AGENT_MIN, AGENT_MAX)}px` } as React.CSSProperties}
               >
+                <SheetHeader title="AI editor" onClose={() => setSheet(null)} />
                 <AgentPanel
                   projectId={projectId}
                   messages={project.chat}
@@ -745,10 +813,10 @@ export default function EditorPage() {
 
         {/* Timeline */}
         <section
-          className="mt-3 flex min-h-0 flex-col gap-1 lg:mt-0 lg:h-(--timeline) lg:shrink-0"
+          className="flex min-h-0 shrink-0 flex-col gap-1 max-lg:h-[clamp(12rem,36dvh,22rem)] lg:h-(--timeline)"
           style={{ "--timeline": `${clamp(timelineHeight, TIMELINE_MIN, TIMELINE_MAX)}px` } as React.CSSProperties}
         >
-          <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 max-lg:hidden">
             <p className="text-meta text-ink-muted">
               Drag to move · drag edges to trim · drop media on a track · <kbd>S</kbd> split · <kbd>Del</kbd> delete · <kbd>Space</kbd> play · <kbd>Ctrl+Z</kbd> undo
             </p>
@@ -785,7 +853,63 @@ export default function EditorPage() {
           />
         </section>
       </div>
+
+      {/* Phones: tap outside an open sheet to close it */}
+      {sheet && <button type="button" aria-label="Close panel" className="fixed inset-0 z-40 bg-ink/30 lg:hidden" onClick={() => setSheet(null)} />}
+
+      {/* Phones: the tools at thumb height. Selecting a clip swaps them for that clip's actions. */}
+      <nav aria-label="Editor tools" className="grid shrink-0 grid-cols-6 border-t border-line lg:hidden">
+        {selectedId ? (
+          <>
+            <ToolButton icon="check" label="Done" onClick={() => setSelectedId(null)} />
+            <ToolButton icon="sliders" label="Edit" active={sheet === "library" && libraryTab === "properties"} onClick={() => openLibrary("properties")} />
+            <ToolButton icon="scissors" label="Split" onClick={doSplit} />
+            <ToolButton icon="copy" label="Copy" onClick={doDuplicate} />
+            <ToolButton icon="trash" label="Delete" onClick={doDelete} />
+            <ToolButton icon="bot" label="AI" active={sheet === "agent"} onClick={() => setSheet("agent")} />
+          </>
+        ) : (
+          <>
+            <ToolButton icon="film" label="Media" active={sheet === "library" && libraryTab === "media"} onClick={() => openLibrary("media")} />
+            <ToolButton icon="type" label="Text" active={sheet === "library" && libraryTab === "text"} onClick={() => openLibrary("text")} />
+            <ToolButton icon="music" label="Audio" active={sheet === "library" && libraryTab === "audio"} onClick={() => openLibrary("audio")} />
+            <ToolButton icon="sparkles" label="Effects" active={sheet === "library" && libraryTab === "effects"} onClick={() => openLibrary("effects")} />
+            <ToolButton icon="scissors" label="Split" onClick={doSplit} />
+            <ToolButton icon="bot" label="AI" active={sheet === "agent"} onClick={() => setSheet("agent")} />
+          </>
+        )}
+      </nav>
     </div>
+  );
+}
+
+/** Phones: a sheet's title row, with a close button (desktop shows the panels without one). */
+function SheetHeader({ title, onClose }: { title: string; onClose(): void }) {
+  return (
+    <div className="flex items-center justify-between border-b border-line py-1 pr-1 pl-4 lg:hidden">
+      <p className="font-display text-lg font-semibold tracking-tight text-ink">{title}</p>
+      <Button size="xs" variant="ghost" onClick={onClose} aria-label={`Close ${title}`}>
+        <Icon name="x" className="size-5" />
+      </Button>
+    </div>
+  );
+}
+
+/** Phones: one tool in the bottom bar. `active` marks a tool whose sheet is open. */
+function ToolButton({ icon, label, active, onClick }: { icon: IconName; label: string; active?: boolean; onClick(): void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "tactile flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-md px-0.5 text-meta font-medium",
+        active ? "text-brand" : "text-ink-muted hover:text-ink",
+      )}
+    >
+      <Icon name={icon} className="size-6" />
+      <span className="max-w-full truncate">{label}</span>
+    </button>
   );
 }
 
@@ -818,7 +942,8 @@ function SaveBadge({ state, version, onReload }: { state: SaveState; version: nu
   const label = { saved: "Saved", saving: "Saving…", unsaved: "Unsaved", error: "Not saved" }[state];
   return (
     <Badge tone={state === "error" ? "danger" : state === "saved" ? "success" : "neutral"}>
-      {label} · v{version}
+      {label}
+      <span className="max-sm:hidden"> · v{version}</span>
     </Badge>
   );
 }

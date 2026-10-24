@@ -73,7 +73,7 @@ export function LibraryPanel(props: Props) {
   const { tab, onTab } = props;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div role="tablist" aria-label="Library" className="flex flex-wrap gap-x-1 border-b border-line px-2">
+      <div role="tablist" aria-label="Library" className="flex shrink-0 gap-1 overflow-x-auto border-b border-line px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {TABS.filter((t) => t.value !== "moments" || props.moments).map((t) => (
           <button
             key={t.value}
