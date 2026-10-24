@@ -9,7 +9,7 @@ import { LayoutPreview } from "@/components/studio/LayoutPreview";
 import { Scrubber } from "@/components/studio/Scrubber";
 import { SocialTrendsPanel } from "@/components/studio/SocialTrendsPanel";
 import { Badge, Button, buttonClass, Em, Field, Icon, Notice, Panel, SectionLabel, Segmented, Select, StatusBadge } from "@/components/ui";
-import { api, ApiError, API_URL } from "@/lib/api";
+import { api, ApiError, API_URL, GENERIC_ERROR } from "@/lib/api";
 import {
   FILTER_OPTIONS,
   formatTime,
@@ -64,7 +64,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
       setProject(p);
       return p;
     } catch (err) {
-      setLoadError(errorText(err, "Couldn't open this project. Is the backend running?"));
+      setLoadError(errorText(err, GENERIC_ERROR));
       return null;
     }
   }, [id]);
@@ -215,8 +215,8 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
         try {
           await burn(clip, styleId, captionPosition);
           setMessage({ tone: "success", text: `Clip created with ${styles.find((s) => s.id === styleId)?.name ?? ""} captions at ${captionPosition}% position.` });
-        } catch (err) {
-          setMessage({ tone: "danger", text: `Clip created, but captions failed: ${errorText(err, "caption service unavailable")}. You can retry from the clip below.` });
+        } catch {
+          setMessage({ tone: "danger", text: "Clip created, but adding captions didn't work. Try again from the clip below." });
         }
       } else {
         setMessage({ tone: "success", text: `Clip created (${speed !== 1 ? `${speed}x speed, ` : ""}${colorFilter !== "none" ? `${colorFilter} filter` : "clean"}).` });

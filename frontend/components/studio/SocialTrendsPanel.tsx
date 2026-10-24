@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Badge, Button, Icon, Notice, Panel, Segmented, inputClass } from "@/components/ui";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, GENERIC_ERROR } from "@/lib/api";
 import { cn } from "@/lib/cn";
 
 type Platform = "tiktok" | "youtube";
@@ -67,7 +67,7 @@ export function SocialTrendsPanel({ clipId, clipLabel, onClose }: { clipId: numb
         setSelected(res.recommended_hashtags);
         setCaption(res.captions[0]?.text ?? res.current_title ?? "");
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : "Couldn't look up popular hashtags. Is the backend running?");
+        setError(err instanceof ApiError ? err.message : GENERIC_ERROR);
       } finally {
         setLoading(false);
       }

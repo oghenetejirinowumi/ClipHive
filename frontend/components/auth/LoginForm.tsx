@@ -5,7 +5,7 @@ import { useState, type FormEvent } from "react";
 import { FieldsReveal } from "@/components/effects";
 import { Button, Field } from "@/components/ui";
 import { GoogleSignIn } from "./GoogleSignIn";
-import { ApiError } from "@/lib/api";
+import { ApiError, GENERIC_ERROR } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { safeNext } from "@/lib/routes";
 
@@ -24,7 +24,7 @@ export function LoginForm({ next }: { next?: string }) {
       await login(String(form.get("email")), String(form.get("password")));
       router.replace(safeNext(next));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't reach the server. Try again.");
+      setError(err instanceof ApiError ? err.message : GENERIC_ERROR);
       setPending(false);
     }
   }

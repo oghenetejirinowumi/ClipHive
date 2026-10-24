@@ -6,7 +6,7 @@ import { AgentFeed } from "@/components/agents/AgentFeed";
 import { CommandBar } from "@/components/agents/CommandBar";
 import { ProjectCard } from "@/components/projects/ProjectCard";
 import { Badge, Button, Em, Icon, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
-import { api, ApiError, apiUrl } from "@/lib/api";
+import { api, ApiError, apiUrl, GENERIC_ERROR, userMessage } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { ACTIVE_STATUSES as ACTIVE, SOURCE_LABEL, type ImportJob, type Layout } from "@/lib/imports";
 import { getToken } from "@/lib/session";
@@ -45,9 +45,9 @@ function uploadWithProgress(file: File, clipCount: number, clipSeconds: number, 
         data = JSON.parse(xhr.responseText);
       } catch {}
       if (xhr.status >= 200 && xhr.status < 300) resolve(data as ImportJob);
-      else reject(new ApiError(xhr.status, typeof data.detail === "string" ? data.detail : "Upload failed."));
+      else reject(new ApiError(xhr.status, userMessage(xhr.status, typeof data.detail === "string" ? data.detail : null)));
     };
-    xhr.onerror = () => reject(new ApiError(0, "Couldn't reach the server. Is the backend running?"));
+    xhr.onerror = () => reject(new ApiError(0, GENERIC_ERROR));
     xhr.send(form);
   });
 }
@@ -70,7 +70,7 @@ export default function CreatePage() {
     try {
       setJobs(await api<ImportJob[]>("/api/imports"));
     } catch {
-      // Backend offline: keep what we have; the submit path shows the real error.
+      // Offline for a moment: keep what we have; the submit path shows the error.
     }
   }, []);
 
@@ -108,7 +108,7 @@ export default function CreatePage() {
       setJobs((prev) => [job, ...prev]);
       setUrl("");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't reach the server. Is the backend running?");
+      setError(err instanceof ApiError ? err.message : GENERIC_ERROR);
     } finally {
       setSubmitting(false);
     }

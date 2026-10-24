@@ -6,6 +6,20 @@ export const API_URL = (
     : (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000")
 ).replace(/\/$/, "");
 
+/** What users see whenever something fails for a technical reason (offline, server crash, timeout). */
+export const GENERIC_ERROR = "Something went wrong. Please try again.";
+
+/**
+ * The message to show for an error: the backend's own wording when it's a deliberate, user-facing
+ * message (4xx, or a 502/503 like "That video is private"), otherwise GENERIC_ERROR. Technical
+ * details go to the console, never the screen.
+ */
+export function userMessage(status: number, detail: string | null | undefined): string {
+  if (!detail || status === 0 || status === 500 || status === 504 || status >= 505) return GENERIC_ERROR;
+  // FastAPI/Pydantic validation text ("Value error, ...", "Field required") -> plain words
+  return detail.replace(/^Value error,s*/i, "").replace(/^Field required$/i, "Please fill in all the fields.");
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -46,29 +60,37 @@ export async function api<T = unknown>(
   const token = getToken();
   const json = isPlainJson(body);
 
-  const res = await fetch(apiUrl(path), {
-    ...init,
-    headers: {
-      ...(json ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...headers,
-    },
-    body: json ? JSON.stringify(body) : (body as BodyInit | null | undefined),
-  });
+  let res: Response;
+  try {
+    res = await fetch(apiUrl(path), {
+      ...init,
+      headers: {
+        ...(json ? { "Content-Type": "application/json" } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...headers,
+      },
+      body: json ? JSON.stringify(body) : (body as BodyInit | null | undefined),
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err; // callers cancel on purpose
+    console.error(`Request to ${path} failed:`, err);
+    throw new ApiError(0, GENERIC_ERROR);
+  }
 
   if (!res.ok) {
     if (res.status === 401 && token) {
       clearSession();
       if (redirectOn401) window.location.assign(`/login?next=${encodeURIComponent(location.pathname)}`);
     }
-    let message = res.statusText || "Request failed";
+    let detail: string | null = null;
     try {
       const data = await res.json();
-      if (typeof data?.detail === "string") message = data.detail;
+      if (typeof data?.detail === "string") detail = data.detail;
       // FastAPI validation errors (422): [{ loc, msg }, ...]
-      else if (Array.isArray(data?.detail) && typeof data.detail[0]?.msg === "string") message = data.detail[0].msg;
+      else if (Array.isArray(data?.detail) && typeof data.detail[0]?.msg === "string") detail = data.detail[0].msg;
     } catch {}
-    throw new ApiError(res.status, message);
+    if (res.status >= 500) console.error(`${path} -> ${res.status}`, detail);
+    throw new ApiError(res.status, userMessage(res.status, detail));
   }
 
   return (res.status === 204 ? undefined : await res.json()) as T;

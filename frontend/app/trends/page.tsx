@@ -14,7 +14,7 @@ import {
   Select,
   inputClass,
 } from "@/components/ui";
-import { api } from "@/lib/api";
+import { api, ApiError, GENERIC_ERROR } from "@/lib/api";
 
 type Platform = "youtube" | "tiktok";
 type TrendRow = {
@@ -153,8 +153,8 @@ export default function TrendsPage() {
       .then((result) => {
         if (active) setData(result);
       })
-      .catch((cause: Error) => {
-        if (active) setError(cause.message);
+      .catch((cause: unknown) => {
+        if (active) setError(cause instanceof ApiError ? cause.message : GENERIC_ERROR);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -177,8 +177,8 @@ export default function TrendsPage() {
       .then((result) => {
         if (active) setVideos(result);
       })
-      .catch((cause: Error) => {
-        if (active) setVideoError(cause.message);
+      .catch((cause: unknown) => {
+        if (active) setVideoError(cause instanceof ApiError ? cause.message : GENERIC_ERROR);
       })
       .finally(() => {
         if (active) setVideosLoading(false);
@@ -187,8 +187,8 @@ export default function TrendsPage() {
       .then((result) => {
         if (active) setPatterns(result);
       })
-      .catch((cause: Error) => {
-        if (active) setPatternsError(cause.message);
+      .catch((cause: unknown) => {
+        if (active) setPatternsError(cause instanceof ApiError ? cause.message : GENERIC_ERROR);
       })
       .finally(() => {
         if (active) setPatternsLoading(false);
@@ -225,8 +225,8 @@ export default function TrendsPage() {
       .then((result) => {
         if (active) setDetail(result);
       })
-      .catch((cause: Error) => {
-        if (active) setDetailError(cause.message);
+      .catch((cause: unknown) => {
+        if (active) setDetailError(cause instanceof ApiError ? cause.message : GENERIC_ERROR);
       })
       .finally(() => {
         if (active) setDetailLoading(false);
@@ -239,19 +239,16 @@ export default function TrendsPage() {
   const youtubeStatus = status?.providers.find(
     (provider) => provider.provider === "youtube",
   );
-  const tiktokStatus = status?.providers.find(
-    (provider) => provider.provider === "tiktok",
-  );
   const sourceLabel =
     platform === "youtube"
       ? !youtubeStatus?.configured
-        ? "YouTube not configured: add YOUTUBE_API_KEY"
+        ? "YouTube trends are coming soon"
         : !youtubeStatus.collection_allowed
-          ? "YouTube collection disabled pending explicit policy approval"
+          ? "YouTube trends are coming soon"
           : youtubeStatus.healthy === false
-            ? "YouTube collection failed; check provider status"
+            ? "YouTube trends couldn't be updated. Try again later."
             : `YouTube Shorts · ${youtubeStatus.tracked_video_count} videos tracked · ${updatedLabel(youtubeStatus?.last_success)}`
-      : "TikTok Research API unavailable · manual imports only";
+      : "TikTok · add hashtags you're tracking by importing them";
 
   function addTag(tag: string) {
     if (!selectedClip) {
@@ -268,7 +265,7 @@ export default function TrendsPage() {
         setMessage(`${tag} added to clip ${selectedClip}.`);
       } catch (cause) {
         setMessage(
-          cause instanceof Error ? cause.message : "Could not add hashtag.",
+          cause instanceof ApiError ? cause.message : GENERIC_ERROR,
         );
       }
     });
@@ -294,7 +291,7 @@ export default function TrendsPage() {
         setStatus(nextStatus);
       } catch (cause) {
         setMessage(
-          cause instanceof Error ? cause.message : "Collection failed.",
+          cause instanceof ApiError ? cause.message : GENERIC_ERROR,
         );
       }
     });
@@ -316,7 +313,7 @@ export default function TrendsPage() {
         setData(refreshed);
       } catch (cause) {
         setMessage(
-          cause instanceof Error ? cause.message : "CSV import failed.",
+          cause instanceof ApiError ? cause.message : GENERIC_ERROR,
         );
       }
     });
@@ -339,9 +336,7 @@ export default function TrendsPage() {
         setMessage("Clip package generated.");
       } catch (cause) {
         setMessage(
-          cause instanceof Error
-            ? cause.message
-            : "AI package generation failed.",
+          cause instanceof ApiError ? cause.message : GENERIC_ERROR,
         );
       }
     });
@@ -553,18 +548,18 @@ export default function TrendsPage() {
                     ? "YouTube collection is not configured."
                     : platform === "youtube" &&
                         !youtubeStatus?.collection_allowed
-                      ? "YouTube metric collection is approval-gated."
+                      ? "YouTube trends are coming soon."
                       : platform === "tiktok"
                         ? "No TikTok manual imports for this region."
                         : "No scored hashtags yet."}
                 </p>
                 <p className="text-base text-ink-muted">
                   {platform === "youtube" && !youtubeStatus?.configured
-                    ? "Add YOUTUBE_API_KEY to the backend environment. No demo numbers are shown."
+                    ? "YouTube trends aren't available yet. Check back soon."
                     : platform === "youtube" &&
                         !youtubeStatus?.collection_allowed
-                      ? "Current YouTube policy restricts cross-channel API data aggregation and derived metrics. This demo remains manual-only until explicit written approval is granted."
-                      : "Run a collection and gather multiple snapshots before trend stages become meaningful."}
+                      ? "YouTube trends aren't available yet. Check back soon."
+                      : "Trends appear once we've collected a few days of data."}
                 </p>
               </div>
             )}
@@ -908,19 +903,6 @@ export default function TrendsPage() {
         </section>
       )}
 
-      {platform === "youtube" && youtubeStatus?.configured && (
-        <p className="text-meta text-ink-faint">
-          YouTube Data API usage today: {youtubeStatus.quota_used_today} units
-          recorded. Video metadata and statistics are collected through the
-          official API.
-        </p>
-      )}
-      {platform === "tiktok" && tiktokStatus && !tiktokStatus.configured && (
-        <p className="text-meta text-ink-faint">
-          TikTok provider capabilities: no official trend or video collection
-          access configured.
-        </p>
-      )}
     </div>
   );
 }

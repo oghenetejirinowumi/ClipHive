@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, Icon, Notice } from "@/components/ui";
-import { api, ApiError, apiUrl } from "@/lib/api";
+import { api, ApiError, apiUrl, GENERIC_ERROR } from "@/lib/api";
 import { captionFamily, loadCaptionFont, type GoogleFontEntry, type InstalledFont } from "@/lib/captions";
 import { cn } from "@/lib/cn";
 
@@ -27,7 +27,7 @@ export function FontPicker({ value, onChange }: { value: string; onChange: (font
       setGoogle(data.google);
       data.installed.forEach((f) => loadCaptionFont(f.name, f.url));
     } catch {
-      setError("Couldn't load fonts. Is the backend running?");
+      setError(GENERIC_ERROR);
     }
   }, []);
 
@@ -65,7 +65,7 @@ export function FontPicker({ value, onChange }: { value: string; onChange: (font
       setInstalled((prev) => [...prev.filter((f) => f.name !== font.name), font]);
       onChange(font);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed.");
+      setError(err instanceof ApiError ? err.message : GENERIC_ERROR);
     } finally {
       setBusy(null);
       if (fileInput.current) fileInput.current.value = "";

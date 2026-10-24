@@ -5,7 +5,7 @@ import { CaptionPreview, type PreviewWord } from "@/components/captions/CaptionP
 import { PhoneFrame } from "@/components/captions/PhoneFrame";
 import { StyleEditor } from "@/components/captions/StyleEditor";
 import { Badge, Button, Em, Field, Icon, Notice, Panel, SectionLabel, Segmented, Select, SkyHeader, StatusBadge } from "@/components/ui";
-import { api, API_URL, ApiError, apiUrl } from "@/lib/api";
+import { api, API_URL, ApiError, apiUrl, GENERIC_ERROR } from "@/lib/api";
 import { ANIMATION_LABEL, draftOf, stylePayload, type CaptionStyle, type StyleDraft } from "@/lib/captions";
 import { cn } from "@/lib/cn";
 
@@ -59,7 +59,7 @@ export default function CaptionsPage() {
   }, []);
 
   useEffect(() => {
-    loadStyles().catch(() => setMsg({ tone: "danger", text: "Couldn't load caption styles. Is the backend running?" }));
+    loadStyles().catch(() => setMsg({ tone: "danger", text: GENERIC_ERROR }));
     api<Clip[]>("/api/clips", { auth: false })
       .then((c) => {
         setClips(c);
@@ -175,7 +175,7 @@ export default function CaptionsPage() {
           (missing.length ? ` Font not found: ${Array.from(new Set(missing)).join(", ")}; upload it in the editor.` : ""),
       });
     } catch (err) {
-      setMsg({ tone: "danger", text: err instanceof Error ? err.message : "Import failed." });
+      setMsg({ tone: "danger", text: err instanceof ApiError ? err.message : GENERIC_ERROR });
     } finally {
       setBusy(null);
       if (importInput.current) importInput.current.value = "";

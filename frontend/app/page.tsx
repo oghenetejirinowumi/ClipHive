@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { AuroraBackground, FeatureCloud, HalftoneHorizon, RevealOnScroll, RuleWall, SkyBackground, Tape } from "@/components/effects";
 import { FanOut } from "@/components/marketing/FanOut";
 import { StyleShowcase } from "@/components/marketing/StyleShowcase";
@@ -41,6 +42,9 @@ const RULES = [
 
 // One wide column for the whole page; sizes only ever grow with the screen.
 const COLUMN = "mx-auto w-full max-w-7xl px-4 sm:px-8";
+// Header links: plain text on the sky (only "Get started" is a button).
+const NAV_LINK =
+  "min-h-11 items-center rounded-md px-3 text-lg font-medium text-on-brand/80 transition-colors duration-(--motion-fast) hover:text-on-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-brand";
 
 export default function LandingPage() {
   return (
@@ -52,18 +56,18 @@ export default function LandingPage() {
           <Logo inverse />
           <nav className="flex items-center gap-2 sm:gap-3">
             <ThemeSwitch />
-            <Button href="/captions" variant="ghostInverse" className="hidden md:inline-flex">
+            <Link href="/captions" className={`${NAV_LINK} hidden md:inline-flex`}>
               Captions
-            </Button>
-            <Button href="/trends" variant="ghostInverse" className="hidden md:inline-flex">
+            </Link>
+            <Link href="/trends" className={`${NAV_LINK} hidden md:inline-flex`}>
               Trends
-            </Button>
-            <Button href="/dashboard" variant="ghostInverse" className="hidden sm:inline-flex">
+            </Link>
+            <Link href="/dashboard" className={`${NAV_LINK} hidden sm:inline-flex`}>
               Dashboard
-            </Button>
-            <Button href="/login" variant="ghostInverse">
+            </Link>
+            <Link href="/login" className={`${NAV_LINK} inline-flex`}>
               Sign in
-            </Button>
+            </Link>
             <Button href="/register" variant="inverse">
               Get started
             </Button>

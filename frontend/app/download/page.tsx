@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { Button, buttonClass, Em, Icon, Notice, Panel, SectionLabel, SkyHeader } from "@/components/ui";
-import { api, ApiError, API_URL, apiUrl } from "@/lib/api";
+import { api, ApiError, API_URL, apiUrl, GENERIC_ERROR } from "@/lib/api";
 
 type DownloadResult = {
   id: string;
@@ -39,7 +39,7 @@ export default function DownloadPage() {
       setResults((prev) => [result, ...prev.filter((r) => r.id !== result.id)]);
       setUrl("");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't reach the server. Is the backend running?");
+      setError(err instanceof ApiError ? err.message : GENERIC_ERROR);
     } finally {
       setLoading(false);
     }
