@@ -67,13 +67,17 @@ export function RecentProjects({ limit = 4 }: { limit?: number }) {
   return (
     <>
       {actionError && <p className="mb-3 text-base text-danger">{actionError}</p>}
-      <ul className="divide-y divide-line border-y border-line">
+      {/* Phones: a sideways row of cards. sm+: compact rows. */}
+      <ul className="rail sm:divide-y sm:divide-line sm:border-y sm:border-line">
         {jobs.map((job) => {
           const active = ACTIVE_STATUSES.has(job.status);
           const failed = job.status === "failed";
           return (
-            <li key={job.id} className="flex items-center gap-5 py-5">
-              <div className="relative aspect-video w-36 shrink-0 overflow-hidden rounded-md bg-brand-deep sm:w-44">
+            <li
+              key={job.id}
+              className="flex flex-col items-stretch gap-4 rounded-lg border border-line bg-surface p-4 shadow-glow sm:flex-row sm:items-center sm:gap-5 sm:rounded-none sm:border-0 sm:bg-transparent sm:px-0 sm:py-5 sm:shadow-none"
+            >
+              <div className="relative aspect-video w-full shrink-0 overflow-hidden rounded-md bg-brand-deep sm:w-44">
                 {job.thumbnail_path && (
                   // eslint-disable-next-line @next/next/no-img-element -- thumbnails come from the API host
                   <img src={`${API_URL}/${job.thumbnail_path}`} alt="" className="size-full object-cover" />
@@ -99,7 +103,7 @@ export function RecentProjects({ limit = 4 }: { limit?: number }) {
                   <Icon name="scissors" className="size-5" /> <span className="hidden sm:inline">Open in editor</span>
                 </Link>
               ) : failed ? (
-                <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
                   {confirming === job.id ? (
                     <>
                       <Button variant="danger" size="sm" loading={busy === job.id} onClick={() => run(job, "delete")}>

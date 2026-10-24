@@ -187,7 +187,7 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
           <button
             type="button"
             aria-label="Drag to move the text"
-            className="tactile absolute grid size-12 -translate-x-1/2 -translate-y-1/2 cursor-move place-items-center rounded-full border-2 border-on-brand bg-brand text-on-brand shadow-glow-strong"
+            className="tactile absolute grid size-12 -translate-x-1/2 -translate-y-1/2 cursor-move touch-none place-items-center rounded-full border-2 border-on-brand bg-brand text-on-brand shadow-glow-strong"
             style={{ left: `${selectedText.x * 100}%`, top: `${selectedText.y * 100}%` }}
             onPointerDown={(e) => {
               dragging.current = true;

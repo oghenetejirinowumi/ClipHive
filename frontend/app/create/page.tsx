@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { AgentFeed } from "@/components/agents/AgentFeed";
 import { CommandBar } from "@/components/agents/CommandBar";
-import { ProjectCard } from "@/components/projects/ProjectCard";
+import { ProjectDialog, ProjectTile } from "@/components/projects/ProjectCard";
 import { Badge, Button, Em, Icon, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
 import { api, ApiError, apiUrl, GENERIC_ERROR, userMessage } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -58,6 +58,8 @@ export default function CreatePage() {
   const [clipSeconds, setClipSeconds] = useState<"15" | "30" | "60">("30");
   const [layout, setLayout] = useState<Layout>("blur");
   const [jobs, setJobs] = useState<ImportJob[]>([]);
+  const [openJobId, setOpenJobId] = useState<number | null>(null);
+  const openJob = jobs.find((j) => j.id === openJobId) ?? null;
   const [submitting, setSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   // Shrinking a big phone video to 1080p before it goes up (null when not doing it).
@@ -169,7 +171,7 @@ export default function CreatePage() {
   const uploading = uploadProgress !== null;
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-10 sm:space-y-12">
       <SkyHeader
         eyebrow="New project"
         title={
@@ -342,16 +344,19 @@ export default function CreatePage() {
             <p className="mt-2 text-lg text-ink-muted">Paste a link or drop a video above. Each project turns into a batch of clips.</p>
           </Panel>
         ) : (
-          <ul className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+          <ul className="rail rail-media grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 2xl:grid-cols-5">
             {jobs.map((job) => (
-              <li key={job.id}>
-                <ProjectCard job={job} onDelete={deleteProject} onRetry={retryProject}>
-                  {(job.status === "analyzing" || job.status === "cutting") && <AgentFeed importJobId={job.id} compact />}
-                  {job.status === "done" && <WhyTheseClips jobId={job.id} />}
-                </ProjectCard>
+              <li key={job.id} className="min-w-0">
+                <ProjectTile job={job} onOpen={() => setOpenJobId(job.id)} />
               </li>
             ))}
           </ul>
+        )}
+        {openJob && (
+          <ProjectDialog key={openJob.id} job={openJob} onClose={() => setOpenJobId(null)} onDelete={deleteProject} onRetry={retryProject}>
+            {(openJob.status === "analyzing" || openJob.status === "cutting") && <AgentFeed importJobId={openJob.id} compact />}
+            {openJob.status === "done" && <WhyTheseClips jobId={openJob.id} />}
+          </ProjectDialog>
         )}
       </section>
     </div>

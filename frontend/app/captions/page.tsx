@@ -267,7 +267,7 @@ export default function CaptionsPage() {
   const suggestedStyle = suggested ? styles.find((s) => s.name.toLowerCase() === suggested.toLowerCase()) : undefined;
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-10 sm:space-y-12">
       <SkyHeader
         eyebrow="Caption studio"
         title={
@@ -284,7 +284,7 @@ export default function CaptionsPage() {
         </Notice>
       )}
 
-      <div className="grid gap-10 lg:grid-cols-12">
+      <div className="grid gap-8 sm:gap-10 lg:grid-cols-12">
         {/* Left: library or editor */}
         <div className="space-y-8 lg:col-span-7">
           {draft ? (
@@ -335,7 +335,7 @@ export default function CaptionsPage() {
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by category">
+              <div className="rail-chips flex flex-wrap gap-2" role="group" aria-label="Filter by category">
                 {categories.map((c) => (
                   <button
                     key={c}
@@ -352,7 +352,7 @@ export default function CaptionsPage() {
                 ))}
               </div>
 
-              <div className="grid gap-5 sm:grid-cols-2">
+              <div className="rail grid gap-5 sm:grid-cols-2 [--rail-item:78%]">
                 {shown.map((style) => {
                   const isSel = style.id === selected?.id;
                   return (
@@ -389,52 +389,10 @@ export default function CaptionsPage() {
             </section>
           )}
 
-          {/* Burn */}
-          <Panel padding="lg" className="space-y-6">
-            <div>
-              <SectionLabel>Render</SectionLabel>
-              <h2 className="mt-3 font-display text-3xl font-semibold tracking-tight text-ink">Burn onto a clip</h2>
-              <p className="mt-2 text-lg text-ink-muted">
-                Uses <span className="font-semibold text-ink">{(draft ?? selected)?.name ?? "the selected style"}</span>
-                {dirty ? " as last saved. Save your changes first to use them." : "."}
-              </p>
-            </div>
-            {clips.length > 0 ? (
-              <Field label="Clip">
-                <Select value={clipId ?? ""} onChange={(e) => setClipId(Number(e.target.value))}>
-                  {clips.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      #{c.id} — {c.title || "Untitled"} ({c.status})
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            ) : (
-              <p className="text-lg text-ink-muted">No clips yet. Make some on the Create page.</p>
-            )}
-            {activeClip && (
-              <div className="flex flex-wrap items-center gap-3 text-base text-ink-muted">
-                Status <StatusBadge status={activeClip.status} />
-                {suggestedStyle && (
-                  <>
-                    <span>· The agent suggests {suggestedStyle.name}</span>
-                    {!draft && suggestedStyle.id !== selected?.id && (
-                      <Button variant="ghost" size="sm" onClick={() => setSelectedId(suggestedStyle.id)}>
-                        Use it
-                      </Button>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-            <Button size="lg" loading={burning} disabled={!clipId || dirty} onClick={burn}>
-              <Icon name="captions" /> Burn captions
-            </Button>
-          </Panel>
         </div>
 
-        {/* Right: preview */}
-        <div className="lg:col-span-5">
+        {/* Right: preview. Phones: straight after the styles, before Render. */}
+        <div className="lg:col-span-5 lg:col-start-8 lg:row-span-2 lg:row-start-1">
           <div className="space-y-5 lg:sticky lg:top-10">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <SectionLabel>9:16 preview</SectionLabel>
@@ -485,7 +443,7 @@ export default function CaptionsPage() {
             </PhoneFrame>
 
             {/* Quick Caption Position Selector */}
-            <div className="flex items-center justify-between gap-2 rounded-lg border border-line bg-surface-sunken p-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-surface-sunken p-2.5">
               <div className="flex items-center gap-1.5">
                 <Icon name="captions" className="size-5 text-brand" />
                 <span className="text-meta font-medium text-ink">Position:</span>
@@ -501,7 +459,7 @@ export default function CaptionsPage() {
                     key={p.pos}
                     type="button"
                     onClick={() => updatePosition(p.pos)}
-                    className={`rounded px-2.5 py-1 text-meta font-semibold transition-colors ${
+                    className={`min-h-11 rounded-md px-3 text-meta font-semibold transition-colors ${
                       (previewStyle?.options.position_y ?? 68) === p.pos
                         ? "bg-brand text-on-brand shadow-sm"
                         : "border border-line bg-surface text-ink-muted hover:text-ink"
@@ -538,6 +496,51 @@ export default function CaptionsPage() {
               </Button>
             </div>
           </div>
+        </div>
+
+        {/* Burn */}
+        <div className="lg:col-span-7">
+          <Panel padding="lg" className="space-y-6">
+            <div>
+              <SectionLabel>Render</SectionLabel>
+              <h2 className="mt-3 font-display text-3xl font-semibold tracking-tight text-ink">Burn onto a clip</h2>
+              <p className="mt-2 text-lg text-ink-muted">
+                Uses <span className="font-semibold text-ink">{(draft ?? selected)?.name ?? "the selected style"}</span>
+                {dirty ? " as last saved. Save your changes first to use them." : "."}
+              </p>
+            </div>
+            {clips.length > 0 ? (
+              <Field label="Clip">
+                <Select value={clipId ?? ""} onChange={(e) => setClipId(Number(e.target.value))}>
+                  {clips.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      #{c.id} — {c.title || "Untitled"} ({c.status})
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ) : (
+              <p className="text-lg text-ink-muted">No clips yet. Make some on the Create page.</p>
+            )}
+            {activeClip && (
+              <div className="flex flex-wrap items-center gap-3 text-base text-ink-muted">
+                Status <StatusBadge status={activeClip.status} />
+                {suggestedStyle && (
+                  <>
+                    <span>· The agent suggests {suggestedStyle.name}</span>
+                    {!draft && suggestedStyle.id !== selected?.id && (
+                      <Button variant="ghost" size="sm" onClick={() => setSelectedId(suggestedStyle.id)}>
+                        Use it
+                      </Button>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+            <Button size="lg" loading={burning} disabled={!clipId || dirty} onClick={burn}>
+              <Icon name="captions" /> Burn captions
+            </Button>
+          </Panel>
         </div>
       </div>
     </div>

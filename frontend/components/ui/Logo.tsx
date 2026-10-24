@@ -4,7 +4,20 @@ import { SITE } from "@/lib/site";
 import { Icon } from "./Icon";
 
 /** `inverse` is for brand backgrounds (the sky hero, the auth showcase); `compact` shows the mark only. */
-export function Logo({ href = "/", inverse, compact, className }: { href?: string; inverse?: boolean; compact?: boolean; className?: string }) {
+export function Logo({
+  href = "/",
+  inverse,
+  compact,
+  className,
+  nameClassName,
+}: {
+  href?: string;
+  inverse?: boolean;
+  compact?: boolean;
+  className?: string;
+  /** Classes for the wordmark, e.g. to hide it on the narrowest phones. */
+  nameClassName?: string;
+}) {
   return (
     <Link
       href={href}
@@ -18,7 +31,7 @@ export function Logo({ href = "/", inverse, compact, className }: { href?: strin
       <span className={cn("grid size-12 place-items-center rounded-md shadow-glow", inverse ? "bg-on-brand text-brand" : "bg-brand text-on-brand")}>
         <Icon name="play" className="size-6" />
       </span>
-      {!compact && SITE.name}
+      {!compact && <span className={nameClassName}>{SITE.name}</span>}
     </Link>
   );
 }

@@ -263,6 +263,14 @@ class ProjectSummary(ORMModel):
     render_status: str
     updated_at: datetime | None
     created_at: datetime
+    # For the project list's cards (filled in by the list endpoint from the stored timeline).
+    aspect: str = "9:16"
+    duration: float = 0
+    cover: str | None = None  # first video / image placed (or added), a public "storage/..." path
+    cover_kind: str | None = None  # "video" | "image"
+    clips: int = 0
+    texts: int = 0
+    render_path: str | None = None
 
 
 class ChatRequest(BaseModel):

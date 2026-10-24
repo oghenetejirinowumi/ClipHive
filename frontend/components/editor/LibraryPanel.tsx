@@ -35,12 +35,14 @@ const TABS: { value: LibraryTab; label: string }[] = [
 type Props = {
   tab: LibraryTab;
   onTab(tab: LibraryTab): void;
+  /** Phones: the editor's tool dock switches tabs, so the panel's own tab row is hidden. */
+  hideTabs?: boolean;
   projectId: number;
   assets: Asset[];
   /** The Properties tab (the selected item's settings). */
   properties: ReactNode;
   /** The Captions tab: every caption line, editable. */
-  captions: ReactNode;
+  captions?: ReactNode;
   /** The Moments tab (the imported video behind this edit), or undefined to hide the tab. */
   moments?: ReactNode;
   beforeServerEdit(): Promise<void>;
@@ -70,10 +72,10 @@ export type EmojiPlacement = "mix" | "above" | "beside";
 
 /** Left panel: media bin (search, sort, tiles), text styles, audio, and the selection's properties. */
 export function LibraryPanel(props: Props) {
-  const { tab, onTab } = props;
+  const { tab, onTab, hideTabs } = props;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div role="tablist" aria-label="Library" className="flex shrink-0 gap-1 overflow-x-auto border-b border-line px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div role="tablist" aria-label="Library" className={cn("shrink-0 gap-1 overflow-x-auto border-b border-line px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", hideTabs ? "hidden" : "flex")}>
         {TABS.filter((t) => t.value !== "moments" || props.moments).map((t) => (
           <button
             key={t.value}
@@ -90,7 +92,7 @@ export function LibraryPanel(props: Props) {
           </button>
         ))}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
         {tab === "moments" && props.moments}
         {tab === "media" && <MediaTab {...props} kinds={["video", "image"]} />}
         {tab === "captions" && props.captions}

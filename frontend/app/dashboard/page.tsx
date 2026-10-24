@@ -12,7 +12,7 @@ const SECTIONS = NAV_GROUPS.filter((g) => g.id !== "home");
 
 export default function DashboardPage() {
   return (
-    <div className="space-y-12">
+    <div className="space-y-10 sm:space-y-12">
       <SkyHeader
         size="lg"
         eyebrow="Dashboard"
@@ -53,7 +53,7 @@ export default function DashboardPage() {
 
       <section className="space-y-6">
         <SectionLabel>Workspace</SectionLabel>
-        <div className="grid gap-6 sm:grid-cols-2">
+        <div className="rail grid gap-6 sm:grid-cols-2">
           {SECTIONS.map((g) => (
             <Panel key={g.id} className="flex h-full flex-col gap-4">
               <div className="flex items-start gap-4">

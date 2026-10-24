@@ -176,7 +176,7 @@ export function ClipRadar() {
   const ins = radar?.insights;
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-10 sm:space-y-12">
       <SkyHeader
         eyebrow="Clip Radar"
         title={
@@ -318,7 +318,7 @@ export function ClipRadar() {
             </div>
           </aside>
 
-          <div className="min-w-0 space-y-12 xl:col-span-8 xl:col-start-1 xl:row-start-1">
+          <div className="min-w-0 space-y-10 sm:space-y-12 xl:col-span-8 xl:col-start-1 xl:row-start-1">
             {/* What's working */}
             {ins && ins.sample_size > 0 && (
               <section className="space-y-5">
@@ -351,9 +351,9 @@ export function ClipRadar() {
               {radar.topics.length === 0 ? (
                 <p className="text-base text-ink-muted">Nothing yet. Try Refresh in a minute.</p>
               ) : (
-                <ol className="divide-y divide-line border-y border-line">
+                <ol className="rail sm:divide-y sm:divide-line sm:border-y sm:border-line">
                   {radar.topics.slice(0, 10).map((t, i) => (
-                    <li key={t.key} className="flex gap-4 py-4">
+                    <li key={t.key} className="flex gap-4 rounded-lg border border-line bg-surface p-4 sm:rounded-none sm:border-0 sm:bg-transparent sm:px-0">
                       <span className="w-7 shrink-0 pt-0.5 text-right font-display text-xl font-semibold text-ink-faint">{i + 1}</span>
                       <div className="min-w-0 flex-1 space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
@@ -397,7 +397,7 @@ export function ClipRadar() {
                 <SectionLabel>Clippers to watch</SectionLabel>
                 <p className="mt-2 text-base text-ink-muted">Channels whose clips are getting the most views today.</p>
               </div>
-              <ul className="grid gap-x-8 border-t border-line sm:grid-cols-2">
+              <ul className="rail rail-rows grid gap-x-8 border-t border-line sm:grid-cols-2">
                 {radar.creators.slice(0, 8).map((c) => {
                   const state = watching[`${c.platform}:${c.name}`];
                   return (
@@ -427,10 +427,10 @@ export function ClipRadar() {
                 <SectionLabel>Top clips today</SectionLabel>
                 <p className="mt-2 text-base text-ink-muted">The most-viewed clips of the last 24 hours. Open one to see what made it work.</p>
               </div>
-              <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <ul className="rail grid gap-4 sm:grid-cols-2 lg:grid-cols-3 [--rail-item:78%]">
                 {radar.clips.slice(0, 12).map((c) => (
                   <li key={c.id}>
-                    <a href={c.url} target="_blank" rel="noopener noreferrer" className="group block overflow-hidden rounded-lg border border-line bg-surface hover:border-brand">
+                    <a href={c.url} target="_blank" rel="noopener noreferrer" className="group block h-full overflow-hidden rounded-lg border border-line bg-surface hover:border-brand">
                       <div className="relative aspect-video bg-surface-sunken">
                         {c.thumbnail_url && (
                           // eslint-disable-next-line @next/next/no-img-element -- thumbnails come from Kick / Twitch

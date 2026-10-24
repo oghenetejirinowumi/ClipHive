@@ -817,7 +817,7 @@ export function HashtagResearch() {
         ) : videoError ? (
           <Notice tone="danger">{videoError}</Notice>
         ) : videos?.length ? (
-          <div className="grid gap-x-6 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="rail rail-rows grid gap-x-6 sm:grid-cols-2 xl:grid-cols-3">
             {videos.map((video) => (
               <a
                 key={video.external_id}

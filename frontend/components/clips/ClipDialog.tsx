@@ -8,7 +8,7 @@ import { API_URL } from "@/lib/api";
 /**
  * The popup frame for one clip: the video on the left, the page's details on the right.
  * A native <dialog>, so focus stays inside and Esc / the backdrop close it. Phones get a
- * bottom sheet. J/K or the arrow keys move between clips.
+ * bottom sheet. J/K, the arrow keys or a sideways swipe on the video move between clips.
  */
 export function ClipDialog({
   title,
@@ -41,6 +41,24 @@ export function ClipDialog({
 
   const nav = useRef({ onPrev, onNext });
   nav.current = { onPrev, onNext };
+
+  // Swipe sideways on the video for the next / previous clip. Touches that start on the
+  // player's control bar (its bottom edge) are left alone so scrubbing still works.
+  const swipe = useRef<{ x: number; y: number } | null>(null);
+  function onTouchStart(e: React.TouchEvent<HTMLDivElement>) {
+    const t = e.touches[0];
+    const box = e.currentTarget.getBoundingClientRect();
+    swipe.current = e.touches.length === 1 && t.clientY < box.bottom - 64 ? { x: t.clientX, y: t.clientY } : null;
+  }
+  function onTouchEnd(e: React.TouchEvent<HTMLDivElement>) {
+    const start = swipe.current;
+    swipe.current = null;
+    const t = e.changedTouches[0];
+    if (!start || !t) return;
+    const dx = t.clientX - start.x;
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(t.clientY - start.y) * 1.5) return;
+    (dx < 0 ? nav.current.onNext : nav.current.onPrev)?.();
+  }
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const target = e.target as HTMLElement;
@@ -86,7 +104,7 @@ export function ClipDialog({
 
         <div className="flex flex-col sm:flex-row sm:gap-6 sm:px-6 sm:pb-6">
           <div className="flex justify-center bg-brand-deep sm:block sm:shrink-0 sm:overflow-hidden sm:rounded-lg">
-            <div className="relative aspect-[9/16] h-[min(56dvh,32rem)] sm:h-auto sm:w-64 lg:w-72">
+            <div className="relative aspect-[9/16] h-[min(56dvh,32rem)] sm:h-auto sm:w-64 lg:w-72" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
               {filePath ? (
                 <video key={filePath} src={`${API_URL}/${filePath}`} controls autoPlay playsInline preload="auto" className="size-full object-contain" />
               ) : (

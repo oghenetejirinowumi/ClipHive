@@ -1066,21 +1066,84 @@
 @media (prefers-reduced-motion: reduce) {
   .tour-spotlight, .tour-bee, .tour-card, .tour-bee-face { transition: none; }
   .tour-spotlight::after, .tour-bee-bob { animation: none; }
+}
 
-  /* Inbox clip popup: a bottom sheet on phones, a centred card from sm up. */
-  .clip-dialog::backdrop { background: color-mix(in oklab, var(--brand-deep) 62%, transparent); animation: dialog-fade 240ms var(--motion-ease-out); }
-  .clip-dialog[open] { animation: sheet-up 380ms var(--motion-ease-out); }
-  @media (min-width: 640px) {
-    .clip-dialog[open] { animation-name: dialog-pop; }
+/* Clip popup: a bottom sheet on phones, a centred card from sm up. */
+.clip-dialog::backdrop { background: color-mix(in oklab, var(--brand-deep) 62%, transparent); animation: dialog-fade 240ms var(--motion-ease-out); }
+.clip-dialog[open] { animation: sheet-up 380ms var(--motion-ease-out); }
+@media (min-width: 640px) {
+  .clip-dialog[open] { animation-name: dialog-pop; }
+}
+@keyframes dialog-fade { from { opacity: 0; } }
+@keyframes sheet-up { from { transform: translateY(100%); } }
+@keyframes dialog-pop { from { opacity: 0; transform: translateY(16px) scale(0.97); } }
+/* The page behind an open popup doesn't scroll. */
+:root:has(.clip-dialog[open]) { overflow: hidden; }
+
+/* Editor tool sheet on phones (app/editor/[id]): slides up over the timeline. */
+.editor-sheet { animation: sheet-up 320ms var(--motion-ease-out); }
+
+@media (prefers-reduced-motion: reduce) {
+  .clip-dialog[open], .clip-dialog::backdrop, .editor-sheet { animation: none; }
+}
+
+/* ---------- Mobile rails ----------
+   Phones (< 640px): a list marked .rail scrolls sideways, one card per swipe, instead of
+   stacking into an endless column. A peek of the next card shows there is more. From sm up
+   the list's own grid / list classes take over again.
+   Unlayered on purpose: it beats Tailwind's (layered) grid and divide utilities on phones.
+     .rail          one row of cards, 85% wide
+     .rail-media    narrower items for 9:16 video tiles (~2 on screen)
+     .rail-wide     items nearly full width (rows with lots of text / buttons)
+     .rail-rows     short list rows stacked 3 high, scrolling sideways in columns */
+@media (max-width: 639.98px) {
+  .rail {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 0.75rem;
+    margin-inline: -1rem;
+    padding: 0.25rem 1rem 0.75rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 1rem;
+    scrollbar-width: none;
+    border: 0;
+    /* Its row of cards never widens the parent (grid / flex columns would otherwise stretch to fit). */
+    contain: inline-size;
   }
-  @keyframes dialog-fade { from { opacity: 0; } }
-  @keyframes sheet-up { from { transform: translateY(100%); } }
-  @keyframes dialog-pop { from { opacity: 0; transform: translateY(16px) scale(0.97); } }
-  /* The page behind an open popup doesn't scroll. */
-  :root:has(.clip-dialog[open]) { overflow: hidden; }
-  @media (prefers-reduced-motion: reduce) {
-    .clip-dialog[open], .clip-dialog::backdrop { animation: none; }
+  .rail::-webkit-scrollbar { display: none; }
+  .rail > * {
+    flex: 0 0 var(--rail-item, 85%);
+    min-width: 0;
+    margin: 0;
+    scroll-snap-align: start;
   }
+  .rail-media { --rail-item: 46%; }
+  .rail-wide { --rail-item: 90%; }
+  .rail.rail-rows {
+    display: grid;
+    grid-auto-flow: column;
+    grid-template-columns: none;
+    grid-template-rows: repeat(var(--rail-rows, 3), auto);
+    grid-auto-columns: var(--rail-item, 88%);
+    column-gap: 1.25rem;
+    row-gap: 0;
+  }
+  /* Chips / pills: one sideways-scrolling line instead of wrapping into rows. */
+  .rail-chips {
+    contain: inline-size;
+    flex-wrap: nowrap;
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+    scroll-padding-inline: 1rem;
+  }
+  .rail-chips::-webkit-scrollbar { display: none; }
+  .rail-chips > * { flex-shrink: 0; }
 }
 
 /* Clip Radar sidebar header: a small slice of the brand sky. */

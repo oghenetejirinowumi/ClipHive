@@ -4,9 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AgentPanel } from "@/components/editor/AgentPanel";
-import { CaptionsTab } from "@/components/editor/CaptionsTab";
 import { Inspector } from "@/components/editor/Inspector";
-import { MomentsTab } from "@/components/editor/MomentsTab";
 import { LibraryPanel, loadSfxLibrary, type EmojiPlacement, type LibraryTab, type SfxIntensity } from "@/components/editor/LibraryPanel";
 import { Preview, type PreviewHandle } from "@/components/editor/Preview";
 import { Timeline } from "@/components/editor/Timeline";
@@ -14,7 +12,7 @@ import { Badge, Button, buttonClass, Icon, Panel, ResizeHandle, Select, type Ico
 import { api, ApiError, API_URL, friendly } from "@/lib/api";
 import type { EmojiAmount, EmojiMotion } from "@/lib/captions";
 import { cn } from "@/lib/cn";
-import type { Layout } from "@/lib/imports";
+import { DESKTOP_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { usePersistentState } from "@/lib/usePersistentState";
 import {
   addEffect, addSfx, addText, duplicate, duration, find, formatTime, placeAsset, remove, split, update,
@@ -66,8 +64,6 @@ export default function EditorPage() {
   const [playing, setPlaying] = useState(false);
   const [pxPerSec, setPxPerSec] = useState(40);
   const [libraryTab, setLibraryTab] = useState<LibraryTab>("media");
-  // Phones: the library and the AI editor open as sheets over the bottom of the screen.
-  const [sheet, setSheet] = useState<"library" | "agent" | null>(null);
   const [libraryWidth, setLibraryWidth] = usePersistentState("ch_editor_library", LIBRARY_DEFAULT);
   const [agentWidth, setAgentWidth] = usePersistentState("ch_editor_agent", AGENT_DEFAULT);
   const [showLibrary, setShowLibrary] = usePersistentState("ch_editor_show_library", true);
@@ -81,6 +77,9 @@ export default function EditorPage() {
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const desktop = useMediaQuery(DESKTOP_QUERY, true);
+  /** Phones: the tool sheet over the timeline (a Library tab, or the AI chat). */
+  const [sheet, setSheet] = useState<"library" | "agent" | null>(null);
 
   const preview = useRef<PreviewHandle>(null);
   const revision = useRef(0);
@@ -117,8 +116,6 @@ export default function EditorPage() {
       .then((p) => {
         adopt(p);
         setTitle(p.title);
-        // Opened from a video (not one of its clips): start where you pick the moments.
-        if (p.import_id && !p.source_clip_id) setLibraryTab("moments");
         refreshPreview();
       })
       .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Couldn't open this project."));
@@ -302,20 +299,6 @@ export default function EditorPage() {
     if (selectedId && !find(p.timeline, selectedId)) setSelectedId(null);
   }, [flush, projectId, adoptServerEdit, selectedId]);
 
-  /** A server edit that reports back: save first, adopt the result, show its summary. */
-  const serverEdit = useCallback(async (path: string, body: Record<string, unknown>) => {
-    await flush();
-    const p = await api<Project>(`/api/editor/projects/${projectId}/${path}`, { method: "POST", body });
-    adoptServerEdit(p);
-    setInfo(p.notice ?? null);
-  }, [flush, projectId, adoptServerEdit]);
-
-  const addMoment = useCallback((start: number, end: number, layout: Layout) => serverEdit("moments", { start_s: start, end_s: end, layout }), [serverEdit]);
-  const addVideoClip = useCallback((clipId: number) => serverEdit("assets/library", { clip_id: clipId, place: true }), [serverEdit]);
-  const generateCaptions = useCallback(
-    (preset: string, wordsPerCaption: number) => serverEdit("captions", { preset, words_per_caption: wordsPerCaption }),
-    [serverEdit],
-  );
   /** Auto emoji: the server picks the captions that call for one; one Undo reverts the run. */
   const autoEmoji = useCallback(async (amount: EmojiAmount | "none", motion: EmojiMotion | "mix", placement: EmojiPlacement) => {
     await flush();
@@ -484,28 +467,16 @@ export default function EditorPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [undo, redo, doDuplicate, togglePlay, doSplit, doDelete, seek, playhead]);
 
-  // Phones: the editor covers the whole screen, so the page behind it shouldn't scroll.
-  useEffect(() => {
-    const phone = window.matchMedia("(max-width: 1023.98px)");
-    const sync = () => (document.documentElement.style.overflow = phone.matches ? "hidden" : "");
-    sync();
-    phone.addEventListener("change", sync);
-    return () => {
-      phone.removeEventListener("change", sync);
-      document.documentElement.style.overflow = "";
-    };
-  }, []);
-
   // --- render ----------------------------------------------------------------------------
   if (loadError) {
     return (
-      <Panel padding="lg" className="space-y-4">
+      <Panel padding="lg" className="m-4 space-y-4 lg:m-0">
         <p className="text-xl text-ink">{loadError}</p>
         <Button href="/editor" variant="secondary">Back to projects</Button>
       </Panel>
     );
   }
-  if (!project || !timeline) return <p className="text-lg text-ink-muted">Opening the editor…</p>;
+  if (!project || !timeline) return <p className="p-4 text-lg text-ink-muted lg:p-0">Opening the editor…</p>;
 
   const selectedText = selectedId ? (timeline.texts.find((t) => t.id === selectedId) as Text | undefined) ?? null : null;
   const total = duration(timeline);
@@ -521,59 +492,37 @@ export default function EditorPage() {
     { label: "SFX", count: sfxCount },
     { label: "Effects", count: timeline.effects?.length ?? 0 },
   ];
-  const openLibrary = (tab: LibraryTab) => {
-    setLibraryTab(tab);
-    setSheet("library");
-  };
 
-  return (
-    <div
-      className={cn(
-        "flex flex-col gap-3 lg:h-[calc(100dvh-2.5rem)]",
-        // Phones: the editor takes the whole screen (over the app's header and tabs), so the
-        // preview, its controls and the timeline are on screen together and nothing scrolls.
-        "max-lg:fixed max-lg:inset-0 max-lg:z-30 max-lg:gap-2 max-lg:bg-paper max-lg:px-2 max-lg:pt-2 max-lg:pb-[max(0.5rem,env(safe-area-inset-bottom))]",
-      )}
-    >
-      {/* Top bar */}
-      <div className="flex items-center gap-2">
-        <div className="flex min-w-0 flex-1 items-center gap-1">
-          <Link href="/editor" className={buttonClass({ variant: "ghost", size: "xs" })} aria-label="Back to projects">
-            <Icon name="arrowRight" className="size-5 rotate-180" />
-          </Link>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onBlur={saveTitle}
-            onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-            aria-label="Project title"
-            maxLength={200}
-            className="h-11 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 font-display text-lg font-semibold tracking-tight text-ink hover:border-line focus:border-brand focus:outline-none"
-          />
-        </div>
-        <SaveBadge state={saveState} version={project.version} onReload={() => window.location.reload()} />
-        <div className="flex max-lg:hidden">
-          <Button size="xs" variant="ghost" onClick={undo} disabled={!undoStack.current.length} aria-label="Undo" title="Undo (Ctrl+Z)">
-            <Icon name="undo" className="size-5" />
-          </Button>
-          <Button size="xs" variant="ghost" onClick={redo} disabled={!redoStack.current.length} aria-label="Redo" title="Redo (Ctrl+Shift+Z)">
-            <Icon name="redo" className="size-5" />
-          </Button>
-        </div>
-        <div className="hidden lg:flex">
-          <Button size="xs" variant="ghost" aria-pressed={showLibrary} onClick={() => setShowLibrary((v) => !v)} aria-label="Toggle library panel" title="Library panel">
-            <Icon name="panelLeft" className={cn("size-5", !showLibrary && "opacity-50")} />
-          </Button>
-          <Button size="xs" variant="ghost" aria-pressed={showAgent} onClick={() => setShowAgent((v) => !v)} aria-label="Toggle agent panel" title="Agent panel">
-            <Icon name="panelLeft" className={cn("size-5 -scale-x-100", !showAgent && "opacity-50")} />
-          </Button>
-        </div>
-        <Button size="xs" onClick={exportVideo} loading={rendering} disabled={rendering || total === 0}>
-          <Icon name="download" className="size-5" />
-          {rendering ? `Exporting ${project.render_progress}%` : "Export"}
-        </Button>
-      </div>
+  const exportLabel = rendering ? `Exporting ${project.render_progress}%` : "Export";
+  const undoButton = (
+    <Button size="xs" variant="ghost" onClick={undo} disabled={!undoStack.current.length} aria-label="Undo" title="Undo (Ctrl+Z)">
+      <Icon name="undo" className="size-5" />
+    </Button>
+  );
+  const redoButton = (
+    <Button size="xs" variant="ghost" onClick={redo} disabled={!redoStack.current.length} aria-label="Redo" title="Redo (Ctrl+Shift+Z)">
+      <Icon name="redo" className="size-5" />
+    </Button>
+  );
+  const backLink = (
+    <Link href="/editor" className={buttonClass({ variant: "ghost", size: "xs", className: "shrink-0" })} aria-label="Back to projects">
+      <Icon name="arrowRight" className="size-5 rotate-180" />
+    </Link>
+  );
+  const titleInput = (
+    <input
+      value={title}
+      onChange={(e) => setTitle(e.target.value)}
+      onBlur={saveTitle}
+      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      aria-label="Project title"
+      maxLength={200}
+      className="h-11 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 font-display text-lg font-semibold tracking-tight text-ink hover:border-line focus:border-brand focus:outline-none"
+    />
+  );
 
+  const strips = (
+    <>
       {info && (
         <Strip tone="success" onDismiss={() => setInfo(null)}>
           {info}
@@ -600,93 +549,278 @@ export default function EditorPage() {
           {friendly(project.render_error)}
         </Strip>
       )}
+    </>
+  );
+
+  const libraryPanel = (
+    <LibraryPanel
+      tab={libraryTab}
+      onTab={setLibraryTab}
+      hideTabs={!desktop}
+      projectId={projectId}
+      assets={timeline.assets}
+      beforeServerEdit={flush}
+      onProject={adoptServerEdit}
+      onPlace={doPlace}
+      onAddText={doAddText}
+      onAutoEffects={autoEffects}
+      onAddEffect={doAddEffect}
+      autoEffectCount={timeline.effects?.filter((e) => e.auto).length ?? 0}
+      onAutoSfx={autoSfx}
+      onAddSfx={doAddSfx}
+      onClearSfx={doClearSfx}
+      sfxCount={sfxCount}
+      onAutoEmoji={autoEmoji}
+      emojiCount={timeline.texts.filter((t) => t.is_emoji).length}
+      onError={setNotice}
+      properties={
+        <Inspector
+          timeline={timeline}
+          selectedId={selectedId}
+          playhead={playhead}
+          onPatch={(itemId, patch, key) => apply(update(timeline, itemId, patch), { coalesce: key })}
+          onProject={(patch: { aspect?: Aspect; background?: string }) => apply({ ...timeline, ...patch }, { coalesce: "project" })}
+          onSplit={doSplit}
+          onDuplicate={doDuplicate}
+          onDelete={doDelete}
+        />
+      }
+    />
+  );
+
+  const agentPanel = (
+    <AgentPanel
+      projectId={projectId}
+      messages={project.chat}
+      version={project.version}
+      busy={chatBusy}
+      error={chatError}
+      onSend={sendChat}
+      onRestore={restoreVersion}
+    />
+  );
+
+  const previewPlayer = (
+    <Preview
+      ref={preview}
+      html={html}
+      aspect={timeline.aspect}
+      playhead={playhead}
+      selectedText={selectedText}
+      onTime={setPlayhead}
+      onPlayingChange={setPlaying}
+      onMoveText={(textId, x, y, commit) => {
+        const tl = timelineRef.current;
+        if (!tl) return;
+        const next = update(tl, textId, { x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 });
+        if (commit) {
+          apply(next, { before: textDragBefore.current ?? undefined });
+          textDragBefore.current = null;
+        } else {
+          textDragBefore.current ??= tl; // undo returns to where the drag started
+          setTimeline(next);
+          timelineRef.current = next;
+        }
+      }}
+    />
+  );
+
+  const timelineView = (
+    <Timeline
+      className="min-h-0 flex-1"
+      compact={!desktop}
+      timeline={timeline}
+      playhead={playhead}
+      playing={playing}
+      selectedId={selectedId}
+      pxPerSec={pxPerSec}
+      onSelect={(itemId) => {
+        setSelectedId(itemId);
+        if (itemId) {
+          setLibraryTab("properties");
+          if (desktop) setShowLibrary(true);
+        }
+      }}
+      onSeek={seek}
+      onPreview={(next) => {
+        setTimeline(next);
+        timelineRef.current = next;
+      }}
+      onCommit={(next, before) => apply(next, { before })}
+      onDropAsset={doDropAsset}
+      onDropSfx={doDropSfx}
+    />
+  );
+
+  const zoomButtons = (
+    <>
+      <Button size="xs" variant="ghost" onClick={() => setPxPerSec((z) => Math.max(4, z / 1.5))} aria-label="Zoom out" title="Zoom out">
+        <Icon name="zoomOut" className="size-5" />
+      </Button>
+      <Button size="xs" variant="ghost" onClick={() => setPxPerSec((z) => Math.min(300, z * 1.5))} aria-label="Zoom in" title="Zoom in">
+        <Icon name="zoomIn" className="size-5" />
+      </Button>
+    </>
+  );
+
+  const playButton = (
+    <Button size="xs" onClick={togglePlay} aria-label={playing ? "Pause" : "Play"} title="Play / pause (Space)">
+      <Icon name={playing ? "pause" : "play"} className="size-5" />
+    </Button>
+  );
+
+  // --- phones & tablets: one screen, no page scroll ----------------------------------------
+  // Top bar, the preview filling the middle, transport, a short timeline and a tool dock.
+  // Tools open in a sheet over the timeline, so the preview stays in view while you work.
+  if (!desktop) {
+    const sheetTitle = sheet === "agent" ? "AI editor" : DOCK.find((d) => d.tab === libraryTab)?.title;
+    const openTool = (tab: LibraryTab) => {
+      if (sheet === "library" && libraryTab === tab) return setSheet(null);
+      setLibraryTab(tab);
+      setSheet("library");
+    };
+    return (
+      <div className="relative flex h-dvh flex-col overflow-hidden bg-paper pt-[env(safe-area-inset-top)]">
+        <div className="flex h-14 shrink-0 items-center gap-0.5 border-b border-line bg-surface px-1">
+          {backLink}
+          {titleInput}
+          <SaveBadge compact state={saveState} version={project.version} onReload={() => window.location.reload()} />
+          {undoButton}
+          {redoButton}
+          <Button size="xs" onClick={exportVideo} loading={rendering} disabled={rendering || total === 0} aria-label={exportLabel} title={exportLabel} className="shrink-0 px-3">
+            {!rendering && <Icon name="download" className="size-5" />}
+            {rendering && <span className="tabular-nums">{project.render_progress}%</span>}
+          </Button>
+        </div>
+
+        {(info || notice || doneNotice || project.render_status === "failed") && <div className="shrink-0 space-y-1 px-2 pt-2">{strips}</div>}
+
+        <div className="min-h-0 flex-1 p-2">{previewPlayer}</div>
+
+        <div className="flex h-12 shrink-0 items-center gap-1 border-t border-line bg-surface px-1">
+          {playButton}
+          <span className="min-w-0 truncate px-1 font-mono text-meta text-ink-muted tabular-nums">
+            {formatTime(playhead, true)} / {formatTime(total, true)}
+          </span>
+          <div className="flex-1" />
+          <Button size="xs" variant="ghost" onClick={doSplit} aria-label="Split at playhead" title="Split at playhead">
+            <Icon name="scissors" className="size-5" />
+          </Button>
+          {selectedId ? (
+            <>
+              <Button size="xs" variant="ghost" onClick={doDuplicate} aria-label="Duplicate" title="Duplicate">
+                <Icon name="copy" className="size-5" />
+              </Button>
+              <Button size="xs" variant="ghost" onClick={doDelete} aria-label="Delete" title="Delete">
+                <Icon name="trash" className="size-5" />
+              </Button>
+            </>
+          ) : (
+            zoomButtons
+          )}
+        </div>
+
+        <section aria-label="Timeline" className="flex h-[clamp(9.5rem,30dvh,15.5rem)] shrink-0 flex-col">
+          {timelineView}
+        </section>
+
+        <nav aria-label="Editor tools" className="relative z-40 grid shrink-0 grid-cols-6 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]">
+          {DOCK.map((d) => {
+            const active = d.tab ? sheet === "library" && libraryTab === d.tab : sheet === "agent";
+            return (
+              <button
+                key={d.label}
+                type="button"
+                aria-pressed={active}
+                onClick={() => (d.tab ? openTool(d.tab) : setSheet((s) => (s === "agent" ? null : "agent")))}
+                className={cn(
+                  "relative flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 text-meta font-medium transition-colors duration-(--motion-fast)",
+                  active ? "text-brand" : "text-ink-muted",
+                )}
+              >
+                <Icon name={d.icon} className="size-5" />
+                <span className="max-w-full truncate">{d.label}</span>
+                {d.tab === "properties" && selectedId && !active && <span aria-hidden className="absolute top-2 right-[calc(50%-1rem)] size-2 rounded-full bg-brand" />}
+              </button>
+            );
+          })}
+        </nav>
+
+        {sheet && (
+          <div
+            role="dialog"
+            aria-label={sheetTitle}
+            className="editor-sheet absolute inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 flex h-[min(58dvh,34rem)] flex-col overflow-hidden rounded-t-xl border border-b-0 border-line bg-surface shadow-glow-strong"
+          >
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line py-1 pr-1 pl-4">
+              <p className="font-display text-lg font-semibold tracking-tight text-ink">{sheetTitle}</p>
+              <Button size="xs" variant="ghost" onClick={() => setSheet(null)} aria-label="Close panel">
+                <Icon name="chevronDown" className="size-5" />
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1">{sheet === "agent" ? agentPanel : libraryPanel}</div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // --- desktop: library | preview | agent over a resizable timeline --------------------------
+  return (
+    <div className="flex h-[calc(100dvh-2.5rem)] flex-col gap-3">
+      {/* Top bar */}
+      <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-1">
+          {backLink}
+          {titleInput}
+        </div>
+        <SaveBadge state={saveState} version={project.version} onReload={() => window.location.reload()} />
+        <div className="flex">
+          {undoButton}
+          {redoButton}
+        </div>
+        <div className="flex">
+          <Button size="xs" variant="ghost" aria-pressed={showLibrary} onClick={() => setShowLibrary((v) => !v)} aria-label="Toggle library panel" title="Library panel">
+            <Icon name="panelLeft" className={cn("size-5", !showLibrary && "opacity-50")} />
+          </Button>
+          <Button size="xs" variant="ghost" aria-pressed={showAgent} onClick={() => setShowAgent((v) => !v)} aria-label="Toggle agent panel" title="Agent panel">
+            <Icon name="panelLeft" className={cn("size-5 -scale-x-100", !showAgent && "opacity-50")} />
+          </Button>
+        </div>
+        <Button size="xs" onClick={exportVideo} loading={rendering} disabled={rendering || total === 0}>
+          <Icon name="download" className="size-5" />
+          {exportLabel}
+        </Button>
+      </div>
+
+      {strips}
 
       <div className="flex min-h-0 flex-1 flex-col">
         {/* Library | preview | agent */}
-        <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row lg:gap-0">
-          {(showLibrary || sheet === "library") && (
+        <div className="flex min-h-0 flex-1 flex-row">
+          {showLibrary && (
             <>
               <aside
-                aria-label="Library"
-                className={cn(
-                  "flex flex-col overflow-hidden border border-line bg-surface",
-                  // phones: a sheet over the bottom of the screen; desktop: a resizable side panel
-                  "max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-50 max-lg:h-[min(72dvh,40rem)] max-lg:rounded-t-xl max-lg:pb-[env(safe-area-inset-bottom)] max-lg:shadow-glow-strong",
-                  "lg:min-h-0 lg:w-(--library) lg:shrink-0 lg:rounded-lg",
-                  !showLibrary && "lg:hidden",
-                  sheet !== "library" && "max-lg:hidden",
-                )}
+                className="flex w-(--library) min-h-0 shrink-0 flex-col overflow-hidden rounded-lg border border-line bg-surface"
                 style={{ "--library": `${clamp(libraryWidth, LIBRARY_MIN, LIBRARY_MAX)}px` } as React.CSSProperties}
               >
-                <SheetHeader title="Library" onClose={() => setSheet(null)} />
-                <LibraryPanel
-                  tab={libraryTab}
-                  onTab={setLibraryTab}
-                  projectId={projectId}
-                  assets={timeline.assets}
-                  beforeServerEdit={flush}
-                  onProject={adoptServerEdit}
-                  onPlace={doPlace}
-                  onAddText={doAddText}
-                  onAutoEffects={autoEffects}
-                  onAddEffect={doAddEffect}
-                  autoEffectCount={timeline.effects?.filter((e) => e.auto).length ?? 0}
-                  onAutoSfx={autoSfx}
-                  onAddSfx={doAddSfx}
-                  onClearSfx={doClearSfx}
-                  sfxCount={sfxCount}
-                  onAutoEmoji={autoEmoji}
-                  emojiCount={timeline.texts.filter((t) => t.is_emoji).length}
-                  onError={setNotice}
-                  moments={
-                    project.import_id ? (
-                      <MomentsTab importId={project.import_id} onAddRange={addMoment} onAddClip={addVideoClip} onError={setNotice} />
-                    ) : undefined
-                  }
-                  captions={
-                    <CaptionsTab
-                      timeline={timeline}
-                      playhead={playhead}
-                      selectedId={selectedId}
-                      onChange={(next, coalesce) => apply(next, coalesce ? { coalesce } : undefined)}
-                      onSeek={seek}
-                      onSelect={setSelectedId}
-                      onGenerate={generateCaptions}
-                      onError={setNotice}
-                    />
-                  }
-                  properties={
-                    <Inspector
-                      timeline={timeline}
-                      selectedId={selectedId}
-                      playhead={playhead}
-                      onPatch={(itemId, patch, key) => apply(update(timeline, itemId, patch), { coalesce: key })}
-                      onProject={(patch: { aspect?: Aspect; background?: string }) => apply({ ...timeline, ...patch }, { coalesce: "project" })}
-                      onSplit={doSplit}
-                      onDuplicate={doDuplicate}
-                      onDelete={doDelete}
-                    />
-                  }
-                />
+                {libraryPanel}
               </aside>
-              {showLibrary && (
-                <ResizeHandle
-                  axis="x"
-                  label="Resize library panel"
-                  className="hidden lg:block"
-                  onResize={(d) => setLibraryWidth((w) => clamp(w + d, LIBRARY_MIN, LIBRARY_MAX))}
-                  onDoubleClick={() => setLibraryWidth(LIBRARY_DEFAULT)}
-                />
-              )}
+              <ResizeHandle
+                axis="x"
+                label="Resize library panel"
+                onResize={(d) => setLibraryWidth((w) => clamp(w + d, LIBRARY_MIN, LIBRARY_MAX))}
+                onDoubleClick={() => setLibraryWidth(LIBRARY_DEFAULT)}
+              />
             </>
           )}
 
-          <section className="order-1 flex min-h-0 min-w-0 flex-1 flex-col rounded-lg border border-line bg-surface lg:order-none">
+          <section className="flex min-h-0 min-w-0 flex-1 flex-col rounded-lg border border-line bg-surface">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-1">
               <span className="font-mono text-base text-ink tabular-nums" title="Hours:minutes:seconds:frames">
                 {timecode(playhead)}
               </span>
-              <span className="text-fine font-medium text-ink-faint max-sm:hidden">{FPS}FPS</span>
+              <span className="text-fine font-medium text-ink-faint">{FPS}FPS</span>
               <div className="flex-1" />
               <Select compact aria-label="Frame" value={timeline.aspect} onChange={(e) => apply({ ...timeline, aspect: e.target.value as Aspect })} className="w-auto">
                 {FRAMES.map((f) => (
@@ -696,67 +830,21 @@ export default function EditorPage() {
                 ))}
               </Select>
             </div>
-            <div className="min-h-0 flex-1 p-2 lg:p-3">
-              <Preview
-                ref={preview}
-                html={html}
-                aspect={timeline.aspect}
-                playhead={playhead}
-                selectedText={selectedText}
-                onTime={setPlayhead}
-                onPlayingChange={setPlaying}
-                onMoveText={(textId, x, y, commit) => {
-                  const tl = timelineRef.current;
-                  if (!tl) return;
-                  const next = update(tl, textId, { x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 });
-                  if (commit) {
-                    apply(next, { before: textDragBefore.current ?? undefined });
-                    textDragBefore.current = null;
-                  } else {
-                    textDragBefore.current ??= tl; // undo returns to where the drag started
-                    setTimeline(next);
-                    timelineRef.current = next;
-                  }
-                }}
-              />
-            </div>
-            <div className="flex items-center justify-between gap-2 border-t border-line px-2 py-1 lg:flex-wrap lg:px-3">
-              <div className="flex min-w-0 items-center gap-1">
-                <Button size="xs" variant="ghost" onClick={() => seek(0)} aria-label="Go to start" title="Go to start" className="max-lg:hidden">
+            <div className="min-h-0 flex-1 p-3">{previewPlayer}</div>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-3 py-1">
+              <div className="flex items-center gap-1">
+                <Button size="xs" variant="ghost" onClick={() => seek(0)} aria-label="Go to start" title="Go to start">
                   <Icon name="undo" className="size-5" />
                 </Button>
-                <Button size="xs" onClick={togglePlay} aria-label={playing ? "Pause" : "Play"} title="Play / pause (Space)">
-                  <Icon name={playing ? "pause" : "play"} className="size-5" />
-                </Button>
-                <span className="px-1 font-mono text-meta whitespace-nowrap text-ink-muted tabular-nums">
-                  <span className="max-lg:hidden">
-                    {formatTime(playhead, true)} / {formatTime(total, true)}
-                  </span>
-                  {/* phones: whole seconds, so the controls beside it have room */}
-                  <span className="lg:hidden">
-                    {formatTime(playhead)} / {formatTime(total)}
-                  </span>
+                {playButton}
+                <span className="px-1 font-mono text-meta text-ink-muted tabular-nums">
+                  {formatTime(playhead, true)} / {formatTime(total, true)}
                 </span>
-                <Button size="xs" variant="ghost" onClick={doSplit} title="Split at playhead (S)" className="max-lg:hidden">
+                <Button size="xs" variant="ghost" onClick={doSplit} title="Split at playhead (S)">
                   <Icon name="scissors" className="size-5" /> Split
                 </Button>
               </div>
-              {/* Phones: zoom and undo right under the preview (the timeline's own row is hidden) */}
-              <div className="flex shrink-0 items-center lg:hidden">
-                <Button size="xs" variant="ghost" onClick={() => setPxPerSec((z) => Math.max(4, z / 1.5))} aria-label="Zoom out">
-                  <Icon name="zoomOut" className="size-5" />
-                </Button>
-                <Button size="xs" variant="ghost" onClick={() => setPxPerSec((z) => Math.min(300, z * 1.5))} aria-label="Zoom in">
-                  <Icon name="zoomIn" className="size-5" />
-                </Button>
-                <Button size="xs" variant="ghost" onClick={undo} disabled={!undoStack.current.length} aria-label="Undo">
-                  <Icon name="undo" className="size-5" />
-                </Button>
-                <Button size="xs" variant="ghost" onClick={redo} disabled={!redoStack.current.length} aria-label="Redo">
-                  <Icon name="redo" className="size-5" />
-                </Button>
-              </div>
-              <ul className="flex flex-wrap gap-x-3 text-meta text-ink-muted max-lg:hidden" aria-label="Layers">
+              <ul className="flex flex-wrap gap-x-3 text-meta text-ink-muted" aria-label="Layers">
                 {layers.map((l) => (
                   <li key={l.label}>
                     {l.label} <span className="font-medium text-ink tabular-nums">{l.count}</span>
@@ -766,38 +854,19 @@ export default function EditorPage() {
             </div>
           </section>
 
-          {(showAgent || sheet === "agent") && (
+          {showAgent && (
             <>
-              {showAgent && (
-                <ResizeHandle
-                  axis="x"
-                  label="Resize agent panel"
-                  className="hidden lg:block"
-                  onResize={(d) => setAgentWidth((w) => clamp(w - d, AGENT_MIN, AGENT_MAX))}
-                  onDoubleClick={() => setAgentWidth(AGENT_DEFAULT)}
-                />
-              )}
+              <ResizeHandle
+                axis="x"
+                label="Resize agent panel"
+                onResize={(d) => setAgentWidth((w) => clamp(w - d, AGENT_MIN, AGENT_MAX))}
+                onDoubleClick={() => setAgentWidth(AGENT_DEFAULT)}
+              />
               <aside
-                aria-label="AI editor"
-                className={cn(
-                  "flex flex-col overflow-hidden border border-line bg-surface",
-                  "max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-50 max-lg:h-[min(72dvh,40rem)] max-lg:rounded-t-xl max-lg:pb-[env(safe-area-inset-bottom)] max-lg:shadow-glow-strong",
-                  "lg:min-h-0 lg:w-(--agent) lg:shrink-0 lg:rounded-lg",
-                  !showAgent && "lg:hidden",
-                  sheet !== "agent" && "max-lg:hidden",
-                )}
+                className="flex w-(--agent) min-h-0 shrink-0 flex-col overflow-hidden rounded-lg border border-line bg-surface"
                 style={{ "--agent": `${clamp(agentWidth, AGENT_MIN, AGENT_MAX)}px` } as React.CSSProperties}
               >
-                <SheetHeader title="AI editor" onClose={() => setSheet(null)} />
-                <AgentPanel
-                  projectId={projectId}
-                  messages={project.chat}
-                  version={project.version}
-                  busy={chatBusy}
-                  error={chatError}
-                  onSend={sendChat}
-                  onRestore={restoreVersion}
-                />
+                {agentPanel}
               </aside>
             </>
           )}
@@ -806,112 +875,37 @@ export default function EditorPage() {
         <ResizeHandle
           axis="y"
           label="Resize timeline"
-          className="hidden lg:block"
           onResize={(d) => setTimelineHeight((h) => clamp(h - d, TIMELINE_MIN, TIMELINE_MAX))}
           onDoubleClick={() => setTimelineHeight(TIMELINE_DEFAULT)}
         />
 
         {/* Timeline */}
         <section
-          className="flex min-h-0 shrink-0 flex-col gap-1 max-lg:h-[clamp(12rem,36dvh,22rem)] lg:h-(--timeline)"
+          className="flex h-(--timeline) min-h-0 shrink-0 flex-col gap-1"
           style={{ "--timeline": `${clamp(timelineHeight, TIMELINE_MIN, TIMELINE_MAX)}px` } as React.CSSProperties}
         >
-          <div className="flex flex-wrap items-center justify-between gap-2 max-lg:hidden">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-meta text-ink-muted">
               Drag to move · drag edges to trim · drop media on a track · <kbd>S</kbd> split · <kbd>Del</kbd> delete · <kbd>Space</kbd> play · <kbd>Ctrl+Z</kbd> undo
             </p>
-            <div className="flex items-center">
-              <Button size="xs" variant="ghost" onClick={() => setPxPerSec((z) => Math.max(4, z / 1.5))} aria-label="Zoom out" title="Zoom out">
-                <Icon name="zoomOut" className="size-5" />
-              </Button>
-              <Button size="xs" variant="ghost" onClick={() => setPxPerSec((z) => Math.min(300, z * 1.5))} aria-label="Zoom in" title="Zoom in">
-                <Icon name="zoomIn" className="size-5" />
-              </Button>
-            </div>
+            <div className="flex items-center">{zoomButtons}</div>
           </div>
-          <Timeline
-            className="min-h-0 flex-1"
-            timeline={timeline}
-            playhead={playhead}
-            selectedId={selectedId}
-            pxPerSec={pxPerSec}
-            onSelect={(itemId) => {
-              setSelectedId(itemId);
-              if (itemId) {
-                setLibraryTab("properties");
-                setShowLibrary(true);
-              }
-            }}
-            onSeek={seek}
-            onPreview={(next) => {
-              setTimeline(next);
-              timelineRef.current = next;
-            }}
-            onCommit={(next, before) => apply(next, { before })}
-            onDropAsset={doDropAsset}
-            onDropSfx={doDropSfx}
-          />
+          {timelineView}
         </section>
       </div>
-
-      {/* Phones: tap outside an open sheet to close it */}
-      {sheet && <button type="button" aria-label="Close panel" className="fixed inset-0 z-40 bg-ink/30 lg:hidden" onClick={() => setSheet(null)} />}
-
-      {/* Phones: the tools at thumb height. Selecting a clip swaps them for that clip's actions. */}
-      <nav aria-label="Editor tools" className="grid shrink-0 grid-cols-6 border-t border-line lg:hidden">
-        {selectedId ? (
-          <>
-            <ToolButton icon="check" label="Done" onClick={() => setSelectedId(null)} />
-            <ToolButton icon="sliders" label="Edit" active={sheet === "library" && libraryTab === "properties"} onClick={() => openLibrary("properties")} />
-            <ToolButton icon="scissors" label="Split" onClick={doSplit} />
-            <ToolButton icon="copy" label="Copy" onClick={doDuplicate} />
-            <ToolButton icon="trash" label="Delete" onClick={doDelete} />
-            <ToolButton icon="bot" label="AI" active={sheet === "agent"} onClick={() => setSheet("agent")} />
-          </>
-        ) : (
-          <>
-            <ToolButton icon="film" label="Media" active={sheet === "library" && libraryTab === "media"} onClick={() => openLibrary("media")} />
-            <ToolButton icon="type" label="Text" active={sheet === "library" && libraryTab === "text"} onClick={() => openLibrary("text")} />
-            <ToolButton icon="music" label="Audio" active={sheet === "library" && libraryTab === "audio"} onClick={() => openLibrary("audio")} />
-            <ToolButton icon="sparkles" label="Effects" active={sheet === "library" && libraryTab === "effects"} onClick={() => openLibrary("effects")} />
-            <ToolButton icon="scissors" label="Split" onClick={doSplit} />
-            <ToolButton icon="bot" label="AI" active={sheet === "agent"} onClick={() => setSheet("agent")} />
-          </>
-        )}
-      </nav>
     </div>
   );
 }
 
-/** Phones: a sheet's title row, with a close button (desktop shows the panels without one). */
-function SheetHeader({ title, onClose }: { title: string; onClose(): void }) {
-  return (
-    <div className="flex items-center justify-between border-b border-line py-1 pr-1 pl-4 lg:hidden">
-      <p className="font-display text-lg font-semibold tracking-tight text-ink">{title}</p>
-      <Button size="xs" variant="ghost" onClick={onClose} aria-label={`Close ${title}`}>
-        <Icon name="x" className="size-5" />
-      </Button>
-    </div>
-  );
-}
-
-/** Phones: one tool in the bottom bar. `active` marks a tool whose sheet is open. */
-function ToolButton({ icon, label, active, onClick }: { icon: IconName; label: string; active?: boolean; onClick(): void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "tactile flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-md px-0.5 text-meta font-medium",
-        active ? "text-brand" : "text-ink-muted hover:text-ink",
-      )}
-    >
-      <Icon name={icon} className="size-6" />
-      <span className="max-w-full truncate">{label}</span>
-    </button>
-  );
-}
+/** The phone tool dock: each opens its Library tab (or the AI chat) in a sheet. */
+const DOCK: { label: string; title: string; icon: IconName; tab?: LibraryTab }[] = [
+  { label: "Media", title: "Media", icon: "film", tab: "media" },
+  { label: "Text", title: "Captions & text", icon: "type", tab: "text" },
+  { label: "Audio", title: "Audio & SFX", icon: "music", tab: "audio" },
+  { label: "Effects", title: "Effects", icon: "sparkles", tab: "effects" },
+  { label: "Edit", title: "Properties", icon: "sliders", tab: "properties" },
+  { label: "AI", title: "AI editor", icon: "bot" },
+];
 
 /** A slim, dismissable message line (the full-size Notice is too tall for a working screen). */
 function Strip({ tone, onDismiss, children }: { tone: "success" | "danger"; onDismiss(): void; children: React.ReactNode }) {
@@ -931,19 +925,18 @@ function Strip({ tone, onDismiss, children }: { tone: "success" | "danger"; onDi
   );
 }
 
-function SaveBadge({ state, version, onReload }: { state: SaveState; version: number; onReload(): void }) {
+function SaveBadge({ state, version, compact, onReload }: { state: SaveState; version: number; compact?: boolean; onReload(): void }) {
   if (state === "conflict") {
     return (
-      <Button size="xs" variant="danger" onClick={onReload}>
-        Changed elsewhere · Reload
+      <Button size="xs" variant="danger" onClick={onReload} className="shrink-0">
+        {compact ? "Reload" : "Changed elsewhere · Reload"}
       </Button>
     );
   }
   const label = { saved: "Saved", saving: "Saving…", unsaved: "Unsaved", error: "Not saved" }[state];
   return (
-    <Badge tone={state === "error" ? "danger" : state === "saved" ? "success" : "neutral"}>
-      {label}
-      <span className="max-sm:hidden"> · v{version}</span>
+    <Badge tone={state === "error" ? "danger" : state === "saved" ? "success" : "neutral"} className="shrink-0 whitespace-nowrap">
+      {compact ? label : `${label} · v${version}`}
     </Badge>
   );
 }

@@ -51,7 +51,7 @@ export function StyleShowcase() {
   }, [budget]);
 
   return (
-    <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+    <ul className="rail grid gap-6 sm:grid-cols-2 lg:grid-cols-4 [--rail-item:72%]">
       {PRESETS.map((style) => (
         <li key={style.name}>
           <div className="@container grid aspect-[4/5] place-items-center overflow-hidden rounded-lg bg-brand-deep px-6 shadow-glow">

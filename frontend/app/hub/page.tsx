@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ThumbnailEditor, type Thumbnail } from "@/components/hub/ThumbnailEditor";
-import { ClipDialog, ClipDialogActions, ClipTile } from "@/components/clips";
+import { ClipDialog, ClipDialogActions, ClipShelves, ClipTile, ClipToolbar, matchesQuery, shelvesBy } from "@/components/clips";
 import { StarButton } from "@/components/projects/StarButton";
 import { Badge, Button, buttonClass, Em, Icon, Notice, Panel, SectionLabel, SkyHeader, StatusBadge } from "@/components/ui";
 import { api, API_URL, ApiError } from "@/lib/api";
 import { formatSlot, PLATFORM_LABEL, tzOffsetMinutes, type ScheduledPost } from "@/lib/agents";
+import { usePersistentState } from "@/lib/usePersistentState";
 
 type Clip = {
   id: number;
@@ -30,6 +31,25 @@ type Clip = {
   created_at: string;
 };
 
+type GroupBy = "status" | "topic" | "all";
+const GROUP_OPTIONS = [
+  { value: "status" as const, label: "Status" },
+  { value: "topic" as const, label: "Topic" },
+  { value: "all" as const, label: "All" },
+];
+const STATUS_ORDER = ["Starred", "Ready to post", "Scheduled", "To review", "Not captioned", "Burning captions", "Posted", "Failed"];
+
+/** Where a clip stands, for the library's status shelves. */
+function statusOf(clip: Clip, posts: ScheduledPost[]): string {
+  if (posts.some((p) => p.status === "queued" || p.status === "ready" || p.status === "posting")) return "Scheduled";
+  if (posts.some((p) => p.status === "posted")) return "Posted";
+  if (clip.review_status === "pending") return "To review";
+  if (clip.status === "failed") return "Failed";
+  if (clip.status === "captioning") return "Burning captions";
+  if (clip.starred) return "Starred";
+  return clip.status === "ready" ? "Ready to post" : "Not captioned";
+}
+
 const mediaUrl = (path: string | null | undefined) => (path ? `${API_URL}/${path}` : null);
 
 export default function HubPage() {
@@ -38,6 +58,8 @@ export default function HubPage() {
   const [busy, setBusy] = useState<number | string | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
   const [message, setMessage] = useState<{ tone: "success" | "brand" | "danger"; text: string } | null>(null);
+  const [query, setQuery] = useState("");
+  const [groupBy, setGroupBy] = usePersistentState<GroupBy>("ch_hub_group", "status");
 
   const load = useCallback(async () => {
     try {
@@ -100,13 +122,24 @@ export default function HubPage() {
   const upcoming = posts.filter((p) => p.status === "queued" || p.status === "ready");
   const postsByClip = new Map<number, ScheduledPost[]>();
   posts.forEach((p) => postsByClip.set(p.clip_id, [...(postsByClip.get(p.clip_id) ?? []), p]));
+
+  // Search, then split into shelves; the popup's prev / next follow the order shown.
+  const shelves = useMemo(() => {
+    const byClip = new Map<number, ScheduledPost[]>();
+    posts.forEach((p) => byClip.set(p.clip_id, [...(byClip.get(p.clip_id) ?? []), p]));
+    const found = clips.filter((c) => matchesQuery(c, query));
+    if (groupBy === "all") return found.length ? [{ key: "all", label: "All clips", items: found }] : [];
+    if (groupBy === "topic") return shelvesBy(found, (c) => c.context_json?.game_or_topic, "Other topics");
+    return shelvesBy(found, (c) => statusOf(c, byClip.get(c.id) ?? []), "Other", STATUS_ORDER);
+  }, [clips, posts, query, groupBy]);
+  const ordered = shelves.flatMap((sh) => sh.items);
   const dueNow = upcoming.filter((p) => p.status === "ready").length;
   // Tracked by id, so the 15s refresh never changes which clip is open.
-  const openIndex = clips.findIndex((c) => c.id === openId);
-  const open = openIndex >= 0 ? clips[openIndex] : null;
+  const openIndex = ordered.findIndex((c) => c.id === openId);
+  const open = openIndex >= 0 ? ordered[openIndex] : (clips.find((c) => c.id === openId) ?? null);
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-10 sm:space-y-12">
       <SkyHeader
         eyebrow="Distribution hub"
         title={
@@ -139,12 +172,15 @@ export default function HubPage() {
             </Link>
           </Panel>
         ) : (
-          <ul className="divide-y divide-line border-y border-line">
+          <ul className="rail rail-wide sm:divide-y sm:divide-line sm:border-y sm:border-line">
             {upcoming.map((p) => {
               const file = mediaUrl(p.clip_file_path);
               const burning = p.clip_status === "captioning" || p.clip_status === "processing";
               return (
-                <li key={p.id} className="flex flex-col gap-4 py-5 lg:flex-row lg:items-center lg:justify-between">
+                <li
+                  key={p.id}
+                  className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4 shadow-glow sm:rounded-none sm:border-0 sm:bg-transparent sm:px-0 sm:py-5 sm:shadow-none lg:flex-row lg:items-center lg:justify-between"
+                >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-3">
                       <span className="font-display text-xl font-semibold tracking-tight text-ink tabular-nums">{formatSlot(p.scheduled_for)}</span>
@@ -157,7 +193,7 @@ export default function HubPage() {
                     <p className="mt-1 truncate text-lg text-ink">{p.clip_title}</p>
                     {p.schedule_reason && <p className="text-base text-ink-muted">{p.schedule_reason}</p>}
                   </div>
-                  <div className="flex shrink-0 flex-wrap gap-2">
+                  <div className="mt-auto flex shrink-0 flex-wrap gap-2 lg:mt-0">
                     {file && (
                       <a href={file} download target="_blank" rel="noopener noreferrer" className={buttonClass({ variant: "secondary", size: "sm" })}>
                         <Icon name="download" className="size-5" /> Download
@@ -188,19 +224,21 @@ export default function HubPage() {
               {clips.length} total · {clips.filter((c) => c.status === "ready").length} captioned
             </Badge>
           </div>
-          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 2xl:grid-cols-5">
-            {clips.map((clip) => (
-              <li key={clip.id} className="min-w-0">
-                <ClipTile
-                  title={clip.title}
-                  filePath={clip.file_path}
-                  durationS={clip.duration_s}
-                  label={tileLabel(clip, postsByClip.get(clip.id) ?? [])}
-                  onOpen={() => setOpenId(clip.id)}
-                />
-              </li>
-            ))}
-          </ul>
+          <ClipToolbar query={query} onQuery={setQuery} groupBy={groupBy} onGroupBy={setGroupBy} groupOptions={GROUP_OPTIONS} />
+          <ClipShelves
+            shelves={shelves}
+            query={query}
+            onClearQuery={() => setQuery("")}
+            renderTile={(clip) => (
+              <ClipTile
+                title={clip.title}
+                filePath={clip.file_path}
+                durationS={clip.duration_s}
+                label={tileLabel(clip, postsByClip.get(clip.id) ?? [])}
+                onOpen={() => setOpenId(clip.id)}
+              />
+            )}
+          />
         </section>
       )}
 
@@ -221,11 +259,11 @@ export default function HubPage() {
         <HubClipDialog
           clip={open}
           posts={(postsByClip.get(open.id) ?? []).filter((p) => p.status !== "failed")}
-          position={openIndex + 1}
-          total={clips.length}
+          position={Math.max(openIndex, 0) + 1}
+          total={ordered.length || clips.length}
           busy={busy === open.id}
-          onPrev={openIndex > 0 ? () => setOpenId(clips[openIndex - 1].id) : undefined}
-          onNext={openIndex < clips.length - 1 ? () => setOpenId(clips[openIndex + 1].id) : undefined}
+          onPrev={openIndex > 0 ? () => setOpenId(ordered[openIndex - 1].id) : undefined}
+          onNext={openIndex >= 0 && openIndex < ordered.length - 1 ? () => setOpenId(ordered[openIndex + 1].id) : undefined}
           onClose={() => setOpenId(null)}
           onSchedule={() => schedule(open)}
           onStar={(starred) => setClips((prev) => prev.map((c) => (c.id === open.id ? { ...c, starred } : c)))}
