@@ -20,7 +20,6 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime
 from pathlib import Path
 
 from app.config import settings
@@ -70,9 +69,16 @@ def blocked_until() -> float:
 
 
 def cooldown_message() -> str:
+    # Relative, not a clock time: the server's clock (UTC) isn't the user's.
     until = blocked_until()
-    when = datetime.fromtimestamp(until).strftime("%H:%M") if until else "a little while"
-    return (f"YouTube imports are paused until about {when}. Please try again then, or upload the video file "
+    minutes = max(1, round((until - time.time()) / 60)) if until else 0
+    if minutes >= 90:
+        wait = f"about {round(minutes / 60)} hours"
+    elif minutes > 1:
+        wait = f"about {minutes} minutes"
+    else:
+        wait = "a minute"
+    return (f"YouTube imports are paused for {wait}. Please try again then, or upload the video file "
             "instead. Twitch and Kick links still work.")
 
 
