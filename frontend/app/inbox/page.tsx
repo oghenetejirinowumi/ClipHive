@@ -122,10 +122,10 @@ export default function InboxPage() {
         eyebrow="Approval inbox"
         title={
           <>
-            Your agents made <Em>{clips?.length ?? "…"}</Em> clip{clips?.length === 1 ? "" : "s"}
+            Your bees harvested <Em>{clips?.length ?? "…"}</Em> clip{clips?.length === 1 ? "" : "s"}
           </>
         }
-        description="Nothing posts without you. Approve a clip and the Publisher burns its captions and schedules it; reject it and the agents learn from your reason."
+        description="Nothing posts without you. Approve a clip and the Honey Bee burns its captions and schedules it; reject it and the bees learn from your reason."
       />
 
       <Panel padding="md" className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
@@ -151,7 +151,7 @@ export default function InboxPage() {
               {(last.posts ?? []).map((p) => `${PLATFORM_LABEL[p.platform]} ${formatSlot(p.scheduled_for)}`).join(", ") || "nothing"}; captions are burning.{" "}
             </>
           ) : (
-            <>Rejected “{last.clip.title}”. The agents will take that into account. </>
+            <>Rejected “{last.clip.title}”. The bees will take that into account. </>
           )}
           <button type="button" onClick={undo} className="ml-1 inline-flex min-h-11 items-center font-semibold underline underline-offset-4">
             Undo
@@ -172,7 +172,7 @@ export default function InboxPage() {
             <Icon name="check" />
           </span>
           <p className="mt-6 font-display text-3xl font-semibold tracking-tight text-ink">Inbox zero</p>
-          <p className="mt-2 max-w-xl text-lg text-ink-muted">New clips land here when the Producer finishes. Paste a link, ask the agents, or let the Scout find your next stream.</p>
+          <p className="mt-2 max-w-xl text-lg text-ink-muted">New clips land here when the Worker Bee finishes. Paste a link, command the Queen Bee, or let the Scout Bee find your next stream.</p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
             <Link href="/create" className={buttonClass()}>
               <Icon name="plus" className="size-5" /> Start a project
@@ -239,7 +239,7 @@ export default function InboxPage() {
                           }}
                         >
                           <label htmlFor={`reason-${clip.id}`} className="block text-base font-medium text-ink">
-                            Why not? (optional, it teaches the agents)
+                            Why not? (optional, it teaches the bees)
                           </label>
                           <div className="flex flex-wrap gap-2">
                             {QUICK_REASONS.map((r) => (

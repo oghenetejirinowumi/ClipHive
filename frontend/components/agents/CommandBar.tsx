@@ -8,7 +8,7 @@ import type { ImportJob } from "@/lib/imports";
 
 const EXAMPLES = ["Make 3 funny clips from my last stream for YouTube Shorts", "5 hype clips, 20 seconds, Punch captions, from my latest VOD"];
 
-/** "Tell the agents what you want": text → a plan to confirm → an import the Producer runs. */
+/** "Tell the Queen Bee what you want": text → a plan to confirm → an import the Worker Bee runs. */
 export function CommandBar({ onStarted }: { onStarted?: (job: ImportJob) => void }) {
   const [text, setText] = useState("");
   const [plan, setPlan] = useState<CommandPlan | null>(null);
@@ -52,10 +52,10 @@ export function CommandBar({ onStarted }: { onStarted?: (job: ImportJob) => void
     <div className="space-y-4">
       <form onSubmit={makePlan} className="flex flex-col gap-3 sm:flex-row">
         <label htmlFor="agent-command" className="sr-only">
-          Tell the agents what you want
+          Command the Queen Bee
         </label>
         <div className="relative flex-1">
-          <Icon name="bot" className="pointer-events-none absolute top-1/2 left-5 size-6 -translate-y-1/2 text-ink-faint" />
+          <Icon name="bee" className="pointer-events-none absolute top-1/2 left-5 size-6 -translate-y-1/2 text-brand" />
           <input
             id="agent-command"
             type="text"
@@ -70,7 +70,7 @@ export function CommandBar({ onStarted }: { onStarted?: (job: ImportJob) => void
           />
         </div>
         <Button type="submit" size="lg" variant="secondary" loading={busy === "plan"} disabled={text.trim().length < 3}>
-          <Icon name="sparkles" /> Plan it
+          <Icon name="sparkles" /> Command Queen Bee
         </Button>
       </form>
 

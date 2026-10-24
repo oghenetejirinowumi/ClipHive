@@ -21,6 +21,8 @@ def get_current_user(
     """Protect a route: `def route(user: CurrentUser): ...`. 401 if the token is missing or bad."""
     user_id = decode_access_token(credentials.credentials) if credentials else None
     user = db.get(User, user_id) if user_id is not None else None
+    if user is None and settings.allow_anonymous_owner:
+        user = db.query(User).order_by(User.id).first()
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

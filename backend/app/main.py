@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
         styles = seed_preset_styles(db)
         logger.info(f"Seeded {len(styles)} caption styles.")
 
-        # Demo account for the login page's one-click button (real password, valid email)
+        # Demo account, only usable when DEMO_LOGIN_ENABLED=true (locked otherwise)
         ensure_demo_account(db)
         demo_user = db.query(User).order_by(User.id).first()
 

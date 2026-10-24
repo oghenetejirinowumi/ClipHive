@@ -21,8 +21,20 @@ MAX_SECONDS = 4 * 3600
 
 AssetKind = Literal["video", "image", "audio"]
 Fit = Literal["cover", "contain"]
-TextAnimation = Literal["none", "fade", "pop", "slide_up", "typewriter"]
-Font = Literal["Bangers", "Luckiest Guy", "Poppins", "System"]
+TextAnimation = Literal[
+    "none",
+    "fade",
+    "pop",
+    "slide_up",
+    "typewriter",
+    "highlight_box",
+    "karaoke",
+    "reveal",
+    "line",
+    "single_word",
+    "word_pop",
+]
+Font = str
 
 ASPECTS: dict[str, tuple[int, int]] = {"9:16": (1080, 1920), "16:9": (1920, 1080), "1:1": (1080, 1080), "4:5": (1080, 1350)}
 
