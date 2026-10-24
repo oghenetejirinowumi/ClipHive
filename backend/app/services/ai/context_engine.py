@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Sequence
 
 from app.config import settings
+from app.core.media import local_media
 from app.models.caption_style import CaptionStyle
 from app.models.clip import Clip
 from app.schemas.clip import TranscriptWord
@@ -438,20 +439,11 @@ def _heuristic_extract_context(
     )
     style, rationale = _pick_caption_style(event, mood, energy_score)
 
-    # High-CTR title
-    if event == "clutch":
-        viral_title = f"THE MOST INSANE {game.upper()} 1v4 CLUTCH 🎯"
-    elif event == "ace":
-        viral_title = f"HE JUST ACED THE ENTIRE TEAM! 💀"
-    elif event == "funny_fail":
-        viral_title = f"BRO REALLY THOUGHT HE SURVIVED 😂"
-    elif words:
-        opening = " ".join(w.word for w in words[:5])
-        viral_title = f"{opening[:35].strip()} 🔥"
-    elif source_title:
-        viral_title = f"{source_title[:40].strip()} 🔥"
-    else:
-        viral_title = f"UNREAL {game.upper()} HIGHLIGHT 🔥"
+    # Title from the facts (best line, streamer when the plan names them, game), never a canned
+    # line that may not match what happens. The AI pack replaces it when a model is configured.
+    from app.services.ai.title_writer import brief_for, fallback_titles
+
+    viral_title = fallback_titles(brief_for(clip, None, ctx={**source_info, "game_or_topic": game}))[0]
 
     hype_words = ["CLUTCH", "ACE", "NO", "WAY", "BRO", "INSANE", "OMG", "DEAD", "WHAT"]
     for tag in trending_tags or []:
@@ -563,7 +555,7 @@ def extract_clip_context(
             TranscriptWord(**w) if isinstance(w, dict) else w
             for w in clip.transcript_json
         ]
-    elif clip.raw_file_path and Path(clip.raw_file_path).exists():
+    elif clip.raw_file_path and local_media(clip.raw_file_path).is_file():
         try:
             logger.info(
                 f"Transcribing raw clip {clip.id} for context extraction: {clip.raw_file_path}"

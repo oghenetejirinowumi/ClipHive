@@ -20,7 +20,6 @@ import shutil
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -28,19 +27,43 @@ import requests
 from sqlalchemy import inspect, text
 
 from app.config import settings
-from app.core.media import MediaError, probe, public_path, storage_root, thumbnail
+from app.core import object_store
+from app.core.daemon_pool import DaemonPool
+from app.core.media import (
+    MediaError,
+    media_exists,
+    probe,
+    public_path,
+    storage_root,
+    thumbnail,
+)
 from app.db import SessionLocal, engine
-from app.models import CaptionMode, Clip, ClipStatus, ImportJob, ImportSource, ImportStatus
+from app.models import (
+    CaptionMode,
+    Clip,
+    ClipStatus,
+    ImportJob,
+    ImportSource,
+    ImportStatus,
+)
+from app.services.agents import events
+from app.services.agents.producer import ProducerJob, run_producer
 from app.services.clip.cutter import cut_vertical
 from app.services.clip.detector import Highlight
 from app.services.clip.taste import user_taste
-from app.services.agents import events
-from app.services.agents.producer import ProducerJob, run_producer
-from app.services.ingest.downloader import Cancelled, IngestError, fetch_audio, fetch_preview, fetch_section, has_audio_only, probe_url
+from app.services.ingest.downloader import (
+    Cancelled,
+    IngestError,
+    fetch_audio,
+    fetch_preview,
+    fetch_section,
+    has_audio_only,
+    probe_url,
+)
 
 logger = logging.getLogger("cliphive.imports")
 
-_executor = ThreadPoolExecutor(max_workers=settings.import_workers, thread_name_prefix="import")
+_executor = DaemonPool(settings.import_workers, "import")  # never blocks shutdown; recover_interrupted resumes
 _cancels: dict[int, threading.Event] = {}
 INFO_MAX_AGE_S = 3 * 3600  # platform media URLs expire; re-probe older info
 WHOLE_VIDEO_S = 24 * 3600  # max_import_minutes=0 means the whole video; this only bounds a missing duration
@@ -106,7 +129,7 @@ def repair_clip_states() -> None:
     with SessionLocal() as db:
         fixed = 0
         for clip in db.query(Clip).filter(Clip.status.in_([ClipStatus.PROCESSING, ClipStatus.FAILED])):
-            if clip.raw_file_path and Path(clip.raw_file_path).exists():
+            if media_exists(clip.raw_file_path):
                 if clip.status == ClipStatus.PROCESSING:
                     clip.caption_mode = CaptionMode.PLATFORM_NATIVE
                 elif not (clip.error or "").startswith("Captions failed"):
@@ -163,6 +186,9 @@ def remove_files(job_id: int, extra: list[Path] | None = None) -> None:
     can hold a file open on Windows for a moment."""
 
     def work() -> None:
+        for path in extra or []:  # S3 copies once; the local retries below are for Windows file locks
+            object_store.delete_remote(path)
+        object_store.delete_remote_tree(job_dir(job_id))
         for _ in range(10):
             for path in extra or []:
                 try:
@@ -334,6 +360,8 @@ def _run(job_id: int) -> None:
         "source": source.value if hasattr(source, "value") else str(source),
         "source_title": title,
         "creator": (info.get("uploader") or info.get("channel")) if info else None,
+        # How known the channel is: the title writer names big streamers more often.
+        "creator_followers": (info.get("channel_follower_count") or info.get("uploader_follower_count")) if info else None,
         "source_tags": (info.get("tags") or [])[:20] if info else [],
         "source_categories": (info.get("categories") or []) if info else [],
         "source_description": (info.get("description") or "")[:300] if info else None,

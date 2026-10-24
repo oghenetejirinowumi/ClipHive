@@ -76,6 +76,17 @@ class ClipDetail(ClipRead):
     transcript_json: list[TranscriptWord] | None
 
 
+class ThumbnailRequest(BaseModel):
+    frame_s: float | None = Field(default=None, ge=0)  # time in the clip; None = the best frame
+    text: str | None = Field(default=None, max_length=60)  # None = the AI's hook (or the best line)
+
+
+class ThumbnailFrame(BaseModel):
+    t: float
+    score: float
+    preview: str  # data: URL of a small JPEG
+
+
 class AIPackResponse(BaseModel):
     titles: list[str] = Field(description="3 generated viral title suggestions, max 100 characters each")
     descriptions: list[str] = Field(description="2 generated social media description suggestions")

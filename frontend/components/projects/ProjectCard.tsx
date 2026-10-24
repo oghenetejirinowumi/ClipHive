@@ -39,10 +39,11 @@ export function ProjectCard({
 
   return (
     <Panel padding="none" className="flex h-full flex-col overflow-hidden">
-      <div className="relative aspect-video bg-brand-deep">
+      <div className="relative aspect-video shrink-0 overflow-hidden bg-brand-deep">
         {job.thumbnail_path ? (
+          // Absolute so a non-16:9 thumbnail (Twitch's are letterboxed) can't stretch the box; it's cropped to fill.
           // eslint-disable-next-line @next/next/no-img-element -- thumbnails come from the API host
-          <img src={`${API_URL}/${job.thumbnail_path}`} alt="" className="size-full object-cover" />
+          <img src={`${API_URL}/${job.thumbnail_path}`} alt="" className="absolute inset-0 size-full object-cover" />
         ) : (
           <div className="grid size-full place-items-center text-on-brand/50">
             <Icon name="film" className="size-10" />

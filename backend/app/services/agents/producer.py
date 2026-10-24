@@ -1,9 +1,12 @@
 """Producer agent: turns one downloaded video into the best N vertical clips.
 
-The loudness detector proposes ~3x more candidate moments than needed. The model reads
-what was said in them, checks trends, rejects weak ones with a reason, chooses exact cut
+Two detectors propose ~3x more candidate moments than needed: loudness (shouting, hype) and,
+when the source has a transcript, speech (laughter, disbelief, a punchline said quietly; see
+services/clip/moments.py). The model reads what was said in them, checks trends, rejects weak ones with a reason, chooses exact cut
 points (it can move them to start on the hook and end on the payoff) and cuts the keepers.
-Each cut is packaged (title, hashtags, caption style) by the existing context engine.
+Every cut is snapped to sentence boundaries, so a clip never opens mid-word or ends before the
+punchline, and keeps its slice of the transcript for captions and titles. Each cut is packaged
+(title, hashtags, caption style) by the context engine and the title writer.
 
 Without a model key, or if the loop fails before cutting anything, the fixed pipeline runs
 instead (loudness + optional Groq rating) and still writes events, so the feed is never empty.
@@ -32,6 +35,7 @@ from app.services.ai.context_engine import apply_context_to_clip, extract_clip_c
 from app.services.clip.ai_rank import pick_highlights
 from app.services.clip.cutter import cut_vertical
 from app.services.clip.detector import Highlight, find_highlights
+from app.services.clip.moments import clip_words, refine_bounds, speech_candidates
 
 logger = logging.getLogger("cliphive.agents.producer")
 
@@ -80,22 +84,32 @@ class ProducerSession:
         self.cut_windows: list[tuple[float, float]] = list(job.exclude)
         self.rejected: dict[int, str] = {}
         self._words: list[TranscriptWord] | None = None
+        self._tried_full = False
+        self._windows: list[tuple[float, float, list[TranscriptWord]]] = []  # read_transcripts results
 
     # ---------- transcripts ----------
     def _full_transcript(self) -> list[TranscriptWord] | None:
-        """Whole-source transcript via Groq (one fast call), cached. None if unavailable."""
-        if self._words is not None:
+        """Whole-source transcript (Groq, else OpenAI), made once. None if unavailable."""
+        if self._words is not None or self._tried_full:
             return self._words
-        if not settings.groq_api_key:
-            return None
+        self._tried_full = True
         try:
-            from app.services.transcribe.whisper_service import transcribe_with_groq
+            from app.services.transcribe.whisper_service import transcribe_full
 
-            self._words = transcribe_with_groq(self.job.src, max_seconds=self.job.duration)
+            self._words = transcribe_full(self.job.src, max_seconds=self.job.duration)
         except Exception as err:
             logger.warning("Full transcript failed, using per-window transcription: %s", err)
             self._words = None
         return self._words
+
+    def words_near(self, start: float, end: float) -> list[TranscriptWord]:
+        """Words around [start, end] we already have (never transcribes just for this)."""
+        if self._words is not None:
+            return [w for w in self._words if start - 8 <= w.start <= end + 8]
+        for a, b, words in self._windows:
+            if a <= start and end <= b:
+                return words
+        return []
 
     def _window_words(self, start: float, end: float) -> list[TranscriptWord]:
         words = self._full_transcript()
@@ -106,10 +120,12 @@ class ProducerSession:
 
         with tempfile.TemporaryDirectory() as tmp:
             audio = extract_speech_audio(self.job.src, Path(tmp) / "w.mp3", start, end - start)
-            return [
+            found = [
                 TranscriptWord(word=w.word, start=round(w.start + start, 2), end=round(w.end + start, 2), confidence=w.confidence)
                 for w in transcribe_with_faster_whisper(audio)
             ]
+        self._windows.append((start, end, found))
+        return found
 
     @staticmethod
     def _lines(words: list[TranscriptWord], chunk_s: float = 4.0) -> list[str]:
@@ -130,12 +146,13 @@ class ProducerSession:
     # ---------- tools ----------
     def list_candidates(self, args: dict) -> dict:
         if not self.candidates:
-            pool = min(MAX_CANDIDATES, max(self.job.count * 3, self.job.count + 4))
-            self.candidates = find_highlights(self.job.src, self.job.duration, pool, self.job.clip_seconds, exclude=self.job.exclude, taste=self.job.taste)
+            self.candidates = propose_candidates(self.job, self._full_transcript())
         return {
             "video_duration_s": round(self.job.duration, 1),
             "candidates": [
-                {"id": i, "start_s": c.start_s, "end_s": c.end_s, "loudness": c.score} for i, c in enumerate(self.candidates)
+                {"id": i, "start_s": c.start_s, "end_s": c.end_s, "score": c.score, "found_by": "speech" if c.reason else "loudness",
+                 **({"signal": c.reason} if c.reason else {})}
+                for i, c in enumerate(self.candidates)
             ],
         }
 
@@ -209,7 +226,10 @@ class ProducerSession:
         loudness, features = None, None
         if isinstance(cid, int) and 0 <= cid < len(self.candidates):
             loudness, features = self.candidates[cid].score, self.candidates[cid].features
-        clip = make_clip(self.job, len(self.clip_ids) + 1, start, end, loudness, reason, packaged_by="producer_agent", features=features)
+        words = self.words_near(start, end)
+        start, end = refine_bounds(start, end, words, min_len=MIN_CLIP_S, max_len=MAX_CLIP_S, duration=self.job.duration)
+        clip = make_clip(self.job, len(self.clip_ids) + 1, start, end, loudness, reason, packaged_by="producer_agent",
+                         features=features, words=words)
         self.clip_ids.append(clip["clip_id"])
         self.cut_windows.append((start, end))
         title = clip.get("title") or "clip"
@@ -222,12 +242,26 @@ class ProducerSession:
         return clip
 
 
+def propose_candidates(job: ProducerJob, words: list[TranscriptWord] | None) -> list[Highlight]:
+    """Loud moments, plus (with a transcript) moments found by what's said that loudness missed."""
+    pool = min(MAX_CANDIDATES, max(job.count * 3, job.count + 4))
+    loud = find_highlights(job.src, job.duration, pool, job.clip_seconds, exclude=job.exclude, taste=job.taste)
+    for c in loud:
+        c.reason = None  # "found_by" is read from reason: loudness candidates carry none
+    if not words:
+        return loud
+    said = speech_candidates(words, job.duration, job.clip_seconds, max(2, job.count + 2), exclude=job.exclude,
+                             avoid=[(c.start_s, c.end_s) for c in loud])
+    return loud + said  # loud ones keep their ids; speech ones are added after them
+
+
 def make_clip(
     job: ProducerJob, n: int, start: float, end: float, score: float | None, reason: str | None, packaged_by: str,
-    features: list[float] | None = None,
+    features: list[float] | None = None, words: list[TranscriptWord] | None = None,
 ) -> dict:
     """Cut one 9:16 clip, save it as a Clip row, package it, and tell the pipeline.
-    The clip is ready to post as soon as it's cut; burning captions is optional."""
+    The clip is ready to post as soon as it's cut; burning captions is optional. `words`
+    (source time) gives it its transcript up front, so packaging doesn't transcribe it again."""
     n = job.first_number + n - 1
     out = storage_root() / "clips" / f"import_{job.job_id}_{n}_{int(time.time())}.mp4"
     if job.cut is not None:
@@ -256,6 +290,7 @@ def make_clip(
             caption_mode=CaptionMode.PLATFORM_NATIVE,
             moment_features=features or None,
             review_status="pending",
+            transcript_json=(clip_words(words, start, end) or None) if words else None,
         )
         db.add(clip)
         db.commit()
@@ -265,7 +300,9 @@ def make_clip(
             apply_context_to_clip(clip, db, extracted)
             # apply_context_to_clip replaces context_json; keep the agent's reasoning on it.
             merged = dict(clip.context_json or {})
-            for key in ("agent_reason", "highlight_reason", "packaged_by", "import_job_id", "source_url", "moment_index"):
+            # (the source facts too: the title writer reads who and what the video is from them)
+            for key in ("agent_reason", "highlight_reason", "packaged_by", "import_job_id", "source_url", "moment_index",
+                        "source", "source_title", "creator_followers", "source_categories", "source_tags"):
                 if ctx.get(key) is not None:
                     merged[key] = ctx[key]
             clip.context_json = merged
@@ -279,6 +316,14 @@ def make_clip(
             auto_run_ai_pack(clip, db)
         except Exception as err:
             logger.warning("Auto AI packaging skipped for clip %s: %s", clip.id, err)
+
+        try:
+            from app.services.clip.thumbnail import make_for_clip
+
+            clip.context_json = {**(clip.context_json or {}), "thumbnail": make_for_clip(clip)}
+            db.commit()
+        except Exception as err:
+            logger.warning("Thumbnail skipped for clip %s: %s", clip.id, err)
 
         from app.models.caption_style import CaptionStyle
 
@@ -324,12 +369,14 @@ def _system_prompt(job: ProducerJob, profile: str | None) -> str:
     lines = [
         "You are the Worker Bee (producer agent) in ClipHive. You turn a long gaming/livestream video into short vertical clips for a creator.",
         "Work like a skilled human editor, using the tools:",
-        "1. list_candidates: loud moments proposed by an audio detector (loudness alone is a weak signal).",
+        "1. list_candidates: moments proposed by two detectors: found_by 'loudness' (shouting, hype; loud alone is a weak signal) "
+        "and found_by 'speech' (laughter, disbelief, swearing, fast talk in the transcript; its signal says which). Judge both by what's said.",
         "2. read_transcripts: read what is said in and around candidates. Read several ids per call.",
         "3. get_trends (optional, once): trending hashtags for the game or topic you identify.",
         "4. reject_moments: reject weak candidates with a short, specific reason (e.g. 'reading chat', 'loud but nothing happens', 'sponsor read'). Reject in one call.",
         "5. cut_clip: cut a keeper. Choose start_s/end_s yourself: start just before the hook, end right after the payoff or punchline. "
-        f"Aim for about {target}s (between {max(MIN_CLIP_S, target * 0.5):.0f}s and {min(MAX_CLIP_S, target * 1.5):.0f}s). Give a one-line reason.",
+        f"Aim for about {target}s (between {max(MIN_CLIP_S, target * 0.5):.0f}s and {min(MAX_CLIP_S, target * 1.5):.0f}s). Give a one-line reason. "
+        "Your times are snapped to the nearest sentence start/end automatically, so pick by content, not to the tenth of a second.",
         "6. finish: a 1-3 sentence summary for the creator.",
         f"Cut at most {job.count} clips. Only cut moments a viewer with no context would enjoy; fewer clips is better than a weak one, but always cut at least one.",
         "Decide each candidate once: never cut a moment you rejected. Funny fails and self-own moments are good clips, not filler.",
@@ -398,17 +445,29 @@ def run_producer(job: ProducerJob) -> list[int]:
         events.log(run_id, "thought", f"Running the fixed pipeline because {why}.")
 
     events.set_model(run_id, "fallback")
-    clip_ids = _run_fixed(job, run_id)
+    clip_ids = _run_fixed(job, run_id, session._full_transcript())
     events.finish_run(run_id, "done", f"Cut {len(clip_ids)} clips using loudness" + (" and AI rating." if settings.groq_api_key and settings.ai_highlights_enabled else "."))
     return clip_ids
 
 
-def _run_fixed(job: ProducerJob, run_id: int) -> list[int]:
+def _run_fixed(job: ProducerJob, run_id: int, words: list[TranscriptWord] | None = None) -> list[int]:
     moments = pick_highlights(job.src, job.duration, job.count, job.clip_seconds, exclude=job.exclude, taste=job.taste)
-    events.log(run_id, "tool_call", f"Picked {len(moments)} moments from the audio", {"moments": [m.__dict__ for m in moments]})
+    if words:  # moments loudness missed, ranked with the rest; never two that overlap
+        said = speech_candidates(words, job.duration, job.clip_seconds, job.count, exclude=job.exclude,
+                                 avoid=[(m.start_s, m.end_s) for m in moments])
+        merged: list[Highlight] = []
+        for m in sorted(moments + said, key=lambda m: -m.score):
+            if len(merged) < job.count and all(min(m.end_s, o.end_s) - max(m.start_s, o.start_s) <= 0 for o in merged):
+                merged.append(m)
+        moments = sorted(merged, key=lambda m: m.start_s)
+    events.log(run_id, "tool_call", f"Picked {len(moments)} moments from the audio" + (" and the transcript" if words else ""),
+               {"moments": [m.__dict__ for m in moments]})
     ids = []
     for n, m in enumerate(moments, start=1):
-        clip = make_clip(job, n, m.start_s, m.end_s, m.score, m.reason, packaged_by="fixed_pipeline", features=m.features)
+        near = [w for w in words or [] if m.start_s - 8 <= w.start <= m.end_s + 8]
+        start, end = refine_bounds(m.start_s, m.end_s, near, min_len=MIN_CLIP_S, max_len=MAX_CLIP_S, duration=job.duration)
+        m = Highlight(start_s=start, end_s=end, score=m.score, features=m.features, reason=m.reason)
+        clip = make_clip(job, n, m.start_s, m.end_s, m.score, m.reason, packaged_by="fixed_pipeline", features=m.features, words=near)
         ids.append(clip["clip_id"])
         events.log(
             run_id,
@@ -419,6 +478,12 @@ def _run_fixed(job: ProducerJob, run_id: int) -> list[int]:
     return ids
 
 
+def _found_text(candidates: list[dict]) -> str:
+    loud = sum(1 for c in candidates if c.get("found_by") == "loudness")
+    said = len(candidates) - loud
+    return f"Found {loud} loud moments" + (f" and {said} by what's said" if said else "") + " to review"
+
+
 def _tools(s: ProducerSession) -> list[Tool]:
     return [
         Tool(
@@ -426,7 +491,7 @@ def _tools(s: ProducerSession) -> list[Tool]:
             description="List candidate moments found by the loudness detector: id, start_s, end_s, loudness (0-100, relative to this video).",
             parameters={"type": "object", "properties": {}},
             run=s.list_candidates,
-            describe=lambda a, r: f"Found {len(r.get('candidates', []))} loud moments to review",
+            describe=lambda a, r: _found_text(r.get("candidates", [])),
         ),
         Tool(
             name="read_transcripts",

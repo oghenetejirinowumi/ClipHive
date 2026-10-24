@@ -3,11 +3,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy import select
 
 from app.api.deps import DbSession, Owner
-from app.core.media import from_public, storage_root
+from app.core.media import media_path, storage_root
 from app.models import Clip, ImportJob, ImportSource, ImportStatus
 from app.schemas.import_job import ImportLinkRequest, ImportRead, MoreClipsRequest
 from app.services.ingest import pipeline
@@ -134,7 +143,7 @@ def delete_import(job_id: int, user: Owner, db: DbSession, clips: bool = Query(F
         for clip in db.query(Clip).filter(Clip.id.in_(job.clip_ids or []), Clip.user_id == user.id):
             for p in {clip.raw_file_path, clip.file_path}:
                 if p:
-                    path = from_public(p)
+                    path = media_path(p)  # no S3 download just to delete it
                     if path.resolve().is_relative_to(root):  # never touch files outside storage/clips
                         clip_files.append(path)
             db.delete(clip)

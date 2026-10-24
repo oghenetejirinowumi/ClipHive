@@ -20,13 +20,52 @@ def storage_root() -> Path:
 
 
 def public_path(path: Path) -> str:
-    """'storage/clips/x.mp4' style path the frontend appends to the API URL (served at /storage)."""
-    return "storage/" + path.resolve().relative_to(storage_root()).as_posix()
+    """'storage/clips/x.mp4' style path the frontend appends to the API URL (served at /storage).
+
+    Registering a file as public is also what sends it to S3 (when S3_BUCKET is set)."""
+    public = "storage/" + path.resolve().relative_to(storage_root()).as_posix()
+    from app.core import object_store
+
+    object_store.push(path)
+    return public
 
 
 def from_public(path: str) -> Path:
-    """Inverse of public_path: a stored "storage/..." path (or an absolute one) → file on disk."""
-    return storage_root() / path.removeprefix("storage/") if path.startswith("storage/") else Path(path)
+    """Inverse of public_path: a stored "storage/..." path (or an absolute one) → file on disk,
+    fetched from S3 first if only S3 has it."""
+    return local_media(path)
+
+
+def media_path(stored: str | Path | None) -> Path:
+    """A stored media path ("storage/...", absolute, or relative) as a local path, without fetching."""
+    text = str(stored or "")
+    return storage_root() / text.removeprefix("storage/") if text.startswith("storage/") else Path(text)
+
+
+def media_exists(stored: str | Path | None) -> bool:
+    """True if the file is on local disk or on S3."""
+    from app.core import object_store
+
+    return bool(stored) and object_store.exists(media_path(stored))
+
+
+def local_media(stored: str | Path | None) -> Path:
+    """A stored media path ("storage/...", absolute, or relative) as a local file, downloading it
+    from S3 when this instance doesn't have it (a fresh deploy, or an evicted cache copy).
+    Callers still check .is_file(): the file may not exist anywhere."""
+    from app.core import object_store
+
+    path = media_path(stored)
+    return object_store.ensure_local(path) if stored else path
+
+
+def remove_media(stored: str | Path | None) -> None:
+    """Delete a stored media file locally and from S3."""
+    if not stored:
+        return
+    from app.core import object_store
+
+    object_store.delete(media_path(stored))
 
 
 @lru_cache(maxsize=1)

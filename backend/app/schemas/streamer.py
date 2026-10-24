@@ -42,6 +42,18 @@ class StreamerRead(ORMModel):
         return v.replace(tzinfo=UTC) if isinstance(v, datetime) and v.tzinfo is None else v
 
 
+class ChannelHitRead(BaseModel):
+    """A channel suggestion for the Add a channel box."""
+
+    username: str  # what to save (Twitch login, Kick slug, YouTube @handle without the @)
+    display_name: str
+    avatar_url: str | None = None
+    followers: int | None = None
+    followers_text: str | None = None  # the platform's own wording, when it gives no number
+    live: bool | None = None
+    viewers: int | None = None
+
+
 class CheckResultRead(BaseModel):
     streamer_id: int
     status: str  # new_vod | no_change | first_seen | error
@@ -53,6 +65,22 @@ class CheckResultRead(BaseModel):
 class LatestVodRequest(BaseModel):
     clip_count: int = Field(default=5, ge=1, le=30)
     clip_seconds: int = Field(default=30, ge=10, le=90)
+
+
+# GET /streamers/{id}/videos
+class ChannelVideoRead(BaseModel):
+    id: str
+    url: str
+    title: str
+    thumbnail: str | None = None
+    duration_s: float | None = None
+    published_at: datetime | None = None
+
+
+# POST /streamers/{id}/clip-video
+class ClipVideoRequest(LatestVodRequest):
+    url: str = Field(min_length=10, max_length=500)
+    title: str | None = Field(default=None, max_length=300)
 
 
 class StreamCreate(BaseModel):

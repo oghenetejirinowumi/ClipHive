@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import Owner
-from app.core.media import storage_root
+from app.core.media import local_media, storage_root
 from app.db import get_db
 from app.models.clip import Clip
 from app.models.enums import ClipStatus
@@ -98,6 +98,11 @@ def download_clip(
         )
 
     file_to_serve = _resolve_clip_file(clip.file_path) or _resolve_clip_file(clip.raw_file_path)
+    if file_to_serve is None:  # not on this instance's disk: fetch it from S3
+        for stored in (clip.file_path, clip.raw_file_path):
+            if stored and (fetched := local_media(stored)).is_file():
+                file_to_serve = fetched
+                break
     if file_to_serve is None or not file_to_serve.is_file():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

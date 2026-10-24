@@ -32,20 +32,84 @@ class LatestVideo:
     id: str
     url: str
     title: str
+    thumbnail: str | None = None
+    duration_s: float | None = None
+    published_at: datetime | None = None
 
 
-def channel_url(platform: SourcePlatform | str, username: str) -> str:
+# YouTube channel tabs a user can browse when picking a video by hand.
+YOUTUBE_TABS = ("streams", "videos")
+
+
+def channel_url(platform: SourcePlatform | str, username: str, tab: str = "streams") -> str:
     name = username.strip().lstrip("@")
     platform = SourcePlatform(platform)
     if platform == SourcePlatform.TWITCH:
         return f"https://www.twitch.tv/{name}/videos?filter=archives&sort=time"
     if platform == SourcePlatform.YOUTUBE:
-        return f"https://www.youtube.com/@{name}/streams"
+        from app.services.ingest import monitor
+
+        return f"{monitor.channel_url(platform, name)}/{tab}"
     return f"https://kick.com/{name}/videos"
 
 
 def _youtube_videos_url(username: str) -> str:
-    return f"https://www.youtube.com/@{username.strip().lstrip('@')}/videos"
+    return channel_url(SourcePlatform.YOUTUBE, username, "videos")
+
+
+def _thumbnail(entry: dict) -> str | None:
+    if entry.get("thumbnail"):
+        return entry["thumbnail"]
+    thumbs = [t for t in entry.get("thumbnails") or [] if t.get("url")]
+    # Flat YouTube entries list small to large; the largest is still a light JPEG.
+    return thumbs[-1]["url"] if thumbs else None
+
+
+def _published(entry: dict) -> datetime | None:
+    if entry.get("timestamp"):
+        return datetime.fromtimestamp(entry["timestamp"], UTC)
+    if entry.get("upload_date"):
+        try:
+            return datetime.strptime(entry["upload_date"], "%Y%m%d").replace(tzinfo=UTC)
+        except ValueError:
+            return None
+    return None
+
+
+def _kick_videos(username: str, limit: int) -> list[LatestVideo]:
+    """Kick's own channel API: yt-dlp can fetch a Kick VOD but can't list a channel's."""
+    import requests
+
+    from app.services.ingest import monitor
+
+    name = monitor.clean_username(username)
+    try:
+        resp = requests.get(f"https://kick.com/api/v2/channels/{name}/videos", headers=monitor._UA, timeout=15)
+        resp.raise_for_status()
+        items = resp.json()
+    except (requests.RequestException, ValueError) as err:
+        raise RuntimeError("Kick didn't return this channel's videos (it sometimes blocks servers). Paste a VOD link on the Create page instead.") from err
+    videos = []
+    for item in items if isinstance(items, list) else []:
+        uuid = (item.get("video") or {}).get("uuid")
+        if not uuid or item.get("is_live"):
+            continue
+        started = item.get("start_time") or item.get("created_at")
+        try:
+            published = datetime.fromisoformat(started.replace("Z", "+00:00")) if started else None
+        except ValueError:
+            published = None
+        if published and published.tzinfo is None:
+            published = published.replace(tzinfo=UTC)
+        videos.append(LatestVideo(
+            id=str(uuid), url=f"https://kick.com/video/{uuid}", title=(item.get("session_title") or "Untitled")[:300],
+            thumbnail=(item.get("thumbnail") or {}).get("src"),
+            duration_s=(item.get("duration") or 0) / 1000 or None,  # Kick reports milliseconds
+            published_at=published,
+        ))
+    if not videos:
+        raise RuntimeError(f"{name} has no past broadcasts on Kick.")
+    return videos[:limit]
 
 
 def _entry_url(entry: dict, platform: SourcePlatform) -> str | None:
@@ -62,16 +126,24 @@ def _entry_url(entry: dict, platform: SourcePlatform) -> str | None:
     return None
 
 
-def list_latest(platform: SourcePlatform | str, username: str, limit: int = 3) -> list[LatestVideo]:
-    """Newest videos on a channel, newest first. Raises RuntimeError with a readable message."""
+def list_latest(platform: SourcePlatform | str, username: str, limit: int = 3, tab: str | None = None) -> list[LatestVideo]:
+    """Newest videos on a channel, newest first. Raises RuntimeError with a readable message.
+
+    `tab` picks one YouTube tab ("streams" or "videos"); without it, past streams are tried
+    first and uploads after, for channels that never stream."""
     platform = SourcePlatform(platform)
+    if platform == SourcePlatform.KICK:
+        return _kick_videos(username, limit)
     opts = {"quiet": True, "no_warnings": True, "extract_flat": "in_playlist", "playlistend": limit, "skip_download": True}
     from app.services.ingest import youtube_guard
 
     opts.update(youtube_guard.opts())  # polite retries, optional proxy and cookies
-    urls = [channel_url(platform, username)]
-    if platform == SourcePlatform.YOUTUBE:
-        urls.append(_youtube_videos_url(username))  # channels without past streams
+    if platform == SourcePlatform.YOUTUBE and tab:
+        urls = [channel_url(platform, username, tab)]
+    else:
+        urls = [channel_url(platform, username)]
+        if platform == SourcePlatform.YOUTUBE:
+            urls.append(_youtube_videos_url(username))  # channels without past streams
 
     last_error = "No videos found on that channel."
     for url in urls:
@@ -98,7 +170,10 @@ def list_latest(platform: SourcePlatform | str, username: str, limit: int = 3) -
                 continue
             link = _entry_url(entry, platform)
             if link and entry.get("id"):
-                videos.append(LatestVideo(id=str(entry["id"]), url=link, title=(entry.get("title") or "Untitled")[:300]))
+                videos.append(LatestVideo(
+                    id=str(entry["id"]), url=link, title=(entry.get("title") or "Untitled")[:300],
+                    thumbnail=_thumbnail(entry), duration_s=entry.get("duration"), published_at=_published(entry),
+                ))
         if videos:
             return videos[:limit]
     raise RuntimeError(last_error)

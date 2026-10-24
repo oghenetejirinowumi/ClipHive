@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { AgentFeed } from "@/components/agents/AgentFeed";
+import { ChannelSearch } from "@/components/streamers/ChannelSearch";
+import { VideoPicker } from "@/components/streamers/VideoPicker";
 import { Bee, BeeSwarm, Flower, HoneycombLattice } from "@/components/hive";
-import { Badge, Button, buttonClass, ChannelAvatar, Em, Field, Icon, Input, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
+import { Badge, Button, buttonClass, ChannelAvatar, Em, Field, Icon, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import { timeAgo, type AgentRun } from "@/lib/agents";
 import { cn } from "@/lib/cn";
@@ -52,10 +54,18 @@ function ago(iso: string | null): string {
   return s < 10 ? "just now" : s < 60 ? `${s}s ago` : `${Math.round(s / 60)} min ago`;
 }
 
-function statusLine(s: Streamer): { text: string; tone: "ok" | "idle" | "error" | "paused" } {
+/** A row-sized version of a backend error; the full text goes in the tooltip. */
+function shortError(msg: string): string {
+  const until = msg.match(/pausing YouTube requests until (\d{1,2}:\d{2})/);
+  if (until) return `YouTube paused until ${until[1]}`;
+  if (/slow down|not a bot|too many requests/i.test(msg)) return "YouTube is rate-limiting this network";
+  return msg;
+}
+
+function statusLine(s: Streamer): { text: string; tone: "ok" | "idle" | "error" | "paused"; full?: string } {
   if (!s.is_active) return { text: "Paused", tone: "paused" };
   if (s.recording) return { text: "Recording the stream · clips arrive as it goes", tone: "ok" };
-  if (s.last_check_error) return { text: `Last check failed: ${s.last_check_error}`, tone: "error" };
+  if (s.last_check_error) return { text: `Last check failed · ${shortError(s.last_check_error)}`, tone: "error", full: s.last_check_error };
   if (!s.last_checked_at) return { text: "Not checked yet", tone: "idle" };
   return { text: `Checked ${timeAgo(s.last_checked_at)}`, tone: "ok" };
 }
@@ -66,6 +76,8 @@ export default function StreamersPage() {
   const [username, setUsername] = useState("");
   const [message, setMessage] = useState<{ tone: "success" | "danger" | "brand"; text: string; jobId?: number | null } | null>(null);
   const [checking, setChecking] = useState<number | "all" | null>(null);
+  /** Channel whose video picker is open. */
+  const [pickerFor, setPickerFor] = useState<number | null>(null);
   const [recordingBusy, setRecordingBusy] = useState<number | null>(null);
   const [scoutRunId, setScoutRunId] = useState<number | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -285,8 +297,10 @@ export default function StreamersPage() {
                 const isLive = live?.live === true;
                 const st = statusLine(s);
                 return (
-                  <li key={s.id} className="flex flex-col gap-4 py-6 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex min-w-0 items-center gap-5">
+                  <li key={s.id} className="py-6">
+                  {/* Actions sit under the details (lined up with the text), so the status line keeps the row's full width. */}
+                  <div className="flex flex-col gap-4">
+                    <div className="flex min-w-0 flex-1 items-center gap-5">
                       <ChannelAvatar
                         src={avatars[s.id]}
                         name={s.username}
@@ -296,12 +310,12 @@ export default function StreamersPage() {
                         recording={s.recording}
                         busy={checking === s.id || (checking === "all" && s.is_active)}
                       />
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-3">
                           <span className="truncate font-display text-2xl font-semibold tracking-tight text-ink">{s.username}</span>
                           <Badge tone="neutral">{PLATFORM_LABEL[s.platform] ?? s.platform}</Badge>
                         </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-2 text-base" aria-live="polite">
+                        <div className="mt-1 flex min-w-0 items-center gap-x-2 text-base" aria-live="polite">
                           {/* status dot (decorative: the text next to it carries the state) */}
                           <span aria-hidden className={cn("size-3 shrink-0 rounded-full", !live ? "animate-pulse bg-ink-faint" : isLive ? "bg-success" : live.live === null ? "bg-warning" : "bg-ink-faint")} />
                           {!live ? (
@@ -312,13 +326,15 @@ export default function StreamersPage() {
                               {live.category && ` · ${live.category}`}
                             </span>
                           ) : live.live === null ? (
-                            <span className="text-warning">Couldn&apos;t check{live.error ? ` · ${live.error}` : ""}</span>
+                            <span className="min-w-0 truncate text-warning" title={live.error ?? undefined}>
+                              Couldn&apos;t check{live.error ? ` · ${shortError(live.error)}` : ""}
+                            </span>
                           ) : (
                             <span className="text-ink-muted">Offline</span>
                           )}
                         </div>
                         {isLive && live.title && <p className="mt-1 line-clamp-1 text-base text-ink-muted">{live.title}</p>}
-                        <p className={cn("mt-1 text-base", st.tone === "error" ? "text-danger" : s.recording ? "font-medium text-warning" : "text-ink-muted")}>
+                        <p title={st.full} className={cn("mt-1 truncate text-base", st.tone === "error" ? "text-danger" : s.recording ? "font-medium text-warning" : "text-ink-muted")}>
                           {s.recording ? st.text : `Scout: ${st.text}`}
                         </p>
                         {s.last_seen_video_title && (
@@ -336,7 +352,7 @@ export default function StreamersPage() {
                       </div>
                     </div>
 
-                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 sm:pl-[76px]">
                       {s.recording ? (
                         <Button variant="secondary" size="sm" loading={recordingBusy === s.id} onClick={() => setRecording(s, false)}>
                           <Icon name="x" className="size-5" /> Stop recording
@@ -357,6 +373,14 @@ export default function StreamersPage() {
                       <Button size="sm" loading={checking === s.id} disabled={!s.is_active || (checking !== null && checking !== s.id)} onClick={() => checkNow(s)}>
                         <Icon name="search" className="size-5" /> Check now
                       </Button>
+                      <Button
+                        variant={pickerFor === s.id ? "primary" : "secondary"}
+                        size="sm"
+                        aria-expanded={pickerFor === s.id}
+                        onClick={() => setPickerFor(pickerFor === s.id ? null : s.id)}
+                      >
+                        <Icon name="film" className="size-5" /> Pick video
+                      </Button>
                       <Button variant="ghost" size="sm" disabled={isPending} onClick={() => togglePaused(s)} aria-label={s.is_active ? `Pause ${s.username}` : `Resume ${s.username}`}>
                         <Icon name={s.is_active ? "pause" : "play"} className="size-5" />
                       </Button>
@@ -364,6 +388,17 @@ export default function StreamersPage() {
                         Remove
                       </Button>
                     </div>
+                  </div>
+                  {pickerFor === s.id && (
+                    <VideoPicker
+                      streamer={s}
+                      onClose={() => setPickerFor(null)}
+                      onClipped={(jobId, title) => {
+                        setPickerFor(null);
+                        setMessage({ tone: "success", text: `Clipping "${title}" now.`, jobId });
+                      }}
+                    />
+                  )}
                   </li>
                 );
               })}
@@ -380,7 +415,7 @@ export default function StreamersPage() {
         <aside className="space-y-8 lg:col-span-5">
           <Panel padding="lg">
             <h2 className="font-display text-3xl font-semibold tracking-tight text-ink">Add a channel</h2>
-            <p className="mt-2 text-lg text-ink-muted">The first check clips its newest VOD, then every new one.</p>
+            <p className="mt-2 text-lg text-ink-muted">The first check clips its newest VOD, then every new one. Use “Pick video” to clip any other.</p>
 
             <form onSubmit={handleAddStreamer} className="mt-8 space-y-6">
               <div className="space-y-2">
@@ -398,8 +433,14 @@ export default function StreamersPage() {
                 />
               </div>
 
-              <Field label="Channel username" hint={platform === "youtube" ? "The @handle, e.g. mkbhd" : "e.g. tarik, kaicenat, shroud"}>
-                <Input type="text" placeholder="Enter channel name" value={username} onChange={(e) => setUsername(e.target.value)} required />
+              <Field label="Channel" hint="Start typing a name and pick the channel from the list, or type the exact username.">
+                <ChannelSearch
+                  platform={platform}
+                  value={username}
+                  onChange={setUsername}
+                  watched={new Set(streamers.filter((s) => s.platform === platform).map((s) => s.username.toLowerCase()))}
+                  placeholder={platform === "youtube" ? "Search YouTube, e.g. mkbhd" : platform === "kick" ? "Search Kick, e.g. adinross" : "Search Twitch, e.g. kaicenat"}
+                />
               </Field>
 
               <Button type="submit" size="lg" className="w-full" loading={isPending}>

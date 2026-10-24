@@ -16,6 +16,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from app.core import object_store
 from app.core.media import storage_root
 from app.schemas.editor import ASPECTS, Asset, AudioTrack, Clip, Effect, Timeline
 
@@ -48,7 +49,7 @@ def asset_path(asset: Asset) -> Path:
     path = (storage_root() / asset.src.removeprefix("storage/")).resolve()
     if storage_root() not in path.parents:
         raise EditError("That media file is outside storage.")
-    return path
+    return object_store.ensure_local(path)
 
 
 def _validated(data: dict) -> Timeline:

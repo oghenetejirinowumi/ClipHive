@@ -11,13 +11,13 @@ import logging
 import shutil
 import subprocess
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from app.config import settings
-from app.core.media import public_path, storage_root
 from sqlalchemy import inspect, text
 
+from app.config import settings
+from app.core.daemon_pool import DaemonPool
+from app.core.media import public_path
 from app.db import SessionLocal, engine
 from app.models import Clip, ClipStatus, EditorProject
 from app.schemas.editor import Timeline
@@ -29,7 +29,7 @@ logger = logging.getLogger("cliphive.editor")
 
 FONTS_DIR = Path(__file__).resolve().parents[3] / "assets" / "fonts"
 
-_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="editor-render")  # renders are CPU-heavy
+_executor = DaemonPool(1, "editor-render")  # renders are CPU-heavy; never blocks shutdown
 
 
 class RenderError(RuntimeError):

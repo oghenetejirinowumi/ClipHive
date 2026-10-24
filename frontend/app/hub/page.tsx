@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { ThumbnailEditor, type Thumbnail } from "@/components/hub/ThumbnailEditor";
 import { StarButton } from "@/components/projects/StarButton";
 import { Badge, Button, buttonClass, Em, Icon, Notice, Panel, SectionLabel, SkyHeader, StatusBadge } from "@/components/ui";
 import { api, API_URL, ApiError } from "@/lib/api";
@@ -20,6 +21,7 @@ type Clip = {
     event_type?: string;
     agent_reason?: string;
     highlight_reason?: string;
+    thumbnail?: Thumbnail;
   } | null;
   status: string;
   starred?: boolean;
@@ -190,7 +192,16 @@ export default function HubPage() {
           return (
             <Panel key={clip.id} as="article" padding="none" className="flex flex-col overflow-hidden">
               <div className="relative aspect-[9/16] w-full bg-brand-deep">
-                {videoSrc && <video src={videoSrc} controls playsInline preload="metadata" className="size-full object-cover" />}
+                {videoSrc && (
+                  <video
+                    src={videoSrc}
+                    poster={mediaUrl(clip.context_json?.thumbnail?.path) ?? undefined}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="size-full object-cover"
+                  />
+                )}
                 <StarButton clipId={clip.id} starred={Boolean(clip.starred)} className="absolute top-3 right-3" />
                 {clip.highlight_score ? (
                   <span className="absolute top-4 left-4 rounded-full bg-brand-deep/80 px-3 py-1 text-meta font-semibold text-on-brand tabular-nums">
@@ -239,6 +250,13 @@ export default function HubPage() {
                     ))}
                   </ul>
                 )}
+
+                <ThumbnailEditor<Clip>
+                  key={clip.context_json?.thumbnail?.path ?? "none"}
+                  clipId={clip.id}
+                  thumbnail={clip.context_json?.thumbnail}
+                  onClip={(updated) => setClips((all) => all.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)))}
+                />
 
                 <Link href={`/editor/open?clip=${clip.id}`} className={buttonClass({ variant: "ghost", size: "sm", className: "justify-start px-0" })}>
                   <Icon name="scissors" className="size-5" /> Edit in the editor
