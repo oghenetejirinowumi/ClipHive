@@ -235,7 +235,7 @@ export default function HubPage() {
 
 /** The tile's corner label: where the clip stands. */
 function tileLabel(clip: Clip, posts: ScheduledPost[]): React.ReactNode {
-  const star = clip.starred ? <Icon name="star" className="size-3.5" fill="currentColor" /> : null;
+  const star = clip.starred ? <Icon name="star" aria-hidden className="size-3.5" fill="currentColor" /> : null;
   let text: string;
   if (posts.some((p) => p.status === "posted")) text = "Posted";
   else if (posts.some((p) => p.status === "queued" || p.status === "ready")) text = "Scheduled";

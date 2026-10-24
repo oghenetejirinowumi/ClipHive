@@ -211,7 +211,7 @@ def test_producer_falls_back_to_fixed_pipeline(Session, media, monkeypatch):
 
     assert len(ids) == 2
     titles = [t for _, t in event_titles(Session)]
-    assert any("fixed pipeline because" in t for t in titles)
+    assert any("Finding the best moments" in t for t in titles)  # plain-language feed line for the fallback
     assert any(t.startswith("Kept 0:10-0:40: big reaction") for t in titles)
     with Session() as db:
         assert db.query(AgentRun).one().model == "fallback"
@@ -224,7 +224,7 @@ def test_producer_falls_back_when_agent_cuts_nothing(Session, media, monkeypatch
     job, _ = make_job(Session, count=1)
 
     assert len(producer.run_producer(job)) == 1
-    assert any("Switching to the fixed pipeline" in t for _, t in event_titles(Session))
+    assert any("Picking the best moments a different way" in t for _, t in event_titles(Session))
 
 
 # ---------- scout ----------

@@ -73,7 +73,7 @@ class YouTubeProvider:
 
     def _get(self, endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
         if not self.is_configured():
-            raise ProviderRequestError("YouTube not configured: add YOUTUBE_API_KEY")
+            raise ProviderRequestError("YouTube trends aren't available yet.")
         request_params = {**params, "key": self.api_key}
         last_error = "unknown provider error"
         for attempt in range(3):

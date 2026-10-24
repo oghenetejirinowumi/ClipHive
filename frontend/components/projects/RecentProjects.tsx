@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Button, buttonClass, Icon, Panel, StatusBadge } from "@/components/ui";
-import { api, API_URL } from "@/lib/api";
+import { api, API_URL, friendly } from "@/lib/api";
 import { ACTIVE_STATUSES, formatTime, projectTitle, SOURCE_LABEL, STEP_LABEL, type ImportJob } from "@/lib/imports";
 
 /** The latest few imports as compact rows; each opens in the studio, shows its progress, or
@@ -85,7 +85,7 @@ export function RecentProjects({ limit = 4 }: { limit?: number }) {
                   {SOURCE_LABEL[job.source]} · {formatTime(job.duration_s)} ·{" "}
                   {active ? job.detail || `${STEP_LABEL[job.status]} ${job.progress}%` : job.status === "done" ? `${job.clip_ids.length} clips` : "Failed"}
                 </p>
-                {failed && job.error && <p className="mt-1 text-base text-danger">{job.error}</p>}
+                {failed && job.error && <p className="mt-1 text-base text-danger">{friendly(job.error)}</p>}
               </div>
               {job.status === "done" ? (
                 <Link

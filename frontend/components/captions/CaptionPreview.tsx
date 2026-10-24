@@ -193,7 +193,7 @@ function CaptionEmoji({ emoji, size }: { emoji: PreviewEmoji; size: string }) {
         SPARKS.map((k) => (
           <span
             key={k}
-            className="caption-emoji-spark absolute top-1/2 left-1/2 text-[0.35em]"
+            aria-hidden className="caption-emoji-spark absolute top-1/2 left-1/2 text-[0.35em]" /* design-check-ignore: decorative sparks sized to the caption */
             style={{ "--angle": `${(k / SPARKS.length) * 360 + 12}deg` } as CSSProperties}
           >
             {emoji.emoji}

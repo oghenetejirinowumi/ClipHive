@@ -5,7 +5,7 @@ import { CaptionPreview, type PreviewWord } from "@/components/captions/CaptionP
 import { PhoneFrame } from "@/components/captions/PhoneFrame";
 import { StyleEditor } from "@/components/captions/StyleEditor";
 import { Badge, Button, Em, Field, Icon, Notice, Panel, SectionLabel, Segmented, Select, SkyHeader, StatusBadge } from "@/components/ui";
-import { api, API_URL, ApiError, apiUrl } from "@/lib/api";
+import { api, API_URL, ApiError, GENERIC_ERROR } from "@/lib/api";
 import { ANIMATION_LABEL, draftOf, stylePayload, type CaptionStyle, type PreviewEmoji, type StyleDraft } from "@/lib/captions";
 import { cn } from "@/lib/cn";
 
@@ -59,7 +59,7 @@ export default function CaptionsPage() {
   }, []);
 
   useEffect(() => {
-    loadStyles().catch(() => setMsg({ tone: "danger", text: "Couldn't load caption styles. Is the backend running?" }));
+    loadStyles().catch(() => setMsg({ tone: "danger", text: GENERIC_ERROR }));
     api<Clip[]>("/api/clips", { auth: false })
       .then((c) => {
         setClips(c);
@@ -181,10 +181,7 @@ export default function CaptionsPage() {
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch(apiUrl("/api/styles/import-ass"), { method: "POST", body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Import failed");
-      const created = data as CaptionStyle[];
+      const created = await api<CaptionStyle[]>("/api/styles/import-ass", { method: "POST", body: form });
       await loadStyles(created[0]?.id);
       setCategory("Yours");
       const missing = created.filter((s) => !s.font_available).map((s) => s.font_name);
@@ -195,7 +192,7 @@ export default function CaptionsPage() {
           (missing.length ? ` Font not found: ${Array.from(new Set(missing)).join(", ")}; upload it in the editor.` : ""),
       });
     } catch (err) {
-      setMsg({ tone: "danger", text: err instanceof Error ? err.message : "Import failed." });
+      setMsg({ tone: "danger", text: err instanceof ApiError ? err.message : GENERIC_ERROR });
     } finally {
       setBusy(null);
       if (importInput.current) importInput.current.value = "";

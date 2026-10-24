@@ -9,7 +9,7 @@ import { LayoutPreview } from "@/components/studio/LayoutPreview";
 import { Scrubber } from "@/components/studio/Scrubber";
 import { SocialTrendsPanel } from "@/components/studio/SocialTrendsPanel";
 import { Badge, Button, buttonClass, Em, Field, Icon, Notice, Panel, SectionLabel, Segmented, Select, StatusBadge } from "@/components/ui";
-import { api, ApiError, API_URL } from "@/lib/api";
+import { api, ApiError, API_URL, GENERIC_ERROR, friendly } from "@/lib/api";
 import {
   FILTER_OPTIONS,
   formatTime,
@@ -64,7 +64,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
       setProject(p);
       return p;
     } catch (err) {
-      setLoadError(errorText(err, "Couldn't open this project. Is the backend running?"));
+      setLoadError(errorText(err, GENERIC_ERROR));
       return null;
     }
   }, [id]);
@@ -215,8 +215,8 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
         try {
           await burn(clip, styleId, captionPosition);
           setMessage({ tone: "success", text: `Clip created with ${styles.find((s) => s.id === styleId)?.name ?? ""} captions at ${captionPosition}% position.` });
-        } catch (err) {
-          setMessage({ tone: "danger", text: `Clip created, but captions failed: ${errorText(err, "caption service unavailable")}. You can retry from the clip below.` });
+        } catch {
+          setMessage({ tone: "danger", text: "Clip created, but adding captions didn't work. Try again from the clip below." });
         }
       } else {
         setMessage({ tone: "success", text: `Clip created (${speed !== 1 ? `${speed}x speed, ` : ""}${colorFilter !== "none" ? `${colorFilter} filter` : "clean"}).` });
@@ -622,7 +622,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
             {project.clips.length}
           </Badge>
         </div>
-        {project.job.error && <Notice tone="brand">{project.job.error}</Notice>}
+        {project.job.error && <Notice tone="brand">{friendly(project.job.error)}</Notice>}
         <MoreClips job={project.job} onFinished={onMoreFinished} />
         {project.clips.length === 0 ? (
           <Panel tone="sunken" padding="lg" className="text-center">
@@ -652,7 +652,7 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                       {clip.color_filter && clip.color_filter !== "none" && <Badge tone="neutral">{clip.color_filter}</Badge>}
                       {clip.caption_position_y && <Badge tone="neutral">Pos: {clip.caption_position_y}%</Badge>}
                     </div>
-                    {clip.error && <p className="text-base text-danger">{clip.error}</p>}
+                    {clip.error && <p className="text-base text-danger">{friendly(clip.error)}</p>}
                     <Segmented
                       label={`Layout for clip ${clip.id}`}
                       value={clip.layout}

@@ -444,7 +444,7 @@
 }
 
 /* Caption emoji: the same eight motions the burner draws (backend services/caption/emoji_render.py). */
-.caption-emoji { filter: drop-shadow(0 0.04em 0.06em rgb(0 0 0 / 0.45)); }
+.caption-emoji { filter: drop-shadow(0 0.04em 0.06em rgb(0 0 0 / 0.45)); } /* design-check-ignore: matches the shadow burned into the video */
 .caption-emoji-pop { animation: ce-pop 320ms cubic-bezier(0.34, 1.9, 0.64, 1) both; }
 .caption-emoji-bounce { animation: ce-bounce 600ms linear both; }
 .caption-emoji-float { animation: ce-float 1.6s ease-out both; }

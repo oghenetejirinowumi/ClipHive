@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState, useTransition } from "react";
 import { AgentFeed } from "@/components/agents/AgentFeed";
 import { Bee, BeeSwarm, Flower, HoneycombLattice } from "@/components/hive";
 import { Badge, Button, buttonClass, ChannelAvatar, Em, Field, Icon, Input, Notice, Panel, SectionLabel, Segmented, SkyHeader } from "@/components/ui";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, friendly } from "@/lib/api";
 import { timeAgo, type AgentRun } from "@/lib/agents";
 import { cn } from "@/lib/cn";
 
@@ -55,7 +55,7 @@ function ago(iso: string | null): string {
 function statusLine(s: Streamer): { text: string; tone: "ok" | "idle" | "error" | "paused" } {
   if (!s.is_active) return { text: "Paused", tone: "paused" };
   if (s.recording) return { text: "Recording the stream · clips arrive as it goes", tone: "ok" };
-  if (s.last_check_error) return { text: `Last check failed: ${s.last_check_error}`, tone: "error" };
+  if (s.last_check_error) return { text: `Last check failed: ${friendly(s.last_check_error)}`, tone: "error" };
   if (!s.last_checked_at) return { text: "Not checked yet", tone: "idle" };
   return { text: `Checked ${timeAgo(s.last_checked_at)}`, tone: "ok" };
 }
@@ -180,7 +180,7 @@ export default function StreamersPage() {
     setMessage(null);
     try {
       const r = await api<CheckResult>(`/api/streamers/${s.id}/check-now`, { method: "POST", auth: false });
-      setMessage({ tone: r.status === "error" ? "danger" : r.status === "new_vod" ? "success" : "brand", text: `${s.username}: ${r.message}`, jobId: r.import_job_id });
+      setMessage({ tone: r.status === "error" ? "danger" : r.status === "new_vod" ? "success" : "brand", text: `${s.username}: ${r.status === "error" ? friendly(r.message) : r.message}`, jobId: r.import_job_id });
     } catch (err) {
       setMessage({ tone: "danger", text: err instanceof ApiError ? err.message : "Check failed." });
     } finally {
@@ -312,7 +312,7 @@ export default function StreamersPage() {
                               {live.category && ` · ${live.category}`}
                             </span>
                           ) : live.live === null ? (
-                            <span className="text-warning">Couldn&apos;t check{live.error ? ` · ${live.error}` : ""}</span>
+                            <span className="text-warning">Couldn&apos;t check{live.error ? ` · ${friendly(live.error)}` : ""}</span>
                           ) : (
                             <span className="text-ink-muted">Offline</span>
                           )}

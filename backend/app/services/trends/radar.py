@@ -349,7 +349,7 @@ def _build() -> Radar:
         sources.append(Source("Kick", True, f"{len(kick_clips)} clips from the last 24 hours, live viewers per category"))
     except (requests.RequestException, ValueError, KeyError) as err:
         logger.info("Kick radar failed: %s", err)
-        sources.append(Source("Kick", False, "Kick didn't answer (it sometimes blocks servers). Try again later."))
+        sources.append(Source("Kick", False, "not available right now. Try again later."))
 
     if twitch_configured():
         try:
@@ -358,9 +358,9 @@ def _build() -> Radar:
             sources.append(Source("Twitch", True, f"{len(twitch_clips)} clips from the last 24 hours, live viewers in the top streams"))
         except (requests.RequestException, ValueError, KeyError) as err:
             logger.info("Twitch radar failed: %s", err)
-            sources.append(Source("Twitch", False, "Twitch didn't answer. Check TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET."))
+            sources.append(Source("Twitch", False, "not available right now. Try again later."))
     else:
-        sources.append(Source("Twitch", False, "Add TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET (free at dev.twitch.tv) to include Twitch."))
+        sources.append(Source("Twitch", False, "coming soon."))
 
     # Topics: merge categories across platforms.
     topics: dict[str, Topic] = {}

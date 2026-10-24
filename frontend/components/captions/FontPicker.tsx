@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, Icon, Notice } from "@/components/ui";
-import { api, ApiError, apiUrl } from "@/lib/api";
+import { api, ApiError, GENERIC_ERROR } from "@/lib/api";
 import { captionFamily, loadCaptionFont, type GoogleFontEntry, type InstalledFont } from "@/lib/captions";
 import { cn } from "@/lib/cn";
 
@@ -27,7 +27,7 @@ export function FontPicker({ value, onChange }: { value: string; onChange: (font
       setGoogle(data.google);
       data.installed.forEach((f) => loadCaptionFont(f.name, f.url));
     } catch {
-      setError("Couldn't load fonts. Is the backend running?");
+      setError(GENERIC_ERROR);
     }
   }, []);
 
@@ -57,15 +57,13 @@ export function FontPicker({ value, onChange }: { value: string; onChange: (font
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch(apiUrl("/api/styles/upload-font"), { method: "POST", body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Upload failed");
+      const data = await api<{ name: string; url: string; em_ratio: number }>("/api/styles/upload-font", { method: "POST", body: form });
       const font: InstalledFont = { name: data.name, source: "upload", url: data.url, em_ratio: data.em_ratio };
       await loadCaptionFont(font.name, font.url);
       setInstalled((prev) => [...prev.filter((f) => f.name !== font.name), font]);
       onChange(font);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed.");
+      setError(err instanceof ApiError ? err.message : GENERIC_ERROR);
     } finally {
       setBusy(null);
       if (fileInput.current) fileInput.current.value = "";

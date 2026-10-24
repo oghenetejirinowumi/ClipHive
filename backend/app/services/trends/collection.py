@@ -267,7 +267,7 @@ def run_collection(db: Session, regions: list[str] | None = None) -> dict:
         return {
             "provider": "youtube",
             "status": "not_configured",
-            "detail": "YouTube not configured: add YOUTUBE_API_KEY",
+            "detail": "YouTube trends aren't available yet.",
         }
     if not settings.trends_youtube_derived_metrics_approved:
         return {
@@ -359,7 +359,7 @@ def refresh_tracked_videos(db: Session, regions: list[str] | None = None) -> dic
         return {
             "provider": "youtube",
             "status": "not_configured",
-            "detail": "YouTube not configured: add YOUTUBE_API_KEY",
+            "detail": "YouTube trends aren't available yet.",
         }
     if not settings.trends_youtube_derived_metrics_approved:
         return {
@@ -490,7 +490,7 @@ def provider_status(db: Session) -> list[dict]:
                     else (
                         "YouTube collection is disabled pending explicit approval for cross-channel aggregation and derived metrics."
                         if provider.name == "youtube" and not settings.trends_youtube_derived_metrics_approved
-                        else "YouTube not configured: add YOUTUBE_API_KEY"
+                        else "YouTube trends aren't available yet."
                         if provider.name == "youtube" and not provider.is_configured()
                         else "No permitted official trends API is available"
                     )

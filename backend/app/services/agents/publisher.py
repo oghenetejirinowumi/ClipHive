@@ -86,7 +86,7 @@ def _burn(clip_id: int, style_id: int, run_id: int, style_name: str) -> None:
             events.log(run_id, "tool_call", f"Burned {style_name} captions into the clip")
             events.finish_run(run_id, "done", f'"{clip.title}" is captioned and scheduled.')
         else:
-            events.log(run_id, "error", f"Caption burn failed: {(clip.error if clip else 'clip missing') or 'unknown error'}")
+            events.log(run_id, "error", "Adding captions didn't work for this clip.")
             events.finish_run(run_id, "failed", "Scheduled, but captions failed. Retry from the studio.")
 
 

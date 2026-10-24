@@ -9,7 +9,7 @@ import { LibraryPanel, loadSfxLibrary, type EmojiPlacement, type LibraryTab, typ
 import { Preview, type PreviewHandle } from "@/components/editor/Preview";
 import { Timeline } from "@/components/editor/Timeline";
 import { Badge, Button, buttonClass, Icon, Panel, ResizeHandle, Select } from "@/components/ui";
-import { api, ApiError, API_URL } from "@/lib/api";
+import { api, ApiError, API_URL, friendly } from "@/lib/api";
 import type { EmojiAmount, EmojiMotion } from "@/lib/captions";
 import { cn } from "@/lib/cn";
 import { usePersistentState } from "@/lib/usePersistentState";
@@ -552,7 +552,7 @@ export default function EditorPage() {
       )}
       {project.render_status === "failed" && project.render_error && dismissedExport !== project.render_error && (
         <Strip tone="danger" onDismiss={() => setDismissedExport(project.render_error)}>
-          Export failed: {project.render_error}
+          {friendly(project.render_error)}
         </Strip>
       )}
 

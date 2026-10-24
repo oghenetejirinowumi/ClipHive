@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from app.api.deps import Owner, get_owner
+from app.api.deps import Owner
 from app.core.media import MediaError, from_public
 from app.db import get_db
 from app.models.caption_style import CaptionStyle
@@ -79,7 +79,7 @@ def list_fonts():
 
 
 @router.post("/fonts/google")
-async def install_google(body: GoogleFontInstall):
+async def install_google(body: GoogleFontInstall, user: Owner):
     try:
         info = await asyncio.to_thread(fonts.install_google_font, body.family, body.weight)
     except fonts.FontInstallError as err:
@@ -97,7 +97,7 @@ def font_file(font_name: str):
 
 
 @router.post("/upload-font")
-async def upload_font(file: UploadFile):
+async def upload_font(file: UploadFile, user: Owner):
     """Add the creator's own .ttf/.otf font."""
     name = Path(file.filename or "").name
     if not name.lower().endswith((".ttf", ".otf")):
@@ -140,13 +140,13 @@ def list_styles(user: Owner, db: Session = Depends(get_db)):
 
 
 @router.post("/render-preview")
-async def preview(body: RenderPreviewRequest, db: Session = Depends(get_db)):
+async def preview(body: RenderPreviewRequest, user: Owner, db: Session = Depends(get_db)):
     """Burn a few seconds of sample text with this exact style (unsaved changes included)."""
     spec = StyleSpec.of(body.style)
     background, at = None, None
     if body.clip_id:
         clip = db.get(Clip, body.clip_id)
-        if clip and clip.raw_file_path:
+        if clip and clip.user_id == user.id and clip.raw_file_path:
             background = from_public(clip.raw_file_path)
             at = 0.0
     try:
@@ -157,7 +157,7 @@ async def preview(body: RenderPreviewRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/emoji-plan")
-def emoji_plan(body: EmojiPlanRequest):
+def emoji_plan(body: EmojiPlanRequest, user: Owner):
     """Emoji for sample text: [{index, until, emoji, motion, placement}] in word indexes."""
     words = [w for w in body.text.split() if w][:60]
     timed = [emoji_picker.Word(w, i * body.word_s, (i + 0.9) * body.word_s, w.isupper() and len(w) > 1) for i, w in enumerate(words)]
@@ -216,23 +216,26 @@ def create_style(payload: CaptionStyleCreate, user: Owner, db: Session = Depends
     return to_read(_create(db, payload, user))
 
 
-def _style_or_404(db: Session, style_id: int) -> CaptionStyle:
+def _style_or_404(db: Session, style_id: int, user: User, *, edit: bool = False) -> CaptionStyle:
+    """A preset or one of the user's own styles (to edit or delete: only their own)."""
     style = db.get(CaptionStyle, style_id)
-    if style is None:
+    shared = style is not None and style.user_id is None
+    if style is None or (style.user_id != user.id and (edit or not shared)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Caption style not found")
     return style
 
 
 @router.get("/{style_id}", response_model=CaptionStyleRead)
-def get_style(style_id: int, db: Session = Depends(get_db)):
-    return to_read(_style_or_404(db, style_id))
+def get_style(style_id: int, user: Owner, db: Session = Depends(get_db)):
+    return to_read(_style_or_404(db, style_id, user))
 
 
 @router.patch("/{style_id}", response_model=CaptionStyleRead)
-def update_style(style_id: int, payload: CaptionStyleUpdate, db: Session = Depends(get_db)):
-    style = _style_or_404(db, style_id)
-    if style.is_preset:
+def update_style(style_id: int, payload: CaptionStyleUpdate, user: Owner, db: Session = Depends(get_db)):
+    style = db.get(CaptionStyle, style_id)
+    if style is not None and style.is_preset:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Presets can't be changed. Duplicate it to customise.")
+    style = _style_or_404(db, style_id, user, edit=True)
     data = payload.model_dump(exclude_unset=True)
     options = data.pop("options", None)
     data.pop("colors_json", None)
@@ -247,8 +250,8 @@ def update_style(style_id: int, payload: CaptionStyleUpdate, db: Session = Depen
 
 
 @router.post("/{style_id}/duplicate", response_model=CaptionStyleRead, status_code=status.HTTP_201_CREATED)
-def duplicate_style(style_id: int, db: Session = Depends(get_db), user: User = Depends(get_owner)):
-    src = _style_or_404(db, style_id)
+def duplicate_style(style_id: int, user: Owner, db: Session = Depends(get_db)):
+    src = _style_or_404(db, style_id, user)
     spec = StyleSpec.of(src)
     copy = CaptionStyleCreate(
         name=f"{src.name} (my version)"[:100],
@@ -264,10 +267,11 @@ def duplicate_style(style_id: int, db: Session = Depends(get_db), user: User = D
 
 
 @router.delete("/{style_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_style(style_id: int, db: Session = Depends(get_db)):
-    style = _style_or_404(db, style_id)
-    if style.is_preset:
+def delete_style(style_id: int, user: Owner, db: Session = Depends(get_db)):
+    style = db.get(CaptionStyle, style_id)
+    if style is not None and style.is_preset:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Presets can't be deleted.")
-    db.query(Clip).filter(Clip.caption_style_id == style.id).update({"caption_style_id": None})
+    style = _style_or_404(db, style_id, user, edit=True)
+    db.query(Clip).filter(Clip.caption_style_id == style.id, Clip.user_id == user.id).update({"caption_style_id": None})
     db.delete(style)
     db.commit()

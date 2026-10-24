@@ -150,7 +150,7 @@ def run_agent(
                     except Exception as err:  # a tool error goes back to the model, it can recover
                         logger.warning("Agent tool %s failed: %s", name, err)
                         result = {"error": str(err)[:300]}
-                        events.log(run_id, "error", f"{name} failed: {_short(str(err), 200)}")
+                        events.log(run_id, "thought", "That step didn't work; trying another way.")
                     else:
                         line = tool.describe(args, result) if tool.describe else None
                         if line:

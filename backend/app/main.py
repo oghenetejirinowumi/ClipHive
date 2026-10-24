@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -163,6 +164,19 @@ def root():
     return RedirectResponse(url="/docs")
 
 
+def _code_version() -> str:
+    """The deployed commit (short hash), so you can tell which code is live."""
+    try:
+        out = subprocess.run(["git", "-C", str(Path(__file__).resolve().parents[2]), "rev-parse", "--short=7", "HEAD"],
+                             capture_output=True, text=True, timeout=5)
+        return out.stdout.strip() or "unknown"
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+
+
+CODE_VERSION = _code_version()
+
+
 @app.api_route("/health", methods=["GET", "HEAD"])
 def health():
-    return {"status": "ok", "app": "ClipHive"}
+    return {"status": "ok", "app": "ClipHive", "version": CODE_VERSION}

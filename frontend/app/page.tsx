@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { AuroraBackground, FeatureCloud, HalftoneHorizon, RevealOnScroll, RuleWall, SkyBackground, Tape } from "@/components/effects";
 import { BeeSwarm, HoneycombLattice } from "@/components/hive";
 import { FanOut } from "@/components/marketing/FanOut";
@@ -42,6 +43,9 @@ const RULES = [
 
 // One wide column for the whole page; sizes only ever grow with the screen.
 const COLUMN = "mx-auto w-full max-w-7xl px-4 sm:px-8";
+// Header links: plain text on the sky (only "Get started" is a button).
+const NAV_LINK =
+  "min-h-11 items-center rounded-md px-3 text-lg font-medium text-on-brand/80 transition-colors duration-(--motion-fast) hover:text-on-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-brand";
 
 export default function LandingPage() {
   return (
@@ -58,19 +62,19 @@ export default function LandingPage() {
           <Logo inverse />
           <nav className="flex items-center gap-2 sm:gap-3">
             <ThemeSwitch />
-            <Button href="/captions" variant="ghostInverse" className="max-md:hidden">
+            <Link href="/captions" className={`${NAV_LINK} inline-flex max-md:hidden`}>
               Captions
-            </Button>
-            <Button href="/trends" variant="ghostInverse" className="max-md:hidden">
+            </Link>
+            <Link href="/trends" className={`${NAV_LINK} inline-flex max-md:hidden`}>
               Trends
-            </Button>
-            <Button href="/dashboard" variant="ghostInverse" className="max-sm:hidden">
+            </Link>
+            <Link href="/dashboard" className={`${NAV_LINK} inline-flex max-sm:hidden`}>
               Dashboard
-            </Button>
+            </Link>
             {/* Phones: the hero's "I have an account" covers signing in, so the bar keeps one button. */}
-            <Button href="/login" variant="ghostInverse" className="max-sm:hidden">
+            <Link href="/login" className={`${NAV_LINK} inline-flex max-sm:hidden`}>
               Sign in
-            </Button>
+            </Link>
             <Button href="/register" variant="inverse" className="max-sm:h-12 max-sm:px-5 max-sm:text-base">
               Get started
             </Button>

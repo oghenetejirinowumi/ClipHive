@@ -1,5 +1,6 @@
 "use client";
 
+import { GENERIC_ERROR, ApiError } from "@/lib/api";
 import { useState } from "react";
 import { Button, Field, Icon, Notice, Panel, Segmented, Select } from "@/components/ui";
 import { FILTER_OPTIONS, SPEED_OPTIONS, type Layout, type StudioClip } from "@/lib/imports";
@@ -48,7 +49,7 @@ export function ClipEditorModal({
       });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to apply clip edits.");
+      setError(err instanceof ApiError ? err.message : GENERIC_ERROR);
     } finally {
       setSaving(false);
     }

@@ -161,7 +161,7 @@ def get_clip_social_trends(
     if not settings.social_search_enabled:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Similar-video search is off. It scrapes YouTube search, so it is a research prototype; set SOCIAL_SEARCH_ENABLED=true to try it.",
+            detail="Similar-video search isn't available right now.",
         )
     clip = db.query(Clip).filter(Clip.id == clip_id, Clip.user_id == user.id).first()
     if not clip:
@@ -191,7 +191,8 @@ def get_clip_social_trends(
             refresh=refresh,
         )
     except SocialSearchUnavailable as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+        logger.warning("Social search unavailable for clip %s: %s", clip_id, exc)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="We couldn't look up similar videos right now. Please try again later.")
 
     saved["social_trends"] = result.model_dump()
     clip.context_json = saved  # reassign so SQLAlchemy sees the JSON change
@@ -241,7 +242,7 @@ def generate_ai_metadata(
         logger.error(f"AI packaging failed for clip {clip_id}: {exc}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"AI packaging failed: {str(exc)}",
+            detail="We couldn't generate titles and hashtags right now. Please try again.",
         )
 
 
@@ -371,8 +372,7 @@ def process_clip_captioning(
             # The clean cut is still a finished clip: keep it postable and record why captions failed.
             usable = bool(clip.file_path or clip.raw_file_path) and Path(clip.raw_file_path).exists()
             clip.status = ClipStatus.READY if usable else ClipStatus.FAILED
-            reason = "the video encoder ran out of memory, try again" if "FFmpeg" in str(e) else str(e)
-            clip.error = f"Captions failed: {reason}"[:500]
+            clip.error = "Adding captions didn't work. Please try again."
             db.commit()
             if clip.status == ClipStatus.READY:
                 from app.services.ai.ai_pack import auto_run_ai_pack
@@ -406,7 +406,7 @@ def caption_clip(
         raise HTTPException(status_code=404, detail="Caption style not found")
 
     if not clip.raw_file_path or not Path(clip.raw_file_path).exists():
-        raise HTTPException(status_code=400, detail="Raw video file not found on disk")
+        raise HTTPException(status_code=400, detail="This clip's video is missing. Please cut it again.")
 
     if clip.caption_style_id and clip.caption_style_id != style.id:
         record_feedback(db, clip.user_id, clip, *_style_feedback(db, clip.caption_style_id, style.id))

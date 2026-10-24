@@ -291,19 +291,19 @@ export function ClipRadar() {
                                 >
                                   <span className="min-w-0 truncate">{s.hashtags.join(" ")}</span>
                                   <span className="inline-flex shrink-0 items-center gap-1 text-ink-faint group-hover:text-brand">
-                                    <Icon name={copied === i ? "check" : "copy"} className="size-4" />
+                                    <Icon name={copied === i ? "check" : "copy"} aria-hidden className="size-4" />
                                     {copied === i ? "Copied" : "Copy"}
                                   </span>
                                 </button>
                               )}
                               {s.action?.href && (
                                 <Link href={s.action.href} className={buttonClass({ size: "xs", className: "w-full" })}>
-                                  {s.action.label} <Icon name="arrowRight" className="size-4" />
+                                  {s.action.label} <Icon name="arrowRight" aria-hidden className="size-4" />
                                 </Link>
                               )}
                               {add && (
                                 <Button size="xs" className="w-full" loading={state === "busy"} disabled={state === "done"} onClick={() => watch(add.platform, add.username)}>
-                                  <Icon name={state === "done" ? "check" : "radio"} className="size-4" />
+                                  <Icon name={state === "done" ? "check" : "radio"} aria-hidden className="size-4" />
                                   {state === "done" ? "Watching" : s.action?.label}
                                 </Button>
                               )}
@@ -378,7 +378,7 @@ export function ClipRadar() {
                         </div>
                         {t.top_clip && (
                           <a href={t.top_clip.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-1 text-meta font-medium text-brand hover:text-brand-strong">
-                            <Icon name="play" className="size-4" />
+                            <Icon name="play" aria-hidden className="size-4" />
                             <span className="line-clamp-1">
                               Top clip: “{t.top_clip.title || "Untitled"}” · {t.top_clip.creator} · {compact(t.top_clip.views)} views
                             </span>

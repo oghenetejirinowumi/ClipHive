@@ -75,6 +75,6 @@ def fail_interrupted_runs() -> int:
         stuck = db.query(AgentRun).filter(AgentRun.status == "running").all()
         for run in stuck:
             run.status, run.finished_at = "failed", datetime.now(UTC)
-            run.summary = run.summary or "Interrupted by a server restart."
+            run.summary = run.summary or "Stopped before finishing. Please try again."
         db.commit()
         return len(stuck)

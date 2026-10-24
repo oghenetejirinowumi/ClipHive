@@ -1,6 +1,8 @@
 """Video editor: projects, media, AI chat, HyperFrames preview and MP4 export."""
 from __future__ import annotations
 
+import logging
+
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -224,9 +226,11 @@ def chat(project_id: int, body: ChatRequest, user: Owner, db: DbSession) -> Chat
     try:
         result = assistant.run(timeline, body.message, history=history, playhead=body.playhead, selected_id=body.selected_id)
     except assistant.AssistantUnavailable as err:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(err)) from err
+        logging.getLogger("cliphive.editor").warning("AI editor unavailable: %s", err)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The AI editor isn't available right now.") from err
     except Exception as err:  # network / model errors: keep the project as it was
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"The AI assistant couldn't be reached ({type(err).__name__}). Try again.") from err
+        logging.getLogger("cliphive.editor").exception("AI editor failed")
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "The AI editor didn't respond. Please try again.") from err
 
     now = datetime.now(UTC).isoformat()
     version_from = version_to = None
@@ -277,7 +281,7 @@ def auto_sfx(project_id: int, body: AutoSfxRequest, user: Owner, db: DbSession) 
     _snapshot(db, project, f"Auto SFX ({body.intensity})")
     db.commit()
     db.refresh(project)
-    how = "picked by AI" if result.used_ai else "placed by the built-in rules (set OPENAI_API_KEY or GROQ_API_KEY for AI picks)"
+    how = "picked by AI" if result.used_ai else "placed automatically"
     return _read(db, project).model_copy(update={"notice": f"{result.summary}, {how}."})
 
 

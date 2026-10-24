@@ -68,8 +68,8 @@ def blocked_until() -> float:
 def cooldown_message() -> str:
     until = blocked_until()
     when = datetime.fromtimestamp(until).strftime("%H:%M") if until else "a little while"
-    return (f"YouTube asked ClipHive to slow down, so we're pausing YouTube requests until {when} "
-            "(asking again early only extends the block). Other platforms still work.")
+    return (f"YouTube imports are paused until about {when}. Please try again then, or upload the video file "
+            "instead. Twitch and Kick links still work.")
 
 
 def check() -> None:

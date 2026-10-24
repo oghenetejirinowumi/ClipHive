@@ -1,6 +1,7 @@
 """Shared ffmpeg helpers. One place to find the binary, so nobody has to install ffmpeg by hand."""
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
@@ -78,7 +79,8 @@ def run_ffmpeg(args: list[str], timeout: int = 1800) -> None:
     result = subprocess.run([ffmpeg_bin(), "-hide_banner", "-loglevel", "error", "-y", *args], capture_output=True, text=True, timeout=timeout)
     if result.returncode != 0:
         tail = (result.stderr or "").strip().splitlines()[-3:]
-        raise MediaError("Video processing failed: " + (" ".join(tail) or "unknown ffmpeg error"))
+        logging.getLogger("cliphive.media").error("ffmpeg failed: %s", " | ".join(tail) or "no output")
+        raise MediaError("We couldn't process that video. Please try again.")
 
 
 _DURATION = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")

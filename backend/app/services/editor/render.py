@@ -59,7 +59,7 @@ def recover_interrupted() -> None:
     with SessionLocal() as db:
         stuck = db.query(EditorProject).filter(EditorProject.render_status == "rendering").all()
         for project in stuck:
-            project.render_status, project.render_error = "failed", "Interrupted by a server restart. Export again."
+            project.render_status, project.render_error = "failed", "The export was interrupted. Please export again."
         if stuck:
             db.commit()
 
@@ -77,7 +77,8 @@ def _render_safely(project_id: int) -> None:
     try:
         _render(project_id)
     except RenderError as err:
-        _update(project_id, render_status="failed", render_error=str(err))
+        logger.warning("Export of project %s failed: %s", project_id, err)
+        _update(project_id, render_status="failed", render_error="Something went wrong while exporting. Please try again.")
     except Exception:
         logger.exception("Export of editor project %s crashed", project_id)
         _update(project_id, render_status="failed", render_error="Something went wrong while exporting.")
