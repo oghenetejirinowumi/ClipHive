@@ -260,7 +260,7 @@ function InboxClipDialog({
       const key = e.key.toLowerCase();
       if (key === "a") keys.current.approve();
       else if (key === "r") setRejecting(true);
-      else if (key === "e") router.push(`/studio?clip=${clip.id}`);
+      else if (key === "e") router.push(`/editor?clip=${clip.id}`);
       else return;
       e.preventDefault();
     }
@@ -416,7 +416,7 @@ function InboxClipDialog({
                   <Button size="sm" variant="secondary" onClick={() => setRejecting(true)}>
                     <Icon name="x" className="size-5" /> Reject
                   </Button>
-                  <Link href={`/studio?clip=${clip.id}`} className={buttonClass({ variant: "ghost", size: "sm" })}>
+                  <Link href={`/editor?clip=${clip.id}`} className={buttonClass({ variant: "ghost", size: "sm" })}>
                     <Icon name="film" className="size-5" /> Edit
                   </Link>
                 </div>

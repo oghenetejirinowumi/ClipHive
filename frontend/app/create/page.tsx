@@ -9,6 +9,7 @@ import { api, ApiError, apiUrl } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { ACTIVE_STATUSES as ACTIVE, SOURCE_LABEL, type ImportJob, type Layout } from "@/lib/imports";
 import { getToken } from "@/lib/session";
+import { shrinkForUpload } from "@/lib/shrinkVideo";
 
 // Mirrors backend services/ingest/sources.py, for instant feedback while typing.
 function detect(url: string): "twitch" | "kick" | "youtube" | "instagram" | null {
@@ -59,6 +60,8 @@ export default function CreatePage() {
   const [jobs, setJobs] = useState<ImportJob[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  // Shrinking a big phone video to 1080p before it goes up (null when not doing it).
+  const [preparing, setPreparing] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -136,15 +139,21 @@ export default function CreatePage() {
     }
   }
 
-  async function submitFile(file: File) {
+  async function submitFile(original: File) {
     setError(null);
+    setPreparing(0);
     setUploadProgress(0);
     try {
+      // 4K phone video is shrunk to 1080p on the device first: a fraction of the upload, and
+      // much faster for the server to cut. Falls back to the original when it can't.
+      const file = await shrinkForUpload(original, setPreparing);
+      setPreparing(null);
       const job = await uploadWithProgress(file, Number(clipCount), Number(clipSeconds), layout, setUploadProgress);
       setJobs((prev) => [job, ...prev]);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Upload failed.");
     } finally {
+      setPreparing(null);
       setUploadProgress(null);
       if (fileInput.current) fileInput.current.value = "";
     }
@@ -239,10 +248,16 @@ export default function CreatePage() {
           />
           {uploading ? (
             <>
-              <p className="font-display text-2xl font-semibold tracking-tight text-ink">Uploading… {Math.round((uploadProgress ?? 0) * 100)}%</p>
+              <p className="font-display text-2xl font-semibold tracking-tight text-ink">
+                {preparing !== null ? `Preparing video… ${Math.round(preparing * 100)}%` : `Uploading… ${Math.round((uploadProgress ?? 0) * 100)}%`}
+              </p>
               <div className="h-3 w-full max-w-md overflow-hidden rounded-full bg-surface">
-                <div className="h-full rounded-full bg-brand transition-[width] duration-(--motion-fast)" style={{ width: `${(uploadProgress ?? 0) * 100}%` }} />
+                <div
+                  className="h-full rounded-full bg-brand transition-[width] duration-(--motion-fast)"
+                  style={{ width: `${(preparing ?? uploadProgress ?? 0) * 100}%` }}
+                />
               </div>
+              {preparing !== null && <p className="text-base text-ink-muted">Shrinking it to 1080p so it uploads faster.</p>}
             </>
           ) : (
             <>

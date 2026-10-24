@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type PointerEvent } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type PointerEvent } from "react";
 import { ASPECT_SIZE, type Aspect, type Text } from "@/lib/editor";
 
 /** The bits of <hyperframes-player>'s API the editor uses. */
@@ -11,6 +11,51 @@ type Player = HTMLElement & {
   currentTime: number;
   paused: boolean;
 };
+
+/**
+ * Media kept in memory for this session. The player reloads the whole composition after every
+ * edit, and browsers don't reliably reuse their cache for streamed video, so each edit used to
+ * download every clip on the timeline again (seconds of "Updating…" on a real connection).
+ * Each file is now fetched once and the preview points at the in-memory copy (a blob: URL).
+ * The export renders from the server's files, so it's unaffected.
+ */
+const MAX_BLOB_BYTES = 250 * 1024 * 1024; // full source videos can be huge: those stream as before
+const MEDIA_WAIT_MS = 15_000; // first load: wait this long for downloads, then show what's ready
+const MEDIA_SRC = /\ssrc="([^"]+\/storage\/[^"]+\.(?:mp4|webm|mov|m4v|m4a|mp3|wav|ogg|aac|opus))"/gi;
+const blobs = new Map<string, Promise<string | null>>();
+const localMedia = new Map<string, string>();
+
+function mediaUrls(html: string): string[] {
+  return [...new Set([...html.matchAll(MEDIA_SRC)].map((m) => m[1]))];
+}
+
+function fetchBlob(url: string): Promise<string | null> {
+  let job = blobs.get(url);
+  if (!job) {
+    job = (async () => {
+      const ctrl = new AbortController();
+      const res = await fetch(url, { signal: ctrl.signal });
+      const size = Number(res.headers.get("content-length") || 0);
+      if (!res.ok || size > MAX_BLOB_BYTES) {
+        ctrl.abort();
+        return null;
+      }
+      const objectUrl = URL.createObjectURL(await res.blob());
+      localMedia.set(url, objectUrl);
+      return objectUrl;
+    })().catch(() => null);
+    blobs.set(url, job);
+  }
+  return job;
+}
+
+/** The composition with every downloaded media file pointing at its in-memory copy. */
+function withLocalMedia(html: string): string {
+  return html.replace(MEDIA_SRC, (whole, url: string) => {
+    const local = localMedia.get(url);
+    return local ? whole.replace(url, local) : whole;
+  });
+}
 
 export type PreviewHandle = { play(): void; pause(): void; seek(t: number): void };
 
@@ -39,6 +84,8 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
   const playheadRef = useRef(playhead);
   const callbacks = useRef({ onTime, onPlayingChange });
   const [ready, setReady] = useState(false);
+  const [mediaLoading, setMediaLoading] = useState<{ done: number; total: number } | null>(null);
+  const loadSeq = useRef(0);
   const [width, height] = ASPECT_SIZE[aspect];
 
   const htmlRef = useRef(html);
@@ -65,7 +112,7 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
       el.addEventListener("ended", () => callbacks.current.onPlayingChange(false));
       host.current.appendChild(el);
       player.current = el;
-      if (htmlRef.current) el.setAttribute("srcdoc", htmlRef.current);
+      if (htmlRef.current) loadRef.current(htmlRef.current);
     });
     return () => {
       disposed = true;
@@ -74,12 +121,35 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
     };
   }, []);
 
-  useEffect(() => {
-    if (player.current && html) {
-      setReady(false);
-      player.current.setAttribute("srcdoc", html);
+  /** Show a composition, once its media is in memory (or after MEDIA_WAIT_MS, whatever is). */
+  const load = useCallback(async (doc: string) => {
+    const seq = ++loadSeq.current;
+    setReady(false);
+    const urls = mediaUrls(doc);
+    const missing = urls.filter((u) => !localMedia.has(u));
+    if (missing.length) {
+      let done = 0;
+      setMediaLoading({ done, total: missing.length });
+      const all = Promise.all(
+        missing.map((u) =>
+          fetchBlob(u).then(() => {
+            if (seq === loadSeq.current) setMediaLoading({ done: ++done, total: missing.length });
+          }),
+        ),
+      );
+      await Promise.race([all, new Promise((r) => setTimeout(r, MEDIA_WAIT_MS))]);
+      if (seq !== loadSeq.current) return; // a newer composition arrived meanwhile
+      setMediaLoading(null);
     }
-  }, [html]);
+    player.current?.setAttribute("srcdoc", withLocalMedia(doc));
+  }, []);
+
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
+  useEffect(() => {
+    if (player.current && html) load(html);
+  }, [html, load]);
 
   useImperativeHandle(ref, () => ({
     play: () => player.current?.play(),
@@ -107,7 +177,11 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
       >
         <div ref={host} className="absolute inset-0" />
         {!html && <p className="absolute inset-0 grid place-items-center text-base text-ink-muted">Loading preview…</p>}
-        {html && !ready && <p className="pointer-events-none absolute bottom-3 left-3 rounded-full bg-surface px-3 py-1 text-meta text-ink-muted">Updating…</p>}
+        {html && !ready && (
+          <p className="pointer-events-none absolute bottom-3 left-3 rounded-full bg-surface px-3 py-1 text-meta text-ink-muted">
+            {mediaLoading ? `Loading media ${mediaLoading.done}/${mediaLoading.total}…` : "Updating…"}
+          </p>
+        )}
 
         {selectedText && (
           <button
