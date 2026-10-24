@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     # Netscape cookies.txt exported from a logged-in browser. Instagram (and some YouTube
     # videos) refuse anonymous downloads; with this set, yt-dlp downloads as that account.
     ytdlp_cookies_file: str = ""
+    # Read cookies straight from a local browser instead, e.g. "brave", "edge", "chrome",
+    # or "brave:Profile 1". Only used as a retry when YouTube blocks the cookie-less try.
+    ytdlp_cookies_from_browser: str = ""
+    # YouTube player clients tried in order. web_embedded and mweb usually get past the
+    # "confirm you're not a bot" wall without any login. web_embedded goes first: on a
+    # bot-walled network it's the one that still returns audio-only streams, and when it
+    # came after "default" its formats were dropped, leaving only combined video streams.
+    ytdlp_youtube_clients: str = "web_embedded,default,mweb"
 
     # One-click demo login (app/core/demo.py). Disable for anything public.
     demo_login_enabled: bool = True
@@ -62,7 +70,8 @@ class Settings(BaseSettings):
     # with no key or on error, imports fall back to the fixed pipeline.
     agent_mode_enabled: bool = True
     agent_provider: str = "auto"  # auto (OpenAI if its key is set, else Groq) | openai | groq
-    agent_groq_model: str = "openai/gpt-oss-120b"  # Groq model for tool calling
+    agent_openai_model: str = "gpt-4.1-mini"  # picked moments more consistently than gpt-4o-mini in our tests
+    agent_groq_model: str = "openai/gpt-oss-120b"  # Groq model for tool calling (accurate, but slower)
     agent_max_steps: int = 25
     agent_max_seconds: int = 240
     # Scout: check monitored channels for new VODs in the background and import them.

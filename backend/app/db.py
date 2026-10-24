@@ -26,7 +26,12 @@ def get_db() -> Generator[Session, None, None]:
 # Columns added to tables that already existed. create_all() never alters an existing table,
 # so add any that are missing. {table: {column: DDL type + default}}
 ADDED_COLUMNS: dict[str, dict[str, str]] = {
-    "clips": {"review_status": "VARCHAR(20) DEFAULT 'pending'"},
+    "clips": {
+        "review_status": "VARCHAR(20) DEFAULT 'pending'",
+        "starred": "BOOLEAN DEFAULT 0",
+        "moment_features": "JSON",
+        "context_json": "JSON DEFAULT '{}'",
+    },
     "streamers": {
         "last_checked_at": "DATETIME",
         "last_seen_video_id": "VARCHAR(255)",
@@ -35,7 +40,14 @@ ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "last_check_error": "VARCHAR(300)",
     },
     "posts": {"scheduled_for": "DATETIME", "caption_text": "TEXT", "schedule_reason": "VARCHAR(300)"},
-    "import_jobs": {"agent_brief": "JSON"},
+    "import_jobs": {
+        "agent_brief": "JSON",
+        "layout": "VARCHAR(10) DEFAULT 'fill'",
+        "clip_layouts": "JSON DEFAULT '{}'",
+        "detail": "VARCHAR(255)",
+    },
+    "caption_styles": {"options_json": "JSON", "category": "VARCHAR(40)", "description": "VARCHAR(200)"},
+    "trend_scores": {"source": "VARCHAR(32) DEFAULT 'youtube_data_api'"},
 }
 
 
@@ -64,11 +76,3 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     ensure_added_columns()
-    if settings.database_url.startswith("sqlite"):
-        with engine.connect() as conn:
-            from sqlalchemy import text
-            try:
-                conn.execute(text("ALTER TABLE clips ADD COLUMN context_json JSON DEFAULT '{}'"))
-                conn.commit()
-            except Exception:
-                pass

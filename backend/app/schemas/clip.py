@@ -45,6 +45,7 @@ class ClipUpdate(BaseModel):
 class CaptionRequest(BaseModel):
     style_id: int
     caption_mode: CaptionMode = CaptionMode.BURNED
+    position_y: int | None = Field(default=None, ge=8, le=92)
 
 
 class ClipRead(ORMModel):

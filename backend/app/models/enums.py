@@ -40,9 +40,12 @@ class CaptionMode(StrEnum):
 
 
 class AnimationType(StrEnum):
-    WORD_POP = "word_pop"
-    KARAOKE = "karaoke"
-    LINE = "line"
+    WORD_POP = "word_pop"  # active word grows + changes colour; neighbours make room
+    KARAOKE = "karaoke"  # words fill with the highlight colour as they are said
+    LINE = "line"  # the whole phrase, no per-word animation
+    HIGHLIGHT_BOX = "highlight_box"  # active word sits on a rounded colour box
+    SINGLE_WORD = "single_word"  # one big word at a time
+    REVEAL = "reveal"  # words appear as they are said
 
 
 class PostStatus(StrEnum):

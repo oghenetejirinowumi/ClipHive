@@ -67,3 +67,14 @@ def notify(user_id: int, title: str, body: str | None = None, link: str | None =
             db.commit()
     except Exception:
         logger.exception("Couldn't create notification")
+
+
+def fail_interrupted_runs() -> int:
+    """Runs still 'running' at startup were cut off by a restart; close them so the feed doesn't spin forever."""
+    with SessionLocal() as db:
+        stuck = db.query(AgentRun).filter(AgentRun.status == "running").all()
+        for run in stuck:
+            run.status, run.finished_at = "failed", datetime.now(UTC)
+            run.summary = run.summary or "Interrupted by a server restart."
+        db.commit()
+        return len(stuck)

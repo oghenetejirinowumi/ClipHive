@@ -4,10 +4,18 @@ Link imports never pull a whole VOD. They take the audio first (to find moments)
 chosen sections in HD, plus an optional low-res preview for the studio. Every download reports
 progress (from the hook, or by watching the growing file when ffmpeg does the fetching), can be
 cancelled, and fails cleanly if the file stops growing.
+
+YouTube often answers "Sign in to confirm you're not a bot", especially on shared or
+mobile networks. We get past that in two steps:
+1. No login: try several YouTube player clients (web_embedded and mweb usually work) with
+   a JavaScript runtime (Deno or Node) so yt-dlp can solve YouTube's stream challenges.
+2. Only if the probe is still blocked: retry once with a signed-in browser session from
+   YTDLP_COOKIES_FROM_BROWSER, and use it for that video's downloads too.
 """
 from __future__ import annotations
 
 import copy
+import logging
 import shutil
 import sys
 import threading
@@ -26,12 +34,21 @@ HD_VIDEO = "bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[h
 # Sections are stream-copied, not re-encoded (see fetch_section), so taking 1080p costs only
 # bandwidth: the one real encode is the vertical cut, and Fill's crop keeps its sharpness.
 SECTION_VIDEO = HD_VIDEO
-AUDIO = "ba[ext=m4a]/ba/b"
+# The last fallback is "w" (smallest stream with video), never "b": when YouTube offers no
+# audio-only streams, "b" picked a 1080p stream and an "audio" fetch became a full HD download
+# (470 MB and 9 minutes for a 19-minute video, against 13 MB and 10 s for real audio).
+AUDIO = "ba[ext=m4a]/ba/w"
 # Loudness analysis doesn't need quality: the smallest audio-only stream is plenty.
-ANALYSIS_AUDIO = "wa[ext=m4a][abr>=32]/ba[ext=m4a][abr<=72]/wa/ba/b"
+ANALYSIS_AUDIO = "wa[ext=m4a][abr>=32]/ba[ext=m4a][abr<=72]/wa/ba/w"
+# Probes retried when YouTube returns no audio-only streams (it varies call to call).
+AUDIO_PROBE_RETRIES = 2
 LONG_VOD_SECONDS = 4 * 3600
 PREVIEW = "bv*[height<=240][vcodec^=avc1]+ba[ext=m4a][abr<=72]/bv*[height<=240]+wa/w[height>=144]/w"
 STALL_SECONDS = 120
+# Marks a probed info dict that needed browser cookies, so its downloads use them too.
+BROWSER_COOKIES_KEY = "_cliphive_browser_cookies"
+
+logger = logging.getLogger(__name__)
 
 
 class IngestError(RuntimeError):
@@ -43,13 +60,19 @@ class Cancelled(IngestError):
         super().__init__("Cancelled.")
 
 
+def _is_bot_wall(text: str) -> bool:
+    text = text.lower()
+    return "not a bot" in text or "sign in to confirm" in text or "page needs to be reloaded" in text
+
+
 def _friendly(err: Exception) -> str:
     text = str(err).lower()
     if "malloc" in text or "out of memory" in text or "cannot allocate memory" in text:
         return "The video download ran out of processing memory. Retry the import; ClipHive will use a lower-memory clip path."
-    if "not a bot" in text or "too many requests" in text or "429" in text:
-        return ("The platform is rate-limiting this server (\"confirm you're not a bot\"). Wait 30–60 minutes and retry, "
-                "or set YTDLP_COOKIES_FILE on the server to download as a signed-in account.")
+    if _is_bot_wall(text) or "too many requests" in text or "429" in text:
+        return ("The platform is blocking downloads from this network (\"confirm you're not a bot\"). Wait 30–60 minutes "
+                "and retry, try another network, upload the video file instead, or set YTDLP_COOKIES_FILE or "
+                "YTDLP_COOKIES_FROM_BROWSER on the server.")
     if "private" in text or "login" in text or "cookies" in text or "empty media response" in text:
         return "That video is private, or the platform needs a signed-in session to fetch it (set YTDLP_COOKIES_FILE on the server)."
     if "unsupported url" in text:
@@ -69,7 +92,24 @@ def _deno() -> str | None:
     return str(venv) if venv.exists() else None
 
 
-def _base_opts() -> dict:
+def _js_runtimes() -> dict:
+    """Runtimes yt-dlp may use for YouTube's challenges (needs the yt-dlp-ejs package)."""
+    runtimes: dict = {}
+    deno = _deno()
+    if deno:
+        runtimes["deno"] = {"path": deno}
+    node = shutil.which("node")
+    if node:
+        runtimes["node"] = {"path": node}
+    return runtimes
+
+
+def _browser_cookie_opts() -> dict:
+    browser, _, profile = settings.ytdlp_cookies_from_browser.partition(":")
+    return {"cookiesfrombrowser": (browser.strip().lower(), profile.strip() or None, None, None)}
+
+
+def _base_opts(*, browser_cookies: bool = False) -> dict:
     opts: dict = {
         "quiet": True,
         "no_warnings": True,
@@ -78,27 +118,77 @@ def _base_opts() -> dict:
         "ffmpeg_location": ffmpeg_bin(),
         "http_chunk_size": 10 * 1024 * 1024,  # chunked requests dodge per-connection throttling
     }
-    deno = _deno()
-    if deno:  # YouTube's signature challenge needs a JS runtime, or downloads crawl / fail
-        opts["js_runtimes"] = {"deno": {"path": deno}}
+    clients = [c.strip() for c in settings.ytdlp_youtube_clients.split(",") if c.strip()]
+    if clients:
+        opts["extractor_args"] = {"youtube": {"player_client": clients}}
+    runtimes = _js_runtimes()
+    if runtimes:  # YouTube's signature challenge needs a JS runtime, or downloads crawl / fail
+        opts["js_runtimes"] = runtimes
+    # A cookies file is cheap and explicit, so use it from the start. Browser cookies are
+    # only a fallback: they need a Keychain prompt and tie downloads to that account.
     if settings.ytdlp_cookies_file:
         opts["cookiefile"] = settings.ytdlp_cookies_file
+    elif browser_cookies and settings.ytdlp_cookies_from_browser:
+        opts.update(_browser_cookie_opts())
     return opts
+
+
+def _extract(url: str, opts: dict) -> dict:
+    with YoutubeDL(opts) as ydl:
+        # process=False: keep the raw format list. A processed result carries the default
+        # format selection, which would leak into later audio-only / section downloads.
+        info = ydl.extract_info(url, download=False, process=False)
+        for _ in range(3):  # follow redirect-style results to the actual video
+            if info.get("_type") not in ("url", "url_transparent"):
+                break
+            info = ydl.extract_info(info["url"], download=False, process=False)
+    return info
+
+
+def has_audio_only(info: dict) -> bool:
+    """True if the probe found a stream with audio and no video (cheap to analyse)."""
+    return any(
+        f.get("vcodec") == "none" and f.get("acodec") not in (None, "none")
+        for f in info.get("formats") or []
+    )
+
+
+def _is_youtube(info: dict) -> bool:
+    return str(info.get("extractor_key") or info.get("extractor") or "").lower().startswith("youtube")
 
 
 def probe_url(url: str) -> dict:
     """Metadata only (title, duration, formats). Refuses playlists and live streams."""
+    info = _probe(url)
+    # On a bot-walled network YouTube sometimes answers with only combined video streams.
+    # Without an audio-only stream, the analysis download is a whole video, so ask again.
+    for _ in range(AUDIO_PROBE_RETRIES):
+        if not _is_youtube(info) or has_audio_only(info):
+            break
+        logger.info("YouTube returned no audio-only streams for %s; probing again", url)
+        try:
+            retry = _probe(url, browser_cookies=bool(info.get(BROWSER_COOKIES_KEY)))
+        except IngestError:
+            break
+        if has_audio_only(retry) or len(retry.get("formats") or []) > len(info.get("formats") or []):
+            info = retry
+    return info
+
+
+def _probe(url: str, *, browser_cookies: bool = False) -> dict:
     try:
-        with YoutubeDL(_base_opts()) as ydl:
-            # process=False: keep the raw format list. A processed result carries the default
-            # format selection, which would leak into later audio-only / section downloads.
-            info = ydl.extract_info(url, download=False, process=False)
-            for _ in range(3):  # follow redirect-style results to the actual video
-                if info.get("_type") not in ("url", "url_transparent"):
-                    break
-                info = ydl.extract_info(info["url"], download=False, process=False)
+        info = _extract(url, _base_opts(browser_cookies=browser_cookies))
     except DownloadError as err:
-        raise IngestError(_friendly(err)) from err
+        text = str(err).lower()
+        needs_login = _is_bot_wall(text) or "login" in text or "cookies" in text
+        if not (needs_login and settings.ytdlp_cookies_from_browser and not settings.ytdlp_cookies_file):
+            raise IngestError(_friendly(err)) from err
+        logger.info("Probe needs a signed-in session; retrying with browser cookies")
+        try:
+            info = _extract(url, _base_opts(browser_cookies=True))
+        except DownloadError as retry_err:
+            raise IngestError(_friendly(retry_err)) from retry_err
+        info[BROWSER_COOKIES_KEY] = True
     if info.get("_type") == "playlist":
         raise IngestError("That's a playlist or channel link. Paste a link to a single video or VOD.")
     if info.get("is_live") or info.get("live_status") == "is_live":
@@ -197,7 +287,9 @@ def _fetch(
         if on_progress and d.get("status") == "downloading" and total:
             on_progress(min(0.99, d.get("downloaded_bytes", 0) / total))
 
-    opts = {**_base_opts(), "outtmpl": str(out_dir / f"{stem}.%(ext)s"), "format": fmt, "merge_output_format": "mp4", "progress_hooks": [hook]}
+    info = copy.deepcopy(info)
+    browser_cookies = bool(info.pop(BROWSER_COOKIES_KEY, False))
+    opts = {**_base_opts(browser_cookies=browser_cookies), "outtmpl": str(out_dir / f"{stem}.%(ext)s"), "format": fmt, "merge_output_format": "mp4", "progress_hooks": [hook]}
     if sections:
         opts["download_ranges"] = download_range_func(None, sections)
         # Exact cuts re-encode the edges; without them a section starts at the previous keyframe.
@@ -208,7 +300,7 @@ def _fetch(
     try:
         with watch, YoutubeDL(opts) as ydl:
             # Reuse the probed info: no second extraction round-trip per download.
-            result = ydl.process_ie_result(copy.deepcopy(info), download=True)
+            result = ydl.process_ie_result(info, download=True)
     except DownloadError as err:
         if watch.reason == "stalled":
             raise IngestError("The download stalled (no data for 2 minutes). Check your connection and retry.") from err

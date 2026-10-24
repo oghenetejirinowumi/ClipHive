@@ -64,6 +64,10 @@ class StudioClipRequest(BaseModel):
     start_s: float = Field(ge=0)
     end_s: float = Field(gt=0)
     layout: Layout = "fill"
+    speed: float = Field(default=1.0, ge=0.5, le=2.0)
+    volume: float = Field(default=1.0, ge=0.0, le=3.0)
+    color_filter: str = Field(default="none")
+    caption_position_y: int | None = Field(default=None, ge=8, le=92)
 
     @model_validator(mode="after")
     def check_range(self) -> "StudioClipRequest":
@@ -78,6 +82,18 @@ class LayoutRequest(BaseModel):
     layout: Layout
 
 
+# POST /api/studio/clips/{id}/edit
+class ClipEditRequest(BaseModel):
+    start_s: float | None = Field(default=None, ge=0)
+    end_s: float | None = Field(default=None, gt=0)
+    layout: Layout | None = None
+    speed: float | None = Field(default=None, ge=0.5, le=2.0)
+    volume: float | None = Field(default=None, ge=0.0, le=3.0)
+    color_filter: str | None = None
+    caption_position_y: int | None = Field(default=None, ge=8, le=92)
+    style_id: int | None = None
+
+
 class StudioClip(BaseModel):
     id: int
     title: str | None
@@ -89,6 +105,10 @@ class StudioClip(BaseModel):
     captioned: bool
     caption_style_id: int | None
     layout: str
+    speed: float = 1.0
+    volume: float = 1.0
+    color_filter: str = "none"
+    caption_position_y: int | None = None
     highlight_score: float | None
     starred: bool = False
     error: str | None = None  # e.g. why burning captions failed (the clean cut is still ready)

@@ -4,12 +4,24 @@ import Link from "next/link";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { MoreClips } from "@/components/projects/MoreClips";
 import { StarButton } from "@/components/projects/StarButton";
+import { ClipEditorModal } from "@/components/studio/ClipEditorModal";
 import { LayoutPreview } from "@/components/studio/LayoutPreview";
 import { Scrubber } from "@/components/studio/Scrubber";
 import { SocialTrendsPanel } from "@/components/studio/SocialTrendsPanel";
 import { Badge, Button, buttonClass, Em, Field, Icon, Notice, Panel, SectionLabel, Segmented, Select, StatusBadge } from "@/components/ui";
 import { api, ApiError, API_URL } from "@/lib/api";
-import { formatTime, LAYOUT_LABEL, projectTitle, SOURCE_LABEL, type ImportJob, type Layout, type StudioClip, type StudioProject } from "@/lib/imports";
+import {
+  FILTER_OPTIONS,
+  formatTime,
+  LAYOUT_LABEL,
+  projectTitle,
+  SOURCE_LABEL,
+  SPEED_OPTIONS,
+  type ImportJob,
+  type Layout,
+  type StudioClip,
+  type StudioProject,
+} from "@/lib/imports";
 
 type CaptionStyle = { id: number; name: string };
 type Message = { tone: "brand" | "success" | "danger"; text: string } | null;
@@ -31,11 +43,16 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
   const [start, setStart] = useState(0);
   const [end, setEnd] = useState(30);
   const [layout, setLayout] = useState<Layout>("fill");
+  const [speed, setSpeed] = useState<number>(1.0);
+  const [volume, setVolume] = useState<number>(1.0);
+  const [colorFilter, setColorFilter] = useState<string>("none");
+  const [captionPosition, setCaptionPosition] = useState<number>(68);
   const [captions, setCaptions] = useState<"burn" | "none">("none");
   const [styleId, setStyleId] = useState<number | null>(null);
 
   const [creating, setCreating] = useState(false);
   const [busyClip, setBusyClip] = useState<number | null>(null);
+  const [editingClip, setEditingClip] = useState<StudioClip | null>(null);
   const [trendsClip, setTrendsClip] = useState<StudioClip | null>(null);
   const [message, setMessage] = useState<Message>(null);
 
@@ -145,32 +162,104 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
     setRange(s, s + len);
   }
 
-  async function burn(clip: StudioClip, style: number) {
-    await api(`/api/clips/${clip.id}/caption`, { method: "POST", body: { style_id: style, caption_mode: "burned" }, auth: false });
+  function changeSpeed(newSpeed: number) {
+    setSpeed(newSpeed);
+    if (video.current) {
+      video.current.playbackRate = newSpeed;
+    }
+  }
+
+  function nudgeStart(delta: number) {
+    const next = Math.max(0, Math.min(end - 3, Math.round((start + delta) * 10) / 10));
+    setRange(next, end);
+    seek(next);
+  }
+
+  function nudgeEnd(delta: number) {
+    const next = Math.min(duration, Math.max(start + 3, Math.round((end + delta) * 10) / 10));
+    setRange(start, next);
+    seek(next);
+  }
+
+  async function burn(clip: StudioClip, style: number, positionY?: number | null) {
+    await api(`/api/clips/${clip.id}/caption`, {
+      method: "POST",
+      body: {
+        style_id: style,
+        caption_mode: "burned",
+        position_y: positionY ?? captionPosition,
+      },
+      auth: false,
+    });
   }
 
   async function createClip() {
     if (!project) return;
     setCreating(true);
-    setMessage({ tone: "brand", text: project.job.source === "upload" ? "Cutting your clip…" : "Fetching this range in HD and cutting it (can take a minute)…" });
+    setMessage({ tone: "brand", text: project.job.source === "upload" ? "Cutting your clip with speed and styling…" : "Fetching this range in HD and cutting it (can take a minute)…" });
     try {
-      const clip = await api<StudioClip>(`/api/studio/imports/${project.job.id}/clips`, { method: "POST", body: { start_s: start, end_s: end, layout } });
+      const clip = await api<StudioClip>(`/api/studio/imports/${project.job.id}/clips`, {
+        method: "POST",
+        body: {
+          start_s: start,
+          end_s: end,
+          layout,
+          speed,
+          volume,
+          color_filter: colorFilter,
+          caption_position_y: captions === "burn" ? captionPosition : null,
+        },
+      });
       if (captions === "burn" && styleId) {
         setMessage({ tone: "brand", text: "Clip cut. Burning captions (transcribing can take a minute)…" });
         try {
-          await burn(clip, styleId);
-          setMessage({ tone: "success", text: `Clip created with ${styles.find((s) => s.id === styleId)?.name ?? ""} captions.` });
+          await burn(clip, styleId, captionPosition);
+          setMessage({ tone: "success", text: `Clip created with ${styles.find((s) => s.id === styleId)?.name ?? ""} captions at ${captionPosition}% position.` });
         } catch (err) {
           setMessage({ tone: "danger", text: `Clip created, but captions failed: ${errorText(err, "caption service unavailable")}. You can retry from the clip below.` });
         }
       } else {
-        setMessage({ tone: "success", text: "Clip created without captions." });
+        setMessage({ tone: "success", text: `Clip created (${speed !== 1 ? `${speed}x speed, ` : ""}${colorFilter !== "none" ? `${colorFilter} filter` : "clean"}).` });
       }
       await load();
     } catch (err) {
       setMessage({ tone: "danger", text: errorText(err, "Couldn't cut that clip.") });
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function handleEditClip(
+    clip: StudioClip,
+    params: {
+      speed: number;
+      volume: number;
+      color_filter: string;
+      layout: Layout;
+      caption_position_y: number;
+      style_id?: number | null;
+    },
+  ) {
+    setBusyClip(clip.id);
+    setMessage({ tone: "brand", text: "Recutting clip with speed and styling adjustments…" });
+    try {
+      await api(`/api/studio/clips/${clip.id}/edit`, {
+        method: "POST",
+        body: {
+          speed: params.speed,
+          volume: params.volume,
+          color_filter: params.color_filter,
+          layout: params.layout,
+          caption_position_y: params.caption_position_y,
+          style_id: params.style_id,
+        },
+      });
+      setMessage({ tone: "success", text: "Clip updated with new speed, audio, color grading, and caption position." });
+      await load();
+    } catch (err) {
+      setMessage({ tone: "danger", text: errorText(err, "Couldn't update this clip.") });
+    } finally {
+      setBusyClip(null);
     }
   }
 
@@ -324,16 +413,46 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
               options={LENGTHS.map((l) => ({ value: l, label: `${l}s` }))}
             />
           </div>
-          <p className="font-mono text-lg text-ink tabular-nums">
-            {formatTime(start, true)} → {formatTime(end, true)} <span className="text-ink-muted">· {length.toFixed(1)}s</span>
-          </p>
+
+          {/* Fine-tune Trim Nudge Controls */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface-sunken p-3 text-fine">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-ink">Fine-tune start:</span>
+              <div className="inline-flex items-center rounded border border-line bg-surface">
+                <button type="button" onClick={() => nudgeStart(-1)} className="px-2 py-1 font-mono font-bold text-ink-muted hover:text-ink">-1s</button>
+                <button type="button" onClick={() => nudgeStart(-0.1)} className="border-l border-line px-2 py-1 font-mono text-ink-muted hover:text-ink">-0.1s</button>
+                <button type="button" onClick={() => nudgeStart(0.1)} className="border-l border-line px-2 py-1 font-mono text-ink-muted hover:text-ink">+0.1s</button>
+                <button type="button" onClick={() => nudgeStart(1)} className="border-l border-line px-2 py-1 font-mono font-bold text-ink-muted hover:text-ink">+1s</button>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-ink">Fine-tune end:</span>
+              <div className="inline-flex items-center rounded border border-line bg-surface">
+                <button type="button" onClick={() => nudgeEnd(-1)} className="px-2 py-1 font-mono font-bold text-ink-muted hover:text-ink">-1s</button>
+                <button type="button" onClick={() => nudgeEnd(-0.1)} className="border-l border-line px-2 py-1 font-mono text-ink-muted hover:text-ink">-0.1s</button>
+                <button type="button" onClick={() => nudgeEnd(0.1)} className="border-l border-line px-2 py-1 font-mono text-ink-muted hover:text-ink">+0.1s</button>
+                <button type="button" onClick={() => nudgeEnd(1)} className="border-l border-line px-2 py-1 font-mono font-bold text-ink-muted hover:text-ink">+1s</button>
+              </div>
+            </div>
+            <p className="font-mono text-meta text-ink tabular-nums">
+              {formatTime(start, true)} → {formatTime(end, true)} <span className="text-ink-muted">({length.toFixed(1)}s)</span>
+            </p>
+          </div>
         </section>
 
-        {/* Output options */}
+        {/* Output options & Creative Editing Controls */}
         <aside className="space-y-6 xl:sticky xl:top-10 xl:self-start">
           <Panel padding="sm" className="space-y-6">
-            <LayoutPreview video={video} layout={layout} />
+            <LayoutPreview
+              video={video}
+              layout={layout}
+              colorFilter={colorFilter}
+              showCaptions={captions === "burn"}
+              captionPosition={captionPosition}
+              onCaptionPositionChange={setCaptionPosition}
+            />
 
+            {/* Layout */}
             <div className="space-y-2">
               <p className="text-lg font-medium text-ink">Layout</p>
               <Segmented
@@ -346,10 +465,84 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                   { value: "blur", label: "Blur" },
                 ]}
               />
-              <p className="text-base text-ink-muted">{layout === "fill" ? "Zoomed to fill the screen." : "Whole frame, blurred top and bottom."}</p>
+              <p className="text-base text-ink-muted">{layout === "fill" ? "Zoomed to fill 9:16." : "Whole frame, blurred backdrop."}</p>
             </div>
 
+            {/* Video Speed */}
             <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-lg font-medium text-ink">Speed</p>
+                <span className="font-mono text-meta font-semibold text-brand-strong">{speed}x</span>
+              </div>
+              <div className="grid grid-cols-6 gap-1">
+                {SPEED_OPTIONS.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => changeSpeed(s)}
+                    className={`rounded py-1 text-center font-mono text-xs font-semibold transition-colors ${
+                      speed === s ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/40"
+                    }`}
+                  >
+                    {s}x
+                  </button>
+                ))}
+              </div>
+              <p className="text-fine text-ink-muted">
+                {speed < 1 ? "Slow-mo: dramatizes reactions." : speed > 1 ? "Speed up: rapid TikTok pacing." : "Normal playback speed."}
+              </p>
+            </div>
+
+            {/* Color Grade Styling */}
+            <div className="space-y-2">
+              <p className="text-lg font-medium text-ink">Color Grade</p>
+              <div className="flex flex-wrap gap-1.5">
+                {FILTER_OPTIONS.map((f) => (
+                  <button
+                    key={f.value}
+                    type="button"
+                    onClick={() => setColorFilter(f.value)}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                      colorFilter === f.value ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/40"
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Audio Volume */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-lg font-medium text-ink">Audio Level</p>
+                <span className="font-mono text-meta font-semibold text-brand-strong">
+                  {volume === 0 ? "Muted" : `${Math.round(volume * 100)}%`}
+                </span>
+              </div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {[
+                  { label: "Mute", val: 0.0 },
+                  { label: "100%", val: 1.0 },
+                  { label: "+50%", val: 1.5 },
+                  { label: "+100%", val: 2.0 },
+                ].map((v) => (
+                  <button
+                    key={v.val}
+                    type="button"
+                    onClick={() => setVolume(v.val)}
+                    className={`rounded py-1 text-center text-xs font-medium transition-colors ${
+                      volume === v.val ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/40"
+                    }`}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Captions & Position */}
+            <div className="space-y-3">
               <p className="text-lg font-medium text-ink">Captions</p>
               <Segmented
                 label="Captions"
@@ -362,17 +555,53 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                 ]}
               />
               {captions === "burn" ? (
-                styles.length > 0 && (
-                  <Field label="Style">
-                    <Select value={styleId ?? ""} onChange={(e) => setStyleId(Number(e.target.value))}>
-                      {styles.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
+                <div className="space-y-3 rounded-lg border border-line bg-surface-sunken p-3">
+                  {styles.length > 0 && (
+                    <Field label="Style">
+                      <Select value={styleId ?? ""} onChange={(e) => setStyleId(Number(e.target.value))}>
+                        {styles.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  )}
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-meta font-medium text-ink">Caption Position</span>
+                      <span className="font-mono text-meta font-semibold text-brand-strong">{captionPosition}% from top</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[
+                        { label: "Top", pos: 20 },
+                        { label: "Center", pos: 50 },
+                        { label: "Bottom", pos: 68 },
+                      ].map((p) => (
+                        <button
+                          key={p.pos}
+                          type="button"
+                          onClick={() => setCaptionPosition(p.pos)}
+                          className={`rounded py-1 text-xs font-medium transition-colors ${
+                            captionPosition === p.pos ? "bg-brand text-on-brand shadow-sm" : "border border-line bg-surface text-ink hover:border-brand/40"
+                          }`}
+                        >
+                          {p.label}
+                        </button>
                       ))}
-                    </Select>
-                  </Field>
-                )
+                    </div>
+                    <input
+                      type="range"
+                      min={12}
+                      max={86}
+                      value={captionPosition}
+                      onChange={(e) => setCaptionPosition(Number(e.target.value))}
+                      className="w-full accent-brand"
+                    />
+                    <p className="text-[11px] text-ink-muted">Drag directly on the phone preview above to position.</p>
+                  </div>
+                </div>
               ) : (
                 <p className="text-base text-ink-muted">Clean clip, so the platform can add its own captions.</p>
               )}
@@ -415,9 +644,12 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                       </span>
                       <StatusBadge status={clip.status} />
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-1.5">
                       <Badge tone="brand">{LAYOUT_LABEL[clip.layout]}</Badge>
                       <Badge tone="neutral">{clip.captioned ? "Captions burned" : "No captions"}</Badge>
+                      {clip.speed && clip.speed !== 1.0 && <Badge tone="brand">{clip.speed}x speed</Badge>}
+                      {clip.color_filter && clip.color_filter !== "none" && <Badge tone="neutral">{clip.color_filter}</Badge>}
+                      {clip.caption_position_y && <Badge tone="neutral">Pos: {clip.caption_position_y}%</Badge>}
                     </div>
                     {clip.error && <p className="text-base text-danger">{clip.error}</p>}
                     <Segmented
@@ -431,6 +663,9 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
                       ]}
                     />
                     <div className="mt-auto grid gap-2">
+                      <Button variant="secondary" size="sm" onClick={() => setEditingClip(clip)}>
+                        <Icon name="sparkles" className="size-4" /> Edit & Polish
+                      </Button>
                       {clip.captioned ? (
                         <Button variant="secondary" size="sm" loading={busyClip === clip.id} onClick={() => clipAction(clip, "remove")}>
                           <Icon name="x" className="size-5" /> Remove captions
@@ -456,6 +691,16 @@ export default function StudioPage({ params }: { params: Promise<{ id: string }>
           </ul>
         )}
       </section>
+
+      {/* Editing Polish Modal */}
+      {editingClip && (
+        <ClipEditorModal
+          clip={editingClip}
+          styles={styles}
+          onSave={(params) => handleEditClip(editingClip, params)}
+          onClose={() => setEditingClip(null)}
+        />
+      )}
 
       {trendsClip && (
         <SocialTrendsPanel

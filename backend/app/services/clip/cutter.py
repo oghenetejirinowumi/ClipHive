@@ -1,4 +1,5 @@
-"""Cut a moment out of a source video as a 1080×1920 vertical clip, in one of two layouts.
+"""Cut a moment out of a source video as a 1080×1920 vertical clip, in one of two layouts,
+with creative controls for playback speed, audio volume, and color styling.
 
 fill  Centre-crop to 9:16 so the frame fills the screen (zoomed in). Speaker tracking is a
       later upgrade. Portrait sources are fitted and padded instead of cropped further.
@@ -12,6 +13,14 @@ from pathlib import Path
 from app.core.media import encode
 
 LAYOUTS = ("fill", "blur")
+
+COLOR_FILTERS: dict[str, str] = {
+    "none": "",
+    "vibrant": "eq=contrast=1.15:saturation=1.35:brightness=0.02",
+    "warm": "colorbalance=rs=0.08:gs=0.03:bs=-0.08,eq=saturation=1.1",
+    "cool": "colorbalance=rs=-0.06:gs=0.0:bs=0.12,eq=saturation=1.05",
+    "dramatic": "hue=s=0,eq=contrast=1.25:brightness=-0.04",
+}
 
 FILL_FILTER = (
     "crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',"
@@ -29,11 +38,48 @@ BLUR_FILTER = (
 )
 
 
-def cut_vertical(src: Path, start_s: float, end_s: float, dst: Path, layout: str = "fill") -> Path:
+def build_vf(layout: str = "fill", speed: float = 1.0, color_filter: str = "none") -> str:
+    """Combines vertical framing, color filter, and time-scale PTS manipulation."""
+    base = BLUR_FILTER if layout == "blur" else FILL_FILTER
+    parts = [base]
+    col = COLOR_FILTERS.get(color_filter or "none", "")
+    if col:
+        parts.append(col)
+    if abs(speed - 1.0) > 0.01:
+        parts.append(f"setpts=(1/{speed:.4f})*PTS")
+    return ",".join(parts)
+
+
+def build_af(speed: float = 1.0, volume: float = 1.0) -> list[str]:
+    """Builds audio filter args for tempo and volume scaling."""
+    parts = []
+    if abs(volume - 1.0) > 0.01:
+        parts.append(f"volume={max(0.0, volume):.2f}")
+    if abs(speed - 1.0) > 0.01:
+        # atempo accepts 0.5 to 2.0
+        clamped = max(0.5, min(2.0, speed))
+        parts.append(f"atempo={clamped:.4f}")
+    return ["-af", ",".join(parts)] if parts else []
+
+
+def cut_vertical(
+    src: Path,
+    start_s: float,
+    end_s: float,
+    dst: Path,
+    layout: str = "fill",
+    speed: float = 1.0,
+    volume: float = 1.0,
+    color_filter: str = "none",
+) -> Path:
     dst.parent.mkdir(parents=True, exist_ok=True)
+    vf = build_vf(layout=layout, speed=speed, color_filter=color_filter)
+    af_args = build_af(speed=speed, volume=volume)
+
     encode([
         "-ss", f"{start_s:.2f}", "-i", str(src), "-t", f"{end_s - start_s:.2f}",
-        "-vf", BLUR_FILTER if layout == "blur" else FILL_FILTER,
+        "-vf", vf,
+        *af_args,
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
         str(dst),

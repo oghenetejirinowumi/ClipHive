@@ -34,7 +34,7 @@ from app.services.clip.cutter import cut_vertical
 from app.services.clip.taste import user_taste
 from app.services.agents import events
 from app.services.agents.producer import ProducerJob, run_producer
-from app.services.ingest.downloader import Cancelled, IngestError, fetch_audio, fetch_preview, fetch_section, probe_url
+from app.services.ingest.downloader import Cancelled, IngestError, fetch_audio, fetch_preview, fetch_section, has_audio_only, probe_url
 
 logger = logging.getLogger("cliphive.imports")
 
@@ -122,6 +122,7 @@ def recover_interrupted() -> None:
                 state_file.unlink()
         except (OSError, ValueError):
             pass
+    events.fail_interrupted_runs()
     with SessionLocal() as db:
         stuck = db.query(ImportJob).filter(ImportJob.status.notin_([ImportStatus.DONE, ImportStatus.FAILED])).all()
         for job in stuck:
@@ -226,7 +227,14 @@ def load_info(job: ImportJob) -> dict:
     """Probed yt-dlp info for a link job, cached on disk and refreshed when media URLs may have expired."""
     path = job_dir(job.id) / "info.json"
     if path.exists() and time.time() - path.stat().st_mtime < INFO_MAX_AGE_S:
-        return json.loads(path.read_text(encoding="utf-8"))
+        cached = json.loads(path.read_text(encoding="utf-8"))
+        # A cached YouTube probe without audio-only streams would make the audio step pull a
+        # whole video; probe again (and drop any half-fetched audio from that stream).
+        if job.source != ImportSource.YOUTUBE or has_audio_only(cached):
+            return cached
+        for stale in job_dir(job.id).glob("audio.*"):
+            if stale.suffix in (".part", ".ytdl"):
+                stale.unlink(missing_ok=True)
     info = probe_url(job.url or "")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(info, default=str), encoding="utf-8")
@@ -419,11 +427,30 @@ def start_preview(job_id: int) -> dict:
     return preview_state(job_id)
 
 
-def cut_range_for_link(job: ImportJob, start_s: float, end_s: float, out: Path, layout: str, stem: str) -> Path:
+def cut_range_for_link(
+    job: ImportJob,
+    start_s: float,
+    end_s: float,
+    out: Path,
+    layout: str,
+    stem: str,
+    speed: float = 1.0,
+    volume: float = 1.0,
+    color_filter: str = "none",
+) -> Path:
     """Studio cut on a link job: fetch just [start, end] in HD, then cut it. Returns the section file."""
     info = load_info(job)
     section = fetch_section(info, job_dir(job.id) / "sections", stem, start_s, end_s)
-    cut_vertical(section, 0, end_s - start_s, out, layout)
+    cut_vertical(
+        section,
+        0,
+        end_s - start_s,
+        out,
+        layout,
+        speed=speed,
+        volume=volume,
+        color_filter=color_filter,
+    )
     return section
 
 
