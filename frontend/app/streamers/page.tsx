@@ -378,7 +378,7 @@ export default function StreamersPage() {
         </section>
 
         <aside className="space-y-8 lg:col-span-5">
-          <Panel padding="lg">
+          <Panel padding="lg" data-tour="add-channel">
             <h2 className="font-display text-3xl font-semibold tracking-tight text-ink">Add a channel</h2>
             <p className="mt-2 text-lg text-ink-muted">The first check clips its newest VOD, then every new one.</p>
 

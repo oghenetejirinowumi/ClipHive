@@ -20,9 +20,11 @@ from app.schemas.caption_style import (
     CaptionStyleCreate,
     CaptionStyleRead,
     CaptionStyleUpdate,
+    EmojiPlanRequest,
     GoogleFontInstall,
     RenderPreviewRequest,
 )
+from app.services.caption import emoji as emoji_picker
 from app.services.caption import fonts
 from app.services.caption.ass_generator import StyleSpec
 from app.services.caption.ass_import import AssImportError, parse_ass_styles
@@ -152,6 +154,23 @@ async def preview(body: RenderPreviewRequest, db: Session = Depends(get_db)):
     except MediaError as err:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(err)) from err
     return {"url": path, "font_found": fonts.get_font(spec.font_name) is not None}
+
+
+@router.post("/emoji-plan")
+def emoji_plan(body: EmojiPlanRequest):
+    """Emoji for sample text: [{index, until, emoji, motion, placement}] in word indexes."""
+    words = [w for w in body.text.split() if w][:60]
+    timed = [emoji_picker.Word(w, i * body.word_s, (i + 0.9) * body.word_s, w.isupper() and len(w) > 1) for i, w in enumerate(words)]
+    size = body.words_per_group
+    phrases = [emoji_picker.Phrase(timed[i : i + size]) for i in range(0, len(timed), size)]
+    settings = emoji_picker.EmojiSettings(body.amount, body.motion, body.placement)
+    cues, _ = emoji_picker.plan(phrases, settings, use_ai=False)
+    out = []
+    for c in cues:
+        index = c.phrase * size + c.word
+        until = next((i for i, w in enumerate(timed) if w.start >= c.end - 1e-6), len(timed))
+        out.append({"index": index, "until": max(index + 1, until), "emoji": c.emoji, "motion": c.motion, "placement": c.placement})
+    return out
 
 
 @router.post("/import-ass", response_model=list[CaptionStyleRead], status_code=status.HTTP_201_CREATED)

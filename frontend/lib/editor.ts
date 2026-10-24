@@ -34,7 +34,15 @@ export type TextAnimation =
   | "reveal"
   | "line"
   | "word_pop"
-  | "single_word";
+  | "single_word"
+  // Emoji motions (fine on any text)
+  | "bounce"
+  | "float"
+  | "spin"
+  | "wiggle"
+  | "stamp"
+  | "burst"
+  | "slide_in";
 export type EffectKind = "punch_zoom" | "slow_zoom" | "shake" | "flash" | "glitch" | "vignette" | "color_pop" | "black_white";
 export type EffectStyle = "hype" | "cinematic" | "clean";
 
@@ -81,6 +89,8 @@ export type Text = {
   uppercase: boolean;
   animation: TextAnimation;
   is_caption: boolean;
+  /** Placed by "Auto emoji" (running it again replaces these). */
+  is_emoji?: boolean;
 };
 
 export type AudioTrack = {

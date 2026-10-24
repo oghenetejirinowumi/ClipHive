@@ -10,6 +10,10 @@ with \\pos. That gives:
   - line pitch that leaves room for the enlarged word above and below;
   - rounded highlight boxes and line boxes that hug the text;
   - six modes: word_pop, highlight_box, karaoke, reveal, single_word, line.
+
+With the style's `emojis` option on, it also picks emoji for the phrases that call for one
+and places them above or beside that phrase's block (`self.emojis`); libass can't draw colour
+emoji, so the burner lays them over the video (services/caption/emoji_render.py).
 """
 from __future__ import annotations
 
@@ -235,6 +239,8 @@ class ASSGenerator:
     def __init__(self, canvas_width: int = CANVAS_W, canvas_height: int = CANVAS_H):
         self.canvas_width = canvas_width
         self.canvas_height = canvas_height
+        self.emojis: list = []  # PlacedEmoji from the last generate(), when the style adds emoji
+        self.emoji_used_ai = False
 
     def generate(
         self,
@@ -245,6 +251,7 @@ class ASSGenerator:
         words_per_group: int | None = None,  # kept for old callers; the style's options decide
         output_file: str | Path | None = None,
         hype_words: Sequence[str] = (),
+        emoji_ai: bool = False,  # let the AI model pick the emoji (else keyword rules)
     ) -> str:
         spec = style if isinstance(style, StyleSpec) else StyleSpec.of(style)
         font = ensure_font(spec.font_name) or _ApproxFont(spec.font_name)
@@ -258,6 +265,7 @@ class ASSGenerator:
             # Nothing may still be on screen when the next phrase starts, or the two overlap.
             next_start = groups[gi + 1][0].start if gi + 1 < len(groups) else None
             events += self._group_events(group, spec, layout, next_start)
+        self.emojis, self.emoji_used_ai = (self._emoji_items(groups, spec, layout, emoji_ai) if spec.options.emojis else ([], False))
 
         content = self._header(spec) + "\n".join(events) + ("\n" if events else "")
         if output_file:
@@ -309,6 +317,40 @@ class ASSGenerator:
                 idx = [i for line in lines[k : k + o.max_lines] for i in line]
                 final.append([g[i] for i in idx])
         return final
+
+    # --- emoji ---
+    def _emoji_items(self, groups: list[list[_Word]], spec: StyleSpec, layout: Layout, use_ai: bool) -> tuple[list, bool]:
+        from app.services.caption import emoji as emo
+        from app.services.caption.emoji_render import PlacedEmoji
+
+        o = spec.options
+        phrases = [emo.Phrase([emo.Word(w.text, w.start, w.end, w.hype) for w in g]) for g in groups]
+        cues, used_ai = emo.plan(phrases, emo.EmojiSettings.of(o), use_ai=use_ai)
+        size = float(o.emoji_size)
+        margin = size * 0.6 + 16
+        out = []
+        for n, cue in enumerate(cues):
+            x0, y0, x1, y1 = self._block_box(groups[cue.phrase], layout)
+            above_cy = y0 - size * 0.72
+            if above_cy < margin:  # no room over the captions: sit under them
+                above_cy = y1 + size * 0.72
+            cx, cy, side = (x0 + x1) / 2, above_cy, 1 if n % 2 == 0 else -1
+            if cue.placement == "right" and x1 + size * 0.8 + size / 2 < self.canvas_width - 12:
+                cx, cy, side = x1 + size * 0.8, (y0 + y1) / 2, 1
+            elif cue.placement == "left" and x0 - size * 0.8 - size / 2 > 12:
+                cx, cy, side = x0 - size * 0.8, (y0 + y1) / 2, -1
+            out.append(PlacedEmoji(cue.emoji, cue.start, cue.end, cue.motion, cx, cy, size, side, seed=n))
+        return out, used_ai
+
+    @staticmethod
+    def _block_box(group: list[_Word], layout: Layout) -> tuple[float, float, float, float]:
+        """Where a phrase's words sit at rest (x0, y0, x1, y1)."""
+        texts, hype = [w.text for w in group], [w.hype for w in group]
+        size = layout.fit_size(texts, hype)
+        lines = layout.break_lines(texts, hype, size)
+        placed = layout.place(texts, hype, lines, size, None)
+        boxes = [layout.text_box(p, size, 0) for p in placed]
+        return min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)
 
     # --- events ---
     def _group_events(self, group: list[_Word], spec: StyleSpec, layout: Layout, next_start: float | None = None) -> list[str]:

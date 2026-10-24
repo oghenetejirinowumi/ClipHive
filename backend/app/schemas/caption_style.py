@@ -70,6 +70,12 @@ class CaptionOptions(BaseModel):
     position_y: int = Field(default=68, ge=8, le=92)  # centre of the caption block, % from top
     max_width: int = Field(default=86, ge=40, le=100)  # % of frame width
     spacing_mode: Literal["reflow", "stable"] = "reflow"  # reflow: neighbours move apart; stable: room is reserved
+    # Emoji (services/caption/emoji.py): added where a word calls for one, never on filler.
+    emojis: bool = False
+    emoji_amount: Literal["few", "normal", "lots"] = "normal"
+    emoji_motion: Literal["mix", "pop", "bounce", "float", "spin", "wiggle", "slide", "stamp", "burst"] = "mix"
+    emoji_placement: Literal["mix", "above", "beside"] = "mix"
+    emoji_size: int = Field(default=120, ge=50, le=260)  # px at 1080 wide
 
     @field_validator(
         "text_color", "active_color", "active_text_color", "outline_color", "shadow_color", "glow_color", "box_color", "line_box_color"
@@ -167,3 +173,14 @@ class RenderPreviewRequest(BaseModel):
 class GoogleFontInstall(BaseModel):
     family: str = Field(min_length=2, max_length=60)
     weight: int = Field(default=700, ge=100, le=900)
+
+
+class EmojiPlanRequest(BaseModel):
+    """Which sample words get an emoji, for the style editor's live preview (rules only)."""
+
+    text: str = Field(max_length=400)
+    words_per_group: int = Field(default=6, ge=1, le=24)
+    word_s: float = Field(default=0.42, gt=0, le=3)  # the preview's pace
+    amount: Literal["few", "normal", "lots"] = "normal"
+    motion: Literal["mix", "pop", "bounce", "float", "spin", "wiggle", "slide", "stamp", "burst"] = "mix"
+    placement: Literal["mix", "above", "beside"] = "mix"

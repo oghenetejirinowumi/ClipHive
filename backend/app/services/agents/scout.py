@@ -158,7 +158,7 @@ def check_streamer(streamer_id: int, run_id: int, import_if_first: bool) -> Chec
                 title=newest.title[:200],
                 clip_count=5,
                 clip_seconds=30,
-                layout="fill",
+                layout="blur",
                 agent_brief={"origin": "scout", "streamer": username, "platform_source": platform.value},
             )
             db.add(job)

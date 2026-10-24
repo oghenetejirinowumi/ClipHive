@@ -21,13 +21,16 @@ def _own_clip(db, user, clip_id: int) -> Clip:
     return clip
 
 
-def _inbox_item(clip: Clip, titles: dict[int, str | None]) -> InboxClip:
+def _inbox_item(clip: Clip, jobs: dict[int, ImportJob]) -> InboxClip:
     ctx = clip.context_json or {}
     job_id = ctx.get("import_job_id")
+    job = jobs.get(job_id) if job_id else None
     item = InboxClip.model_validate(clip)
     item.reason = ctx.get("agent_reason") or ctx.get("highlight_reason") or ctx.get("style_rationale")
     item.import_job_id = job_id
-    item.source_title = titles.get(job_id) if job_id else ctx.get("source_title")
+    item.source_title = job.title if job else ctx.get("source_title")
+    if job:
+        item.layout = (job.clip_layouts or {}).get(str(clip.id), job.layout or "fill")
     return item
 
 
@@ -41,8 +44,8 @@ def inbox(user: Owner, db: DbSession) -> list[InboxClip]:
         .all()
     )
     job_ids = {(c.context_json or {}).get("import_job_id") for c in clips} - {None}
-    titles = {j.id: j.title for j in db.query(ImportJob).filter(ImportJob.id.in_(job_ids))} if job_ids else {}
-    return [_inbox_item(c, titles) for c in clips]
+    jobs = {j.id: j for j in db.query(ImportJob).filter(ImportJob.id.in_(job_ids), ImportJob.user_id == user.id)} if job_ids else {}
+    return [_inbox_item(c, jobs) for c in clips]
 
 
 @router.post("/inbox/{clip_id}/approve", response_model=list[ScheduledPost])

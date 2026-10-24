@@ -12,7 +12,7 @@ class ImportLinkRequest(BaseModel):
     url: str = Field(min_length=8, max_length=2048)
     clip_count: int = Field(default=5, ge=1, le=30)
     clip_seconds: int = Field(default=30, ge=10, le=90)
-    layout: Literal["fill", "blur"] = "fill"
+    layout: Literal["fill", "blur"] = "blur"
 
 
 class ImportRead(ORMModel):
@@ -64,7 +64,7 @@ ColorFilter = Literal["none", "vibrant", "warm", "cool", "dramatic"]
 class StudioClipRequest(BaseModel):
     start_s: float = Field(ge=0)
     end_s: float = Field(gt=0)
-    layout: Layout = "fill"
+    layout: Layout = "blur"
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
     volume: float = Field(default=1.0, ge=0.0, le=3.0)
     color_filter: ColorFilter = "none"

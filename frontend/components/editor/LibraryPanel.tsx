@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Button, compactInputClass, Icon, Segmented, Select } from "@/components/ui";
 import { api, ApiError, API_URL } from "@/lib/api";
-import { type CaptionStyle } from "@/lib/captions";
+import { EMOJI_MOTIONS, type CaptionStyle, type EmojiAmount, type EmojiMotion } from "@/lib/captions";
 import { cn } from "@/lib/cn";
 import {
   EFFECT_STYLES, EFFECTS, formatTime, TEXT_PRESETS,
@@ -55,7 +55,12 @@ type Props = {
   /** Remove every sound effect from the edit. */
   onClearSfx?(): void;
   sfxCount?: number;
+  /** Run Auto emoji on the server (amount "none" removes the auto emoji). */
+  onAutoEmoji?(amount: EmojiAmount | "none", motion: EmojiMotion | "mix", placement: EmojiPlacement): Promise<void>;
+  emojiCount?: number;
 };
+
+export type EmojiPlacement = "mix" | "above" | "beside";
 
 /** Left panel: media bin (search, sort, tiles), text styles, audio, and the selection's properties. */
 export function LibraryPanel(props: Props) {
@@ -90,7 +95,14 @@ export function LibraryPanel(props: Props) {
             </section>
           </div>
         )}
-        {tab === "text" && <TextTab onAddText={props.onAddText} />}
+        {tab === "text" && (
+          <div className="space-y-5">
+            <EmojiSection {...props} />
+            <div className="border-t border-line pt-4">
+              <TextTab onAddText={props.onAddText} />
+            </div>
+          </div>
+        )}
         {tab === "effects" && <EffectsTab {...props} />}
         {tab === "properties" && props.properties}
       </div>
@@ -485,6 +497,68 @@ function EffectsTab({ onAutoEffects, onAddEffect, autoEffectCount = 0, onError }
         <p className="text-meta text-ink-faint">Adds the effect at the playhead. Drag it on the Effects lane to move or stretch it.</p>
       </section>
     </div>
+  );
+}
+
+const EMOJI_AMOUNTS: { value: EmojiAmount; label: string }[] = [
+  { value: "few", label: "Few" },
+  { value: "normal", label: "Normal" },
+  { value: "lots", label: "Lots" },
+];
+
+function EmojiSection({ onAutoEmoji, emojiCount = 0, onError }: Props) {
+  const [amount, setAmount] = useState<EmojiAmount>("normal");
+  const [motion, setMotion] = useState<EmojiMotion | "mix">("mix");
+  const [placement, setPlacement] = useState<EmojiPlacement>("mix");
+  const [busy, setBusy] = useState<"run" | "clear" | null>(null);
+
+  async function run(which: EmojiAmount | "none") {
+    if (!onAutoEmoji) return;
+    setBusy(which === "none" ? "clear" : "run");
+    try {
+      await onAutoEmoji(which, motion, placement);
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : "Couldn't add emoji.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section className="space-y-3">
+      <h4 className="text-meta font-semibold tracking-wide text-ink-muted uppercase">Auto emoji</h4>
+      <p className="text-meta text-ink-muted">Adds an emoji next to the captions that call for one (a laugh, a clutch, a fail), each with its own entrance.</p>
+      <Segmented compact label="How many" value={amount} onChange={setAmount} className="w-full" options={EMOJI_AMOUNTS} />
+      <Select compact aria-label="How they show up" value={motion} onChange={(e) => setMotion(e.target.value as EmojiMotion | "mix")}>
+        <option value="mix">Mix: a motion that fits each emoji</option>
+        {EMOJI_MOTIONS.map((m) => (
+          <option key={m.value} value={m.value}>
+            {m.label}: {m.hint.toLowerCase()}
+          </option>
+        ))}
+      </Select>
+      <Segmented
+        compact
+        label="Where"
+        value={placement}
+        onChange={setPlacement}
+        className="w-full"
+        options={[
+          { value: "mix", label: "Mix" },
+          { value: "above", label: "Above" },
+          { value: "beside", label: "Beside" },
+        ]}
+      />
+      <Button size="xs" className="w-full" loading={busy === "run"} disabled={!!busy || !onAutoEmoji} onClick={() => run(amount)}>
+        <Icon name="sparkles" className="size-5" /> Auto emoji
+      </Button>
+      {emojiCount > 0 && (
+        <Button size="xs" variant="ghost" className="w-full" loading={busy === "clear"} disabled={!!busy} onClick={() => run("none")}>
+          <Icon name="trash" className="size-5" /> Remove {emojiCount} emoji
+        </Button>
+      )}
+      <p className="text-meta text-ink-faint">Needs captions first. Running it again replaces the auto emoji; each one is a text item you can move or edit.</p>
+    </section>
   );
 }
 

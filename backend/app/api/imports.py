@@ -44,7 +44,7 @@ def import_upload(
     file: UploadFile = File(...),
     clip_count: int = Form(5, ge=1, le=30),
     clip_seconds: int = Form(30, ge=10, le=90),
-    layout: str = Form("fill", pattern="^(fill|blur)$"),
+    layout: str = Form("blur", pattern="^(fill|blur)$"),
 ) -> ImportJob:
     name = file.filename or "video.mp4"
     ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ""

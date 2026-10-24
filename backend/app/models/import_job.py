@@ -22,7 +22,7 @@ class ImportJob(Base):
     thumbnail_path: Mapped[str | None] = mapped_column(String(1024))  # public "storage/..." path
     clip_count: Mapped[int] = mapped_column(Integer, default=5)  # requested
     clip_seconds: Mapped[int] = mapped_column(Integer, default=30)
-    layout: Mapped[str] = mapped_column(String(10), default="fill")  # "fill" | "blur" (see services/clip/cutter.py)
+    layout: Mapped[str] = mapped_column(String(10), default="blur")  # "fill" | "blur" (see services/clip/cutter.py)
     clip_layouts: Mapped[dict] = mapped_column(JSON, default=dict)  # {str(clip_id): layout} for clips cut from this source
     clip_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
     # What the Producer agent should aim for: {"origin": "manual|scout|command", "mood", "platform", "style", ...}

@@ -340,6 +340,7 @@ def process_clip_captioning(
                 clip_end_s=clip.duration_s if clip.duration_s > 0 else None,
                 output_file=ass_path,
                 hype_words=hype_words,
+                emoji_ai=True,
             )
 
             final_mp4 = STORAGE_CLIPS_DIR / f"{stamp}.mp4"
@@ -348,6 +349,7 @@ def process_clip_captioning(
                 ass_subtitle_path=ass_path,
                 output_video_path=final_mp4,
                 fonts_dir=FONTS_DIR,
+                emojis=generator.emojis,
             )
             previous = Path(clip.file_path) if clip.file_path else None
             if previous and previous.name.startswith(f"clip_{clip.id}_") and previous.parent.resolve() == STORAGE_CLIPS_DIR.resolve() and previous.resolve() != final_mp4.resolve():

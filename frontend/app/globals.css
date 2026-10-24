@@ -443,6 +443,54 @@
   .caption-pop { animation: none; }
 }
 
+/* Caption emoji: the same eight motions the burner draws (backend services/caption/emoji_render.py). */
+.caption-emoji { filter: drop-shadow(0 0.04em 0.06em rgb(0 0 0 / 0.45)); }
+.caption-emoji-pop { animation: ce-pop 320ms cubic-bezier(0.34, 1.9, 0.64, 1) both; }
+.caption-emoji-bounce { animation: ce-bounce 600ms linear both; }
+.caption-emoji-float { animation: ce-float 1.6s ease-out both; }
+.caption-emoji-spin { animation: ce-spin 500ms cubic-bezier(0.34, 1.5, 0.64, 1) both; }
+.caption-emoji-wiggle { animation: ce-pop 250ms cubic-bezier(0.34, 1.9, 0.64, 1) both, ce-wiggle 320ms ease-in-out 200ms infinite alternate; }
+.caption-emoji-slide { animation: ce-slide 420ms cubic-bezier(0.34, 1.6, 0.64, 1) both; }
+.caption-emoji-stamp { animation: ce-stamp 200ms cubic-bezier(0.55, 0, 1, 0.45) both, ce-thud 240ms linear 200ms; rotate: -10deg; }
+.caption-emoji-burst { animation: ce-pop 320ms cubic-bezier(0.34, 2.2, 0.64, 1) both; }
+.caption-emoji-spark {
+  opacity: 0;
+  translate: -50% -50%;
+  animation: ce-spark 750ms ease-out both;
+}
+@keyframes ce-pop { from { scale: 0; opacity: 0; } 40% { opacity: 1; } to { scale: 1; opacity: 1; } }
+@keyframes ce-bounce {
+  0% { transform: translateY(-1.3em); opacity: 0; }
+  10% { opacity: 1; }
+  36% { transform: translateY(0); }
+  54% { transform: translateY(-0.33em); }
+  72% { transform: translateY(0); }
+  86% { transform: translateY(-0.08em); }
+  100% { transform: translateY(0); opacity: 1; }
+}
+@keyframes ce-float {
+  0% { transform: translateY(0.6em) scale(0.7) rotate(-5deg); opacity: 0; }
+  30% { transform: translateY(0) scale(1) rotate(5deg); opacity: 1; }
+  65% { transform: translateY(-0.12em) scale(1) rotate(-5deg); }
+  100% { transform: translateY(-0.25em) scale(1) rotate(4deg); opacity: 1; }
+}
+@keyframes ce-spin { from { transform: rotate(calc(-360deg * var(--side, 1))) scale(0); opacity: 0; } to { transform: rotate(0) scale(1); opacity: 1; } }
+@keyframes ce-wiggle { from { rotate: -14deg; } to { rotate: 14deg; } }
+@keyframes ce-slide {
+  from { transform: translateX(calc(1.4em * var(--side, 1))) rotate(calc(-18deg * var(--side, 1))); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes ce-stamp { from { scale: 2.4; opacity: 0; } to { scale: 1; opacity: 1; } }
+@keyframes ce-thud { 0%, 100% { translate: 0; } 25% { translate: -0.05em 0; } 50% { translate: 0.05em 0; } 75% { translate: -0.025em 0; } }
+@keyframes ce-spark {
+  from { opacity: 1; transform: rotate(var(--angle)) translateX(0) rotate(calc(-1 * var(--angle))); }
+  to { opacity: 0; transform: rotate(var(--angle)) translateX(3.6em) rotate(calc(-1 * var(--angle))) scale(0.5); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .caption-emoji, .caption-emoji-spark { animation: none !important; }
+  .caption-emoji-spark { display: none; }
+}
+
 /* ---------- The Ultraviolet Hive (components/hive) ----------
    Bees see in ultraviolet, so the hive lives in the brand hue: purple bees on paper, light
    bees with deep stripes on the brand sky. Transform + opacity only; every loop pauses
@@ -869,7 +917,7 @@
     inset: -6px;
     border-radius: inherit;
     background: conic-gradient(from 0deg, transparent 0 55%, var(--brand) 100%);
-    mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px));
     animation: channel-spin 0.9s linear infinite;
   }
   @keyframes channel-spin { to { rotate: 1turn; } }
@@ -960,3 +1008,71 @@
     .flower-petal, .flower-art { transition: none !important; }
   }
 }
+
+/* Onboarding tour (OnboardingTour): dim the page, spotlight one target, fly a bee to it. */
+.tour { position: fixed; inset: 0; z-index: 70; pointer-events: none; }
+.tour-dim { position: absolute; inset: 0; background: color-mix(in oklab, black 55%, transparent); animation: tour-fade 300ms var(--motion-ease-out) both; }
+.tour-spotlight {
+  position: absolute;
+  border-radius: 18px;
+  box-shadow: 0 0 0 3px var(--brand), 0 0 0 9999px color-mix(in oklab, black 55%, transparent);
+  transition: left 600ms var(--motion-ease-out), top 600ms var(--motion-ease-out), width 600ms var(--motion-ease-out), height 600ms var(--motion-ease-out);
+  animation: tour-fade 300ms var(--motion-ease-out) both;
+}
+.tour-spotlight::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  border: 2px solid var(--brand);
+  animation: tour-ping 1.8s var(--motion-ease-out) infinite;
+}
+.tour-bee {
+  position: absolute;
+  top: 0;
+  left: 0;
+  filter: drop-shadow(0 4px 10px color-mix(in oklab, black 30%, transparent));
+  transition: transform 900ms cubic-bezier(0.45, 0, 0.2, 1);
+}
+.tour-bee-bob { animation: bee-bob 1.2s var(--motion-ease-in-out) infinite alternate; }
+.tour-bee-face { transition: transform 250ms var(--motion-ease-out); }
+.tour-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: auto;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: 0 24px 60px -12px color-mix(in oklab, black 45%, transparent);
+  transition: transform 600ms var(--motion-ease-out);
+  animation: tour-fade 250ms var(--motion-ease-out) both;
+}
+@keyframes tour-fade { from { opacity: 0; } }
+@keyframes tour-ping {
+  from { transform: scale(1); opacity: 0.8; }
+  to { transform: scale(1.12); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tour-spotlight, .tour-bee, .tour-card, .tour-bee-face { transition: none; }
+  .tour-spotlight::after, .tour-bee-bob { animation: none; }
+
+  /* Inbox clip popup: a bottom sheet on phones, a centred card from sm up. */
+  .clip-dialog::backdrop { background: color-mix(in oklab, var(--brand-deep) 62%, transparent); animation: dialog-fade 240ms var(--motion-ease-out); }
+  .clip-dialog[open] { animation: sheet-up 380ms var(--motion-ease-out); }
+  @media (min-width: 640px) {
+    .clip-dialog[open] { animation-name: dialog-pop; }
+  }
+  @keyframes dialog-fade { from { opacity: 0; } }
+  @keyframes sheet-up { from { transform: translateY(100%); } }
+  @keyframes dialog-pop { from { opacity: 0; transform: translateY(16px) scale(0.97); } }
+  /* The page behind an open popup doesn't scroll. */
+  :root:has(.clip-dialog[open]) { overflow: hidden; }
+  @media (prefers-reduced-motion: reduce) {
+    .clip-dialog[open], .clip-dialog::backdrop { animation: none; }
+  }
+}
+
+/* Clip Radar sidebar header: a small slice of the brand sky. */
+.next-head { background: radial-gradient(circle at 15% 0%, color-mix(in oklab, var(--brand) 55%, var(--brand-deep)), var(--brand-deep) 75%); }

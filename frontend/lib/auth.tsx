@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, ApiError } from "./api";
 import { clearSession, readSession, writeSession, type User } from "./session";
+import { isNewAccount, setTourState, tourState } from "./tour";
 
 export type { User };
 
@@ -47,6 +48,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const start = useCallback((res: AuthResponse) => {
     writeSession(res.access_token, res.user);
+    // Brand-new accounts get the onboarding tour once (lib/tour.ts).
+    if (isNewAccount(res.user.created_at) && !tourState(res.user.id)) setTourState(res.user.id, "pending");
     setUser(res.user);
     setStatus("authenticated");
   }, []);

@@ -472,7 +472,7 @@ def cut_and_handoff(
     user_id: int,
     title: str,
     name: str,
-    layout: str = "fill",
+    layout: str = "blur",
     stream_id: int | None = None,
     offset_s: float = 0.0,
     first_number: int = 1,

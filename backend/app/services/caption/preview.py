@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 from app.core.media import ENCODE_SLOTS, public_path, run_ffmpeg, storage_root
+from app.services.caption import emoji_render
 from app.services.caption.ass_generator import ASSGenerator, StyleSpec
 from app.services.caption.burner import escape_ffmpeg_filter_path
 from app.services.caption.fonts import FONTS_DIR
@@ -37,8 +39,11 @@ def render_preview(spec: StyleSpec, text: str, background: Path | None = None, a
         return public_path(out)
 
     ass = out_dir / f"{key}.ass"
-    ASSGenerator().generate(words, spec, output_file=ass, hype_words=[w for w in text.upper().split() if w.strip("!?,.") in HYPE])
+    generator = ASSGenerator()
+    generator.generate(words, spec, output_file=ass, hype_words=[w for w in text.upper().split() if w.strip("!?,.") in HYPE])
     subs = f"ass='{escape_ffmpeg_filter_path(ass)}':fontsdir='{escape_ffmpeg_filter_path(FONTS_DIR)}'"
+    emoji_dir = out_dir / f".{key}_emoji"
+    overlays = emoji_render.render_all(generator.emojis, emoji_dir) if generator.emojis else []
 
     if background and background.exists():
         inputs = ["-ss", f"{at_s or 0:.2f}", "-i", str(background)]
@@ -46,7 +51,12 @@ def render_preview(spec: StyleSpec, text: str, background: Path | None = None, a
     else:
         inputs = ["-f", "lavfi", "-i", f"gradients=s=1080x1920:c0=0x1b1830:c1=0x3a2f6b:x0=0:y0=0:x1=1080:y1=1920:d={duration:.2f}"]
         base = "[0:v]setsar=1"
-    vf = f"{base},{subs},scale=540:960,fps=30[v]"
+    if overlays:  # emoji go between the picture and the captions, as in real burns
+        extra, chain, label = emoji_render.ffmpeg_parts(overlays, 1, "bg")
+        inputs += extra
+        vf = ";".join([f"{base}[bg]", *chain, f"[{label}]{subs},scale=540:960,fps=30[v]"])
+    else:
+        vf = f"{base},{subs},scale=540:960,fps=30[v]"
     with ENCODE_SLOTS:
         run_ffmpeg(
             [*inputs, "-t", f"{duration:.2f}", "-filter_complex", vf, "-map", "[v]", "-an",
@@ -54,4 +64,5 @@ def render_preview(spec: StyleSpec, text: str, background: Path | None = None, a
             timeout=120,
         )
     ass.unlink(missing_ok=True)
+    shutil.rmtree(emoji_dir, ignore_errors=True)
     return public_path(out)
