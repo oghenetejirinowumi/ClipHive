@@ -135,7 +135,7 @@ export function VideoPicker({ streamer, onClipped, onClose }: Props) {
                       </div>
                     )}
                     {v.duration_s ? (
-                      <span className="absolute bottom-2 right-2 rounded-md bg-black/75 px-1.5 py-0.5 text-meta font-medium text-white">{formatTime(v.duration_s)}</span>
+                      <span className="absolute right-2 bottom-2 rounded-full bg-brand-deep/85 px-2 py-0.5 text-meta font-semibold text-on-brand tabular-nums">{formatTime(v.duration_s)}</span>
                     ) : null}
                     {selected && (
                       <span className="absolute left-2 top-2 grid size-8 place-items-center rounded-full bg-brand text-on-brand">

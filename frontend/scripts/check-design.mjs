@@ -10,6 +10,12 @@ const EXTENSIONS = new Set([".ts", ".tsx", ".css", ".js", ".jsx", ".mjs"]);
 
 const RULES = [
   { name: "colour literal (use a role token)", pattern: /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab|lab|lch|hwb)\(/g },
+  // Tailwind's default palette is switched off in globals.css, so these classes draw nothing
+  // (e.g. a badge with bg-black has no background at all).
+  {
+    name: "colour not in the theme (use a role token, e.g. bg-brand-deep / text-on-brand)",
+    pattern: /\b(?:bg|text|border|ring|outline|fill|stroke|from|via|to|divide|decoration|caret|accent|placeholder|shadow)-(?:black|white|(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3})\b/g,
+  },
   { name: "text below the floor (use text-meta / text-base)", pattern: /(?<!-)\btext-(?:xs|sm)\b|\btext-\[(?:0?\.\d+rem|0?\.\d+em|(?:[0-9]|1[0-4])px)\]/g },
   { name: "icon/mark below 20px (use size-5+)", pattern: /\bsize-(?:[1-4](?:\.5)?|0\.5|\[(?:[0-9]|1[0-9])px\])(?![\w.-])/g, skip: /aria-hidden/ },
 ];

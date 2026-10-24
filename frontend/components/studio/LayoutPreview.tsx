@@ -129,8 +129,8 @@ export function LayoutPreview({
       </div>
 
       {/* Platform UI Safe Zone Overlay */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-10 border-t border-dashed border-white/20 px-3 pt-1.5 pb-2">
-        <p aria-hidden className="text-center font-mono text-meta tracking-wider text-white/40 uppercase">Platform UI Zone</p>
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-10 border-t border-dashed border-on-brand/20 px-3 pt-1.5 pb-2">
+        <p aria-hidden className="text-center font-mono text-meta tracking-wider text-on-brand/40 uppercase">Platform UI Zone</p>
       </div>
 
       {/* Draggable Caption Position Box */}
@@ -143,7 +143,7 @@ export function LayoutPreview({
           <div className="relative mx-auto w-fit max-w-[90%] rounded-lg border border-dashed border-brand/80 bg-brand-deep/85 px-3 py-1.5 shadow-lg backdrop-blur-xs transition-shadow hover:shadow-brand/30">
             <div className="flex items-center justify-center gap-1.5">
               <Icon name="captions" className="size-5 text-brand" />
-              <p className="font-display text-meta font-bold tracking-wide text-white uppercase drop-shadow-sm line-clamp-1">
+              <p className="font-display text-meta font-bold tracking-wide text-on-brand uppercase drop-shadow-sm line-clamp-1">
                 {captionText}
               </p>
             </div>
@@ -151,7 +151,7 @@ export function LayoutPreview({
               <span aria-hidden className="rounded bg-brand/30 px-1 py-0.2 font-mono text-meta font-semibold text-brand-strong">
                 {captionPosition}%
               </span>
-              <span aria-hidden className="text-meta text-white/50">drag to move</span>
+              <span aria-hidden className="text-meta text-on-brand/50">drag to move</span>
             </div>
           </div>
         </div>

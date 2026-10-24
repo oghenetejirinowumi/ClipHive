@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import subprocess
 from contextlib import asynccontextmanager
@@ -200,6 +201,18 @@ def _code_version() -> str:
 CODE_VERSION = _code_version()
 
 
+# Written by deploy/oracle/update.sh on the server: a push that was blocked (tests failed, or it
+# didn't start and was rolled back) shows here until a newer push deploys.
+DEPLOY_STATUS = Path(settings.storage_dir).resolve().parent / "deploy-status.json"
+
+
 @app.api_route("/health", methods=["GET", "HEAD"])
 def health():
-    return {"status": "ok", "app": "ClipHive", "version": CODE_VERSION}
+    body: dict = {"status": "ok", "app": "ClipHive", "version": CODE_VERSION}
+    try:
+        deploy = json.loads(DEPLOY_STATUS.read_text(encoding="utf-8"))
+        if deploy.get("state") in ("blocked", "down") and deploy.get("commit") != CODE_VERSION:
+            body["blocked"] = {k: deploy.get(k) for k in ("commit", "reason", "at")}
+    except (OSError, ValueError):
+        pass
+    return body

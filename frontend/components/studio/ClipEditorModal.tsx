@@ -57,7 +57,7 @@ export function ClipEditorModal({
 
   return (
     // Phones: a bottom sheet that scrolls inside itself. sm+: a centred card.
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 backdrop-blur-xs sm:items-center sm:p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/60 backdrop-blur-xs sm:items-center sm:p-4">
       <Panel
         tone="surface"
         padding="lg"
